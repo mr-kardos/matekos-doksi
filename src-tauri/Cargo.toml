@@ -10,13 +10,13 @@ name = "matekos_doksi_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "~2.6", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-fs = "2"
-tauri-plugin-opener = "2"
+tauri = { version = "~2.11", features = [] }
+tauri-plugin-dialog = "~2.7"
+tauri-plugin-fs = "~2.5"
+tauri-plugin-opener = "~2.5"
 serde_json = "1"
 
 [profile.release]
