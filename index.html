@@ -80,10 +80,16 @@
     <button class="tb" data-tbl="deleteColumn">Delete column</button>
     <button class="tb" data-tbl="mergeOrSplit">Merge / split</button>
     <span class="ctxsep"></span>
+    <button class="tb" data-tsel="row">Select row</button>
+    <button class="tb" data-tsel="col">Select column</button>
+    <button class="tb" data-tsel="table">Select table</button>
+    <span class="ctxsep"></span>
     <button class="tb" data-valign="top" data-icon="vtop" title="Align cell content to the top"></button>
     <button class="tb" data-valign="middle" data-icon="vmid" title="Center cell content vertically"></button>
     <button class="tb" data-valign="bottom" data-icon="vbot" title="Align cell content to the bottom"></button>
     <button class="tb" data-pop="popCell">Cell fill</button>
+    <button class="tb" data-pop="popBorders">Borders</button>
+    <button class="tb" data-pop="popTblProps">Size</button>
     <span class="ctxsep"></span>
     <button class="tb" data-tbl="deleteTable">Delete table</button>
   </div>
@@ -93,6 +99,7 @@
   <div class="outer" id="outer">
     <div class="stack" id="stack">
       <div id="pages"></div>
+      <div id="shadeLayer"></div>
       <div id="editorHost"></div>
     </div>
   </div>
@@ -101,7 +108,27 @@
 <!-- popovers -->
 <div class="pop" id="popColor" hidden><div class="ptitle">Text color</div><div class="swg" id="swText"></div></div>
 <div class="pop" id="popHi" hidden><div class="ptitle">Highlight selected text</div><div class="swg" id="swHi"></div></div>
-<div class="pop" id="popShade" hidden><div class="ptitle">Line shading – whole lines, one continuous block</div><div class="swg" id="swShade"></div><div class="phint">Applies to the selected paragraphs. Adjacent shaded paragraphs join without gaps.</div></div>
+<div class="pop" id="popShade" hidden><div class="ptitle">Line shading – full-width colour behind whole lines</div><div class="swg" id="swShade"></div><div class="phint">Select text to shade exactly the lines it touches (one line or many).<br>With just the cursor in a paragraph, the whole paragraph is shaded.<br>Neighbouring shaded lines join into one continuous block.</div></div>
+<div class="pop" id="popBorders" hidden>
+  <div class="ptitle">Cell borders</div>
+  <div class="seg2"><button class="pitem on" data-scope="cells">Selected cells</button><button class="pitem" data-scope="table">Whole table</button></div>
+  <div class="ptitle" style="margin-top:8px">Width</div>
+  <div class="bwg">
+    <button class="pitem" data-bw="0">None (hidden)</button><button class="pitem" data-bw="0.5">0.5 pt</button><button class="pitem" data-bw="0.75">0.75 pt</button>
+    <button class="pitem" data-bw="1">1 pt</button><button class="pitem" data-bw="1.5">1.5 pt</button><button class="pitem" data-bw="2.25">2.25 pt</button>
+  </div>
+  <div class="ptitle" style="margin-top:8px">Colour</div>
+  <div class="swg" id="swBorder"></div>
+</div>
+<div class="pop" id="popTblProps" hidden>
+  <div class="ptitle">Table size</div>
+  <div class="pf">
+    <label>Table width (% of text width)<input type="number" id="tpWidth" min="10" max="100" step="5"></label>
+    <label>Row height (mm, empty = automatic)<input type="number" id="tpRowH" min="3" step="1"></label>
+    <label>Column width (mm, empty = automatic)<input type="number" id="tpColW" min="5" step="1"></label>
+  </div>
+  <div class="phint">Row height and column width apply to the selected rows / columns.<br>You can also drag the vertical cell borders.</div>
+</div>
 <div class="pop" id="popCell" hidden><div class="ptitle">Cell fill</div><div class="swg" id="swCell"></div></div>
 <div class="pop" id="popBullet" hidden>
   <div class="ptitle">Bullet symbol</div>
@@ -186,6 +213,10 @@
     <div class="fgrid" style="margin-top:10px">
       <label class="fld">Header distance from top (mm)<input type="number" min="0" step="1" data-k="headerDist"></label>
       <label class="fld">Footer distance from bottom (mm)<input type="number" min="0" step="1" data-k="footerDist"></label>
+      <label class="fld">Header text size (pt)<input type="number" min="5" max="30" step="0.5" data-k="headerSize"></label>
+      <label class="fld">Header text colour<input type="color" data-k="headerColor"></label>
+      <label class="fld">Footer text size (pt)<input type="number" min="5" max="30" step="0.5" data-k="footerSize"></label>
+      <label class="fld">Footer text colour<input type="color" data-k="footerColor"></label>
       <label class="chk"><input type="checkbox" data-k="headerLine"> Line under header</label>
       <label class="chk"><input type="checkbox" data-k="footerLine"> Line above footer</label>
     </div>
