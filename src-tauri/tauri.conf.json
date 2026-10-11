@@ -1,0 +1,69 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Matekos Doksi",
+  "version": "0.2.0",
+  "identifier": "hu.matekosdoksi.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Matekos Doksi",
+        "width": 1280,
+        "height": 880,
+        "minWidth": 820,
+        "minHeight": 560,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": [
+          "mdoksi"
+        ],
+        "name": "Matekos Doksi dokumentum",
+        "description": "Matekos Doksi dokumentum",
+        "role": "Editor",
+        "mimeType": "application/x-matekos-doksi"
+      }
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "Hungarian",
+          "English"
+        ],
+        "displayLanguageSelector": true,
+        "startMenuFolder": "Matekos Doksi"
+      }
+    },
+    "shortDescription": "Nyomdakész dokumentumszerkesztő élő TeX-képletekkel",
+    "publisher": "Matekos Doksi"
+  }
+}

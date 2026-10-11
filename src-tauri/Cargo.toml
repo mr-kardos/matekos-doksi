@@ -1,0 +1,26 @@
+[package]
+name = "matekos-doksi"
+version = "0.2.0"
+description = "Matekos Doksi – WYSIWYG editor for print-ready documents with live TeX"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "matekos_doksi_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+serde_json = "1"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
