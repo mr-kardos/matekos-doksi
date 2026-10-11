@@ -216,16 +216,24 @@ class KvTableView extends TableView {
     const w = node.attrs.width;
     if (w && (!this.table.style.width || this.table.style.width.endsWith('%'))) this.table.style.width = w + '%';
     else if (!w && this.table.style.width.endsWith('%')) this.table.style.width = '';
+    const al = node.attrs.align || 'left';
+    this.table.style.marginLeft = al === 'left' ? '0' : 'auto';
+    this.table.style.marginRight = al === 'right' ? '0' : 'auto';
   }
 }
 export const KvTable = Table.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
-      width: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-width')), renderHTML: a => a.width ? { 'data-width': a.width, style: `width:${a.width}%` } : {} }
+      width: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-width')), renderHTML: a => a.width ? { 'data-width': a.width, style: `width:${a.width}%` } : {} },
+      align: {
+        default: 'left',
+        parseHTML: el => el.getAttribute('data-align') || 'left',
+        renderHTML: a => a.align && a.align !== 'left' ? { 'data-align': a.align, style: a.align === 'center' ? 'margin-left:auto;margin-right:auto' : 'margin-left:auto;margin-right:0' } : {}
+      }
     };
   }
-}).configure({ View: KvTableView, resizable: true, cellMinWidth: 24, lastColumnResizable: false });
+}).configure({ View: KvTableView, resizable: false, cellMinWidth: 24 });
 export const KvTableRow = TableRow.extend({
   addAttributes() {
     return {
@@ -494,7 +502,7 @@ export const KvImage = Node.create({
   atom: true,
   selectable: true,
   draggable: false,
-  addOptions() { return { getScale: () => 1, icons: {} }; },
+  addOptions() { return { getScale: () => 1, onChange: null }; },
   addAttributes() {
     return {
       src: { default: '' },
@@ -519,23 +527,12 @@ export const KvImage = Node.create({
       const img = document.createElement('img');
       img.draggable = false;
       dom.appendChild(img);
-      for (const h of ['nw', 'ne', 'sw', 'se']) { const i = document.createElement('i'); i.className = 'ih no-print ' + h; i.dataset.h = h; dom.appendChild(i); }
-      const bar = document.createElement('span');
-      bar.className = 'ibar no-print';
-      const I = ext.options.icons;
-      bar.innerHTML = `<button class="tb" data-wrap="wl" title="Text wraps – drag the picture anywhere">${I.wrapL || 'L'}</button>`
-        + `<button class="tb" data-wrap="wr" title="Text wraps, picture on the right">${I.wrapR || 'R'}</button>`
-        + `<button class="tb" data-wrap="ctr" title="Own line, centered">${I.center || 'C'}</button>`
-        + `<button class="tb" data-wrap="inl" title="In line with text">${I.inline || 'I'}</button><span class="sep"></span>`
-        + `<button class="tb" data-act="del" title="Delete picture">${I.trash || '×'}</button>`;
-      dom.appendChild(bar);
-      const size = document.createElement('span'); size.className = 'isize no-print'; dom.appendChild(size);
       const paint = () => {
         dom.className = 'imgw ' + (cur.attrs.wrap || 'wl') + (selected ? ' ProseMirror-selectednode' : '');
         if (img.getAttribute('src') !== cur.attrs.src) img.src = cur.attrs.src;
         img.alt = cur.attrs.alt || '';
         dom.style.cssText = imgStyle(cur.attrs);
-        for (const b of bar.querySelectorAll('[data-wrap]')) b.classList.toggle('on', b.dataset.wrap === cur.attrs.wrap);
+        ext.options.onChange && ext.options.onChange();
       };
       paint();
       const view = () => editor.view;
@@ -550,15 +547,8 @@ export const KvImage = Node.create({
       });
       const setAttrs = attrs => { const pos = getPos(); if (typeof pos === 'number') view().dispatch(view().state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, ...attrs })); };
       const reselect = () => { const p = getPos(); if (typeof p === 'number') view().dispatch(view().state.tr.setSelection(NodeSelection.create(view().state.doc, p))); };
-      bar.addEventListener('mousedown', e => e.preventDefault());
-      bar.addEventListener('click', e => {
-        const b = e.target.closest('button'); if (!b) return;
-        if (b.dataset.wrap) { setAttrs({ wrap: b.dataset.wrap, dx: 0, dy: 0 }); reselect(); }
-        else if (b.dataset.act === 'del') { const pos = getPos(); if (typeof pos === 'number') view().dispatch(view().state.tr.delete(pos, pos + cur.nodeSize)); }
-      });
-
       // corner handles: resize (keeps proportions)
-      const resize = (e, h) => {
+      const resize = (e, h, size) => {
         const scale = ext.options.getScale() || 1;
         const sx = e.clientX, startW = dom.getBoundingClientRect().width / scale, sign = h.includes('e') ? 1 : -1;
         const maxW = view().dom.clientWidth;
@@ -566,11 +556,12 @@ export const KvImage = Node.create({
         const mv = ev => {
           w = Math.max(16, Math.min(maxW, startW + sign * (ev.clientX - sx) / scale));
           dom.style.width = Math.round(w) + 'px';
-          size.textContent = Math.round(w / (96 / 25.4)) + ' mm';
+          if (size) size.textContent = Math.round(w / (96 / 25.4)) + ' mm';
+          ext.options.onChange && ext.options.onChange();
         };
         const up = () => {
           removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
-          size.textContent = '';
+          if (size) size.textContent = '';
           setAttrs({ width: Math.round(w) }); reselect();
         };
         addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
@@ -591,6 +582,7 @@ export const KvImage = Node.create({
             document.body.appendChild(ghost);
             if (!wrapped) { ind = document.createElement('div'); ind.className = 'drop-ind'; document.body.appendChild(ind); }
             dom.classList.add('moving');
+            ext.options.onChange && ext.options.onChange('moving');
           }
           ghost.style.left = (ev.clientX - ox) + 'px'; ghost.style.top = (ev.clientY - oy) + 'px';
           if (ind) {
@@ -604,6 +596,7 @@ export const KvImage = Node.create({
           removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
           dom.classList.remove('moving');
           if (!ghost) return;
+          ext.options.onChange && ext.options.onChange();
           const gr = ghost.getBoundingClientRect();
           ghost.remove(); if (ind) ind.remove();
           const pos = getPos(); if (typeof pos !== 'number' || ev.type === 'pointercancel') return;
@@ -646,20 +639,24 @@ export const KvImage = Node.create({
 
       dom.addEventListener('pointerdown', e => {
         if (e.button !== 0) return;
-        if (e.target.closest('.ibar')) return;
         e.preventDefault(); e.stopPropagation();
         const p = getPos();
         if (typeof p === 'number' && !selected) view().dispatch(view().state.tr.setSelection(NodeSelection.create(view().state.doc, p)));
         view().focus();
-        const h = e.target.dataset && e.target.dataset.h;
-        if (h) resize(e, h); else move(e);
+        move(e);
       });
+      // used by the selection frame (drawn outside the text so it can never move anything)
+      dom._kv = {
+        img, move, resize, node: () => cur,
+        setWrap: w => { setAttrs({ wrap: w, dx: 0, dy: 0 }); reselect(); },
+        remove: () => { const pos = getPos(); if (typeof pos === 'number') view().dispatch(view().state.tr.delete(pos, pos + cur.nodeSize)); }
+      };
       return {
         dom,
         update(n) { if (n.type !== cur.type) return false; cur = n; paint(); return true; },
         selectNode() { selected = true; dom.classList.add('ProseMirror-selectednode'); },
         deselectNode() { selected = false; dom.classList.remove('ProseMirror-selectednode'); },
-        stopEvent: e => e.type.startsWith('pointer') || e.type.startsWith('mouse') || e.type.startsWith('drag') || !!(e.target.closest && e.target.closest('.ibar,.ih')),
+        stopEvent: e => e.type.startsWith('pointer') || e.type.startsWith('mouse') || e.type.startsWith('drag'),
         ignoreMutation: () => true
       };
     };

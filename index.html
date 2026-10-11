@@ -72,26 +72,24 @@
   </div>
   <div class="ctxbar" id="tableBar" hidden>
     <span class="ctxlabel">Table</span>
-    <button class="tb" data-tbl="addRowBefore">+ Row above</button>
-    <button class="tb" data-tbl="addRowAfter">+ Row below</button>
-    <button class="tb" data-tbl="addColumnBefore">+ Column left</button>
-    <button class="tb" data-tbl="addColumnAfter">+ Column right</button>
-    <button class="tb" data-tbl="deleteRow">Delete row</button>
-    <button class="tb" data-tbl="deleteColumn">Delete column</button>
-    <button class="tb" data-tbl="mergeOrSplit">Merge / split</button>
+    <button class="tb wide" data-pop="popTblIns" data-icon="tblAdd" title="Insert rows or columns"><span class="lbl">Insert ▾</span></button>
+    <button class="tb wide" data-pop="popTblDel" data-icon="tblDel" title="Delete rows, columns or the table"><span class="lbl">Delete ▾</span></button>
+    <button class="tb" data-tbl="mergeOrSplit" data-icon="merge" title="Merge selected cells / split a merged cell"></button>
     <span class="ctxsep"></span>
-    <button class="tb" data-tsel="row">Select row</button>
-    <button class="tb" data-tsel="col">Select column</button>
-    <button class="tb" data-tsel="table">Select table</button>
+    <button class="tb" data-valign="top" data-icon="vtop" title="Cell content at the top"></button>
+    <button class="tb" data-valign="middle" data-icon="vmid" title="Cell content in the middle"></button>
+    <button class="tb" data-valign="bottom" data-icon="vbot" title="Cell content at the bottom"></button>
     <span class="ctxsep"></span>
-    <button class="tb" data-valign="top" data-icon="vtop" title="Align cell content to the top"></button>
-    <button class="tb" data-valign="middle" data-icon="vmid" title="Center cell content vertically"></button>
-    <button class="tb" data-valign="bottom" data-icon="vbot" title="Align cell content to the bottom"></button>
-    <button class="tb" data-pop="popCell">Cell fill</button>
-    <button class="tb" data-pop="popBorders">Borders</button>
-    <button class="tb" data-pop="popTblProps">Size</button>
+    <button class="tb" data-pop="popCell" data-icon="fill" title="Cell fill colour"></button>
+    <button class="tb" data-pop="popBorders" data-icon="borders" title="Cell borders: hide, width, colour"></button>
     <span class="ctxsep"></span>
-    <button class="tb" data-tbl="deleteTable">Delete table</button>
+    <label class="tsz" data-icon="tWidth" title="Table width (% of the text width)"><input type="number" id="tpWidth" min="10" max="100" step="5">%</label>
+    <label class="tsz" data-icon="rowH" title="Height of the selected rows (empty = automatic)"><input type="number" id="tpRowH" min="3" step="1" placeholder="auto">mm</label>
+    <label class="tsz" data-icon="colW" title="Width of the selected columns (empty = automatic)"><input type="number" id="tpColW" min="5" step="1" placeholder="auto">mm</label>
+    <span class="ctxsep"></span>
+    <button class="tb" data-talign="left" data-icon="tAlignL" title="Table on the left"></button>
+    <button class="tb" data-talign="center" data-icon="tAlignC" title="Table centered"></button>
+    <button class="tb" data-talign="right" data-icon="tAlignR" title="Table on the right"></button>
   </div>
 </header>
 
@@ -101,6 +99,8 @@
       <div id="pages"></div>
       <div id="shadeLayer"></div>
       <div id="editorHost"></div>
+      <div id="tblHandles"></div>
+      <div id="imgFrame" hidden><span class="ibar"><button class="tb" data-wrap="wl" title="Text wraps – drag the picture anywhere" data-icon="wrapL"></button><button class="tb" data-wrap="wr" title="Text wraps, picture on the right" data-icon="wrapR"></button><button class="tb" data-wrap="ctr" title="Own line, centered" data-icon="center"></button><button class="tb" data-wrap="inl" title="In line with text" data-icon="inline"></button><span class="sep"></span><button class="tb" data-act="del" title="Delete picture" data-icon="trash"></button></span><i class="ih nw" data-h="nw"></i><i class="ih ne" data-h="ne"></i><i class="ih sw" data-h="sw"></i><i class="ih se" data-h="se"></i><span class="isize"></span></div>
     </div>
   </div>
 </main>
@@ -119,15 +119,6 @@
   </div>
   <div class="ptitle" style="margin-top:8px">Colour</div>
   <div class="swg" id="swBorder"></div>
-</div>
-<div class="pop" id="popTblProps" hidden>
-  <div class="ptitle">Table size</div>
-  <div class="pf">
-    <label>Table width (% of text width)<input type="number" id="tpWidth" min="10" max="100" step="5"></label>
-    <label>Row height (mm, empty = automatic)<input type="number" id="tpRowH" min="3" step="1"></label>
-    <label>Column width (mm, empty = automatic)<input type="number" id="tpColW" min="5" step="1"></label>
-  </div>
-  <div class="phint">Row height and column width apply to the selected rows / columns.<br>You can also drag the vertical cell borders.</div>
 </div>
 <div class="pop" id="popCell" hidden><div class="ptitle">Cell fill</div><div class="swg" id="swCell"></div></div>
 <div class="pop" id="popBullet" hidden>
@@ -166,6 +157,18 @@
   </div>
   <label class="chk" style="margin-top:8px"><input type="checkbox" data-pf="keepNext"> Keep with next paragraph</label>
   <div class="phint">A negative first-line value makes a hanging indent.</div>
+</div>
+<div class="pop" id="popTblIns" hidden>
+  <button class="pitem" data-tbl="addRowBefore">Row above</button>
+  <button class="pitem" data-tbl="addRowAfter">Row below</button>
+  <button class="pitem" data-tbl="addColumnBefore">Column to the left</button>
+  <button class="pitem" data-tbl="addColumnAfter">Column to the right</button>
+</div>
+<div class="pop" id="popTblDel" hidden>
+  <button class="pitem" data-tbl="deleteRow">Delete row</button>
+  <button class="pitem" data-tbl="deleteColumn">Delete column</button>
+  <div class="psep"></div>
+  <button class="pitem" data-tbl="deleteTable">Delete table</button>
 </div>
 <div class="pop" id="popTable" hidden><div class="tgrid" id="tgrid"></div><div class="tlabel" id="tlabel">Choose a size</div></div>
 <div class="pop" id="popSave" hidden>

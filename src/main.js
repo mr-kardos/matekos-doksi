@@ -32,6 +32,8 @@ const setStatus = t => { $('#status').textContent = t || ''; };
 
 let tpl = normalizeTpl(DEFAULT_TPL);
 let zoomMode = 'auto', scale = 1, pageCount = 1;
+let tblCtx = null;                 // table + selected cells, remembered while a table popover / size field is in use
+let ovRaf = 0, imgMoving = false;  // overlay redraw state
 const stack = $('#stack'), outer = $('#outer'), ws = $('#ws'), pagesEl = $('#pages');
 
 /* ------------------------------------------------------------------ */
@@ -58,12 +60,17 @@ const editor = new Editor({
       onRendered: () => relayout(60),
       onPreview: p => showPreview(p)
     }),
-    KvImage.configure({ getScale: () => scale, icons: { wrapL: svg('wrapL'), wrapR: svg('wrapR'), center: svg('center'), inline: svg('inline'), trash: svg('trash') } }),
+    KvImage.configure({ getScale: () => scale, onChange: m => updateOverlays(m) }),
     Pagination.configure({ getTpl: () => tpl, getScale: () => scale, onLayout: n => applyLayout(n) })
   ],
   content: '<p></p>',
   editorProps: {
     attributes: { spellcheck: 'true', lang: 'hu' },
+    handleDOMEvents: {
+      // no dragging of cell contents inside tables
+      dragstart: (view, e) => { if (e.target && e.target.closest && (e.target.closest('td,th') || (e.target.parentElement && e.target.parentElement.closest('td,th')))) { e.preventDefault(); return true; } return false; },
+      drop: (view, e) => { const t = e.target && (e.target.nodeType === 1 ? e.target : e.target.parentElement); if (t && t.closest('td,th') && !(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) { e.preventDefault(); return true; } return false; }
+    },
     handlePaste(view, event) {
       const files = Array.from((event.clipboardData && event.clipboardData.files) || []).filter(f => f.type.startsWith('image/'));
       if (!files.length) return false;
@@ -82,8 +89,8 @@ const editor = new Editor({
     }
   },
   onUpdate: () => saveSoon(),
-  onSelectionUpdate: () => updateToolbar(),
-  onTransaction: () => updateToolbar()
+  onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
+  onTransaction: () => { updateToolbar(); updateOverlays(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
 
@@ -103,6 +110,7 @@ function applyLayout(n) {
   stack.style.height = (n * g.P - GAP) + 'px';
   applyZoom();
   drawShadeBands($('#shadeLayer'), dom, stack, scale);
+  updateOverlays();
 }
 function applyZoom() {
   const g = geometry(tpl);
@@ -112,6 +120,8 @@ function applyZoom() {
   stack.style.transform = `scale(${scale})`;
   outer.style.width = stackW * scale + 'px';
   outer.style.height = (parseFloat(stack.style.height) || g.H) * scale + 'px';
+  for (const el of [$('#imgFrame'), $('#tblHandles')]) el.style.setProperty('--inv', 1 / scale);
+  updateOverlays();
 }
 function applyTpl(rerenderMath) {
   const dom = editor.view.dom;
@@ -127,6 +137,97 @@ function applyTpl(rerenderMath) {
   applyLayout(pageCount);
   relayout(0);
 }
+
+/* ------------------------------------------------------------------ */
+/* Overlays drawn outside the text: picture frame, table selectors     */
+/* (they sit above the page, so they can never move any text)          */
+/* ------------------------------------------------------------------ */
+function updateOverlays(mode) {
+  if (mode === 'moving') { imgMoving = true; $('#imgFrame').hidden = true; return; }
+  imgMoving = false;
+  if (ovRaf) return;
+  ovRaf = requestAnimationFrame(() => { ovRaf = 0; drawImgFrame(); drawTableHandles(); });
+}
+const toStack = r => { const sr = stack.getBoundingClientRect(); return { x: (r.left - sr.left) / scale, y: (r.top - sr.top) / scale, w: r.width / scale, h: r.height / scale }; };
+function selectedImageDom() {
+  const sel = editor.state.selection;
+  if (!(sel instanceof NodeSelection) || sel.node.type.name !== 'image') return null;
+  const d = editor.view.nodeDOM(sel.from);
+  return d && d._kv ? d : null;
+}
+function drawImgFrame() {
+  const f = $('#imgFrame'), d = imgMoving ? null : selectedImageDom();
+  if (!d) { f.hidden = true; return; }
+  const r = toStack(d._kv.img.getBoundingClientRect());
+  Object.assign(f.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+  const w = d._kv.node().attrs.wrap;
+  for (const b of f.querySelectorAll('[data-wrap]')) b.classList.toggle('on', b.dataset.wrap === w);
+  f.hidden = false;
+}
+$('#imgFrame').addEventListener('pointerdown', e => {
+  if (e.button !== 0 || e.target.closest('.ibar')) return;
+  e.preventDefault(); e.stopPropagation();
+  const d = selectedImageDom(); if (!d) return;
+  const h = e.target.dataset && e.target.dataset.h;
+  if (h) d._kv.resize(e, h, $('#imgFrame .isize')); else d._kv.move(e);
+});
+$('#imgFrame .ibar').addEventListener('mousedown', e => e.preventDefault());
+$('#imgFrame .ibar').addEventListener('click', e => {
+  const b = e.target.closest('button'), d = selectedImageDom(); if (!b || !d) return;
+  if (b.dataset.wrap) d._kv.setWrap(b.dataset.wrap); else if (b.dataset.act === 'del') d._kv.remove();
+});
+
+function drawTableHandles() {
+  const layer = $('#tblHandles');
+  const c = tableContext(editor.state);
+  if (!c) { if (layer.innerHTML) layer.innerHTML = ''; layer._key = ''; return; }
+  const wrap = editor.view.nodeDOM(c.pos); if (!wrap) return;
+  const tbl = wrap.tagName === 'TABLE' ? wrap : wrap.querySelector('table'); if (!tbl) return;
+  const { map, start, table } = c;
+  const tr = toStack(tbl.getBoundingClientRect());
+  const cols = [];
+  for (let col = 0; col < map.width; col++) {
+    let rr = null;
+    for (let row = 0; row < map.height && !rr; row++) {
+      const rel = map.map[row * map.width + col], n = table.nodeAt(rel);
+      if (n && n.attrs.colspan === 1) { const dom = editor.view.nodeDOM(start + rel); if (dom) rr = toStack(dom.getBoundingClientRect()); }
+    }
+    cols.push(rr);
+  }
+  const rows = [];
+  table.forEach((row, off) => { const dom = editor.view.nodeDOM(start + off); rows.push(dom ? toStack(dom.getBoundingClientRect()) : null); });
+  const sel = editor.state.selection, cs = sel instanceof CellSelection;
+  const rect = c.rect;
+  const colOn = i => cs && sel.isColSelection() && i >= rect.left && i < rect.right;
+  const rowOn = i => cs && sel.isRowSelection() && i >= rect.top && i < rect.bottom;
+  const allOn = cs && sel.isColSelection() && sel.isRowSelection();
+  const inv = 1 / scale, gapY = 18 * inv, gapX = 18 * inv;
+  let h = `<button class="th-btn${allOn ? ' on' : ''}" data-ts="all" title="Select the whole table" style="left:${tr.x - gapX}px;top:${tr.y - gapY}px">◢</button>`;
+  cols.forEach((r, i) => { if (r) h += `<button class="th-btn${colOn(i) ? ' on' : ''}" data-ts="col" data-i="${i}" title="Select column" style="left:${r.x + r.w / 2 - 8 * inv}px;top:${tr.y - gapY}px">▼</button>`; });
+  rows.forEach((r, i) => { if (r && r.h > 0) h += `<button class="th-btn row${rowOn(i) ? ' on' : ''}" data-ts="row" data-i="${i}" title="Select row" style="left:${tr.x - gapX}px;top:${r.y + r.h / 2 - 8 * inv}px">▶</button>`; });
+  if (layer._key !== h) { layer.innerHTML = h; layer._key = h; }
+}
+function selectTableRange(r0, c0, r1, c1) {
+  const c = tableContext(editor.state); if (!c) return;
+  const { map, start, table } = c;
+  const pa = start + map.positionAt(r0, c0, table), pb = start + map.positionAt(r1, c1, table);
+  editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, pa, pb)));
+  editor.view.focus();
+}
+$('#tblHandles').addEventListener('mousedown', e => { if (e.target.closest('.th-btn')) { e.preventDefault(); e.stopPropagation(); } });
+$('#tblHandles').addEventListener('click', e => {
+  const b = e.target.closest('.th-btn'); if (!b) return;
+  const c = tableContext(editor.state); if (!c) return;
+  const { map } = c, i = +b.dataset.i;
+  const sel = editor.state.selection, ext = e.shiftKey && sel instanceof CellSelection;
+  if (b.dataset.ts === 'all') return selectTableRange(0, 0, map.height - 1, map.width - 1);
+  if (b.dataset.ts === 'col') {
+    const a = ext && sel.isColSelection() ? Math.min(c.rect.left, i) : i, z = ext && sel.isColSelection() ? Math.max(c.rect.right - 1, i) : i;
+    return selectTableRange(0, a, map.height - 1, z);
+  }
+  const a = ext && sel.isRowSelection() ? Math.min(c.rect.top, i) : i, z = ext && sel.isRowSelection() ? Math.max(c.rect.bottom - 1, i) : i;
+  selectTableRange(a, 0, z, map.width - 1);
+});
 
 /* ------------------------------------------------------------------ */
 /* Toolbar                                                             */
@@ -178,6 +279,7 @@ function updateToolbar() {
     }
     $('#styleSel').value = editor.isActive('heading', { level: 1 }) ? 'h1' : editor.isActive('heading', { level: 2 }) ? 'h2' : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p';
     $('#tableBar').hidden = !editor.isActive('table');
+    if (!$('#tableBar').hidden) fillTableFields();
     for (const b of $$('[data-valign]')) b.classList.toggle('on', (editor.getAttributes('tableCell').vAlign || editor.getAttributes('tableHeader').vAlign || 'top') === b.dataset.valign);
   });
 }
@@ -189,7 +291,7 @@ for (const bar of [$('#ribbon'), $('#tableBar')]) {
     if (b.dataset.cmd && COMMANDS[b.dataset.cmd]) return COMMANDS[b.dataset.cmd]();
     if (b.dataset.tbl) return editor.chain().focus()[b.dataset.tbl]().run();
     if (b.dataset.valign) return ch().setCellAttribute('vAlign', b.dataset.valign).run();
-    if (b.dataset.tsel) return selectCells(b.dataset.tsel);
+    if (b.dataset.talign) return setTableAttrs({ align: b.dataset.talign });
   });
 }
 $('#styleSel').addEventListener('change', e => {
@@ -202,10 +304,10 @@ $('#sizeIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preve
 
 /* popovers */
 let openPop = null, openAnchor = null;
-let tblCtx = null;   // table + selected cell rectangle, remembered while a table popover is open
+function rememberTable() { if (tblCtx) return; const c = tableContext(editor.state); tblCtx = c ? { pos: c.pos, rect: c.rect } : null; }
 function showPop(id, anchor) {
   const p = $('#' + id);
-  if (/^pop(TblProps|Borders|Cell)$/.test(id)) { const c = tableContext(editor.state); tblCtx = c ? { pos: c.pos, rect: c.rect } : null; }
+  if (/^pop(Borders|Cell)$/.test(id)) rememberTable();
   if (openPop === p) return closePops();
   closePops();
   if (p.onopen) p.onopen();
@@ -280,17 +382,6 @@ tg.addEventListener('click', e => { const d = e.target.closest('.tc'); if (d) { 
 $('#popTable').onopen = () => hl(0, 0);
 
 /* table tools */
-function selectCells(kind) {
-  const c = tableContext(editor.state); if (!c) return;
-  const { map, rect, start, table } = c;
-  let a, b;
-  if (kind === 'row') { a = [rect.top, 0]; b = [rect.bottom - 1, map.width - 1]; }
-  else if (kind === 'col') { a = [0, rect.left]; b = [map.height - 1, rect.right - 1]; }
-  else { a = [0, 0]; b = [map.height - 1, map.width - 1]; }
-  const pa = start + map.positionAt(a[0], a[1], table), pb = start + map.positionAt(b[0], b[1], table);
-  editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, pa, pb)));
-  editor.view.focus();
-}
 function curTable() {
   if (tblCtx) {
     const table = editor.state.doc.nodeAt(tblCtx.pos);
@@ -322,14 +413,25 @@ function forCells(scope, fn) {
   editor.view.dispatch(tr);
   reselectCells(curTable());
 }
-$('#popTblProps').onopen = () => {
+function fillTableFields() {
   const c = curTable(); if (!c) return;
-  $('#tpWidth').value = c.table.attrs.width || 100;
-  const row = c.table.child(c.rect.top);
-  $('#tpRowH').value = row.attrs.height || '';
+  const act = document.activeElement;
+  if (act !== $('#tpWidth')) $('#tpWidth').value = c.table.attrs.width || 100;
+  const row = c.table.child(Math.min(c.rect.top, c.table.childCount - 1));
+  if (act !== $('#tpRowH')) $('#tpRowH').value = row.attrs.height || '';
   const cell = c.table.nodeAt(c.map.map[c.rect.top * c.map.width + c.rect.left]);
-  $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? Math.round(cell.attrs.colwidth[0] / MM * 10) / 10 : '';
-};
+  if (act !== $('#tpColW')) $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? Math.round(cell.attrs.colwidth[0] / MM * 10) / 10 : '';
+  for (const b of $$('[data-talign]')) b.classList.toggle('on', (c.table.attrs.align || 'left') === b.dataset.talign);
+}
+for (const id of ['#tpWidth', '#tpRowH', '#tpColW']) {
+  $(id).addEventListener('focus', rememberTable);
+  $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.dispatchEvent(new Event('change')); } });
+}
+function setTableAttrs(attrs) {
+  const c = curTable(); if (!c) return;
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(c.pos, undefined, { ...c.table.attrs, ...attrs }));
+  reselectCells(curTable());
+}
 $('#tpWidth').addEventListener('change', e => {
   const pct = Math.max(10, Math.min(100, +e.target.value || 100));
   const c = curTable(); if (!c) return;
