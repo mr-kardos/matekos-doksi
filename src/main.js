@@ -21,6 +21,7 @@ import { buildPDF } from './pdf.js';
 import { isTauri, saveEditable, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath } from './files.js';
 import { SAMPLE_HTML } from './sample.js';
 import { svg } from './icons.js';
+import { openMathEditor } from './mathEditor.js';
 
 const $ = s => document.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
@@ -544,69 +545,37 @@ function pickImage(maxSide, cb) {
 /* ------------------------------------------------------------------ */
 /* Formula dialog and live preview                                     */
 /* ------------------------------------------------------------------ */
-const mdIn = $('#mdIn'), mdDisp = $('#mdDisp'), mathDlg = $('#mathDlg');
-let mathPos = null;
-const CHIPS = [['a/b', '\\frac{¦}{}'], ['x²', '^{¦}'], ['x₂', '_{¦}'], ['√', '\\sqrt{¦}'], ['ⁿ√', '\\sqrt[¦]{}'],
-  ['tg', '\\tg ¦'], ['ctg', '\\ctg ¦'], ['sin', '\\sin ¦'], ['cos', '\\cos ¦'], ['log', '\\log_{¦}'], ['lg', '\\lg ¦'],
-  ['lim', '\\lim_{x\\to ¦}'], ['∑', '\\sum_{i=1}^{n} ¦'], ['∫', '\\int_{¦}^{} '], ['|x|', '\\left|¦\\right|'], ['( )', '\\left(¦\\right)'],
-  ['α', '\\alpha ¦'], ['β', '\\beta ¦'], ['γ', '\\gamma ¦'], ['π', '\\pi ¦'], ['·', '\\cdot ¦'], ['≤', '\\le ¦'], ['≥', '\\ge ¦'],
-  ['≠', '\\ne ¦'], ['≈', '\\approx ¦'], ['∞', '\\infty ¦'], ['°', '^\\circ ¦'], ['ℝ', '\\R ¦'], ['→', '\\to ¦'], ['⇒', '\\Rightarrow ¦']];
-$('#chips').innerHTML = CHIPS.map((c, i) => `<button data-i="${i}">${esc(c[0])}</button>`).join('');
-$('#chips').addEventListener('mousedown', e => e.preventDefault());
-$('#chips').addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return;
-  const snip = CHIPS[+b.dataset.i][1], at = snip.indexOf('¦'), clean = snip.replace('¦', '');
-  const s = mdIn.selectionStart, en = mdIn.selectionEnd;
-  mdIn.value = mdIn.value.slice(0, s) + clean + mdIn.value.slice(en);
-  mdIn.focus(); mdIn.setSelectionRange(s + at, s + at); updMdPrev();
-});
-function updMdPrev() {
-  const p = $('#mdPrev'), t = mdIn.value.trim();
-  if (!t) { p.innerHTML = '<span style="color:#8a8f96;font:13px var(--ui)">Itt jelenik meg az előnézet</span>'; return; }
-  renderInto(p, t, mdDisp.checked);
-}
 function openMath(pos, node) {
   closePops(); showPreview(null);
   const sel = editor.state.selection;
   if (pos == null && sel instanceof NodeSelection && sel.node.type.name === 'math') { pos = sel.from; node = sel.node; }
-  mathPos = node ? pos : null;
+  const editPos = node ? pos : null;
   let tex = node ? node.attrs.tex : '';
   if (!node && !sel.empty) tex = editor.state.doc.textBetween(sel.from, sel.to, ' ');
-  mdIn.value = tex;
-  mdDisp.checked = node ? !!node.attrs.display : false;
-  $('#mdOk').textContent = node ? 'Frissítés' : 'Beszúrás';
-  $('#mdDel').hidden = !node;
-  mathDlg.style.top = ($('#app').getBoundingClientRect().bottom + 10) + 'px';
-  mathDlg.hidden = false; updMdPrev();
-  mdIn.focus(); mdIn.setSelectionRange(tex.length, tex.length);
-}
-function closeMath() { mathDlg.hidden = true; mathPos = null; editor.commands.focus(); }
-function applyMath() {
-  const tex = mdIn.value.trim(), display = mdDisp.checked;
-  const pos = mathPos;
-  mathDlg.hidden = true; mathPos = null;
-  if (pos != null) {
-    const n = editor.state.doc.nodeAt(pos);
-    if (n && n.type.name === 'math') {
-      const tr = editor.state.tr;
-      if (!tex) tr.delete(pos, pos + n.nodeSize); else tr.setNodeMarkup(pos, undefined, { tex, display });
-      editor.view.dispatch(tr);
+  const finish = () => { if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true }); };
+  openMathEditor({
+    tex, editing: !!node, top: $('#app').getBoundingClientRect().bottom + 10,
+    onApply: t => {
+      if (t == null) return finish();
+      if (editPos != null) {
+        const n = editor.state.doc.nodeAt(editPos);
+        if (n && n.type.name === 'math') {
+          const tr = editor.state.tr;
+          if (!t) tr.delete(editPos, editPos + n.nodeSize); else tr.setNodeMarkup(editPos, undefined, { ...n.attrs, tex: t }, n.marks);
+          editor.view.dispatch(tr);
+        }
+        return finish();
+      }
+      if (t) editor.chain().focus().insertContent({ type: 'math', attrs: { tex: t, display: false } }).run();
+      else finish();
+    },
+    onDelete: () => {
+      const n = editPos != null && editor.state.doc.nodeAt(editPos);
+      if (n && n.type.name === 'math') editor.view.dispatch(editor.state.tr.delete(editPos, editPos + n.nodeSize));
+      finish();
     }
-    editor.commands.focus();
-    return;
-  }
-  if (tex) ch().insertContent({ type: 'math', attrs: { tex, display } }).run();
-  else editor.commands.focus();
+  });
 }
-mdIn.addEventListener('input', updMdPrev);
-mdDisp.addEventListener('change', updMdPrev);
-mdIn.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); applyMath(); }
-  else if (e.key === 'Escape') { e.preventDefault(); closeMath(); }
-});
-$('#mdOk').addEventListener('click', applyMath);
-$('#mdX').addEventListener('click', closeMath);
-$('#mdDel').addEventListener('click', () => { mdIn.value = ''; applyMath(); });
 
 const mprev = $('#mprev');
 function showPreview(p) {
