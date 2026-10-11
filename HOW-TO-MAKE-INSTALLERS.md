@@ -25,13 +25,13 @@ Folders starting with a dot are often hidden, so add this one by hand:
 
 ## 4. Share
 Open **Releases** (right side of the repository's main page). The newest release has:
-* `Matekos.Doksi_0.3.1_x64-setup.exe` – Windows installer wizard
-* `Matekos.Doksi_0.3.1_universal.dmg` – Mac (Apple Silicon and Intel)
+* `Matekos.Doksi_0.3.3_x64-setup.exe` – Windows installer wizard
+* `Matekos.Doksi_0.3.3_universal.dmg` – Mac (Apple Silicon and Intel)
 
 Send your peers the link to that Releases page. The installation steps are written there in Hungarian and English.
 
 ## New version later
-Change `"version"` in `src-tauri/tauri.conf.json` (e.g. to `0.3.1`), upload the changed files, and run step 3 again.
+Change `"version"` in `src-tauri/tauri.conf.json` (e.g. to `0.3.3`), upload the changed files, and run step 3 again.
 
 ## About the security warnings
 The app is not yet "signed", so Windows and macOS show a one-time warning on first launch.

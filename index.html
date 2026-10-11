@@ -100,6 +100,7 @@
       <div id="shadeLayer"></div>
       <div id="editorHost"></div>
       <div id="tblHandles"></div>
+      <div id="fcaret" hidden></div>
       <div id="imgFrame" hidden><span class="ibar"><button class="tb" data-wrap="wl" title="Text wraps – drag the picture anywhere" data-icon="wrapL"></button><button class="tb" data-wrap="wr" title="Text wraps, picture on the right" data-icon="wrapR"></button><button class="tb" data-wrap="ctr" title="Own line, centered" data-icon="center"></button><button class="tb" data-wrap="inl" title="In line with text" data-icon="inline"></button><span class="sep"></span><button class="tb" data-act="del" title="Delete picture" data-icon="trash"></button></span><i class="ih nw" data-h="nw"></i><i class="ih ne" data-h="ne"></i><i class="ih sw" data-h="sw"></i><i class="ih se" data-h="se"></i><span class="isize"></span></div>
     </div>
   </div>
@@ -216,6 +217,8 @@
     <div class="fgrid" style="margin-top:10px">
       <label class="fld">Header distance from top (mm)<input type="number" min="0" step="1" data-k="headerDist"></label>
       <label class="fld">Footer distance from bottom (mm)<input type="number" min="0" step="1" data-k="footerDist"></label>
+      <label class="fld">Start from left page edge (mm)<input type="number" min="0" step="1" data-k="hfLeft"></label>
+      <label class="fld">End from right page edge (mm)<input type="number" min="0" step="1" data-k="hfRight"></label>
       <label class="fld">Header text size (pt)<input type="number" min="5" max="30" step="0.5" data-k="headerSize"></label>
       <label class="fld">Header text colour<input type="color" data-k="headerColor"></label>
       <label class="fld">Footer text size (pt)<input type="number" min="5" max="30" step="0.5" data-k="footerSize"></label>
@@ -253,12 +256,14 @@
       <label class="fld">Color<input type="color" data-k="color"></label>
       <label class="fld">Line spacing<input type="number" min="0.8" max="4" step="0.05" data-k="line"></label>
       <label class="fld">Space after paragraph (pt)<input type="number" min="0" max="60" step="1" data-k="after"></label>
+      <label class="fld">Space around pictures (mm)<input type="number" min="0" max="30" step="0.5" data-k="imgGap"></label>
     </div>
   </section>
   <section>
     <h3>Math</h3>
     <label class="chk"><input type="checkbox" data-k="hunTrig"> Show <code class="k">\tan</code>, <code class="k">\cot</code> as tg, ctg</label>
     <label class="chk" style="margin-top:6px"><input type="checkbox" data-k="decComma"> Decimal comma without extra space (3,14)</label>
+    <label class="chk" style="margin-top:6px"><input type="checkbox" data-k="displayInline"> Formulas in the text at full display size (big fractions, limits above/below) – they stay in the line</label>
     <div class="phint">Always available: <code class="k">\tg</code> <code class="k">\ctg</code> <code class="k">\arctg</code> <code class="k">\arcctg</code> <code class="k">\sh</code> <code class="k">\ch</code> <code class="k">\th</code> <code class="k">\R</code> <code class="k">\N</code> <code class="k">\Z</code> <code class="k">\Q</code></div>
   </section>
   <section>

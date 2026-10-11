@@ -3,7 +3,7 @@
 const WEB = import.meta.env.MODE === 'web';
 let ready = false, readyResolve;
 export const mathReady = new Promise(r => { readyResolve = r; });
-export const opts = { hunTrig: true, decComma: true };
+export const opts = { hunTrig: true, decComma: true, displayInline: true };
 
 export function startMathJax() {
   const local = new URL('mathjax/', document.baseURI).href;
@@ -41,23 +41,25 @@ export function startMathJax() {
 
 export function isReady() { return ready; }
 
-function hun(tex) {
+function hun(tex, display) {
   let s = tex;
   if (opts.hunTrig) {
     s = s.replace(/\\arctan(?![a-zA-Z])/g, '\\arctg').replace(/\\arccot(?![a-zA-Z])/g, '\\arcctg')
       .replace(/\\tan(?![a-zA-Z])/g, '\\tg').replace(/\\cot(?![a-zA-Z])/g, '\\ctg');
   }
   if (opts.decComma) s = s.replace(/(\d),(?=\d)/g, '$1{,}');
+  // inline formulas in display size (full fractions, limits above/below) – but they stay in the line
+  if (!display && opts.displayInline) s = '\\displaystyle ' + s;
   return s;
 }
 
 const cache = new Map();   // key -> Promise<{html,error} | null>
 const done = new Map();    // key -> finished result, used synchronously so re-created views never flicker
-const keyOf = (tex, display) => (display ? 'D' : 'I') + (opts.hunTrig ? 1 : 0) + (opts.decComma ? 1 : 0) + '|' + tex;
+const keyOf = (tex, display) => (display ? 'D' : 'I') + (opts.hunTrig ? 1 : 0) + (opts.decComma ? 1 : 0) + (opts.displayInline ? 1 : 0) + '|' + tex;
 export function renderSVG(tex, display) {
   const key = keyOf(tex, display);
   if (cache.has(key)) return cache.get(key);
-  const p = mathReady.then(() => window.MathJax.tex2svgPromise(hun(tex), { display: !!display }))
+  const p = mathReady.then(() => window.MathJax.tex2svgPromise(hun(tex, display), { display: !!display }))
     .then(node => {
       if (node.querySelector('[data-mjx-error], merror, [data-mml-node="merror"]')) return { html: node.outerHTML, error: true };
       return { html: node.outerHTML, error: false };

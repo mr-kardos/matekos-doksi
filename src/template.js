@@ -14,10 +14,11 @@ export const DEFAULT_TPL = {
   header: { odd: { ...slot(), l: '{title}', r: '{date}' }, even: { ...slot(), l: '{date}', r: '{title}' }, first: slot() },
   footer: { odd: { ...slot(), c: '– {page} –' }, even: { ...slot(), c: '– {page} –' }, first: { ...slot(), c: '– {page} –' } },
   headerDist: 12, footerDist: 12, headerLine: true, footerLine: false,
+  hfLeft: 25, hfRight: 25,
   headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
   wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
-  size: 12, color: '#111111', line: 1.25, after: 6,
-  hunTrig: true, decComma: true
+  size: 12, color: '#111111', line: 1.25, after: 6, imgGap: 4,
+  hunTrig: true, decComma: true, displayInline: true
 };
 
 export const clone = o => JSON.parse(JSON.stringify(o));
@@ -30,6 +31,8 @@ export function merge(base, o) {
 }
 export function normalizeTpl(t) {
   const out = merge(clone(DEFAULT_TPL), t || {});
+  // older templates: header/footer used to start at the text margins
+  if (t && t.margins && t.hfLeft == null) { out.hfLeft = (+t.margins.left || 25) + (+t.gutter || 0); out.hfRight = +t.margins.right || 25; }
   // v1 templates had a single header/footer and wm.on
   if (t && t.header && 'l' in t.header) { out.header = { odd: { ...slot(), ...t.header }, even: { ...slot(), ...t.header }, first: { ...slot(), ...t.header } }; }
   if (t && t.footer && 'l' in t.footer) { out.footer = { odd: { ...slot(), ...t.footer }, even: { ...slot(), ...t.footer }, first: { ...slot(), ...t.footer } }; }

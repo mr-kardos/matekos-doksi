@@ -76,8 +76,8 @@ button,input,select,textarea{ font-family:inherit; }
 .hf > span:nth-child(2){ justify-content:center; }
 .hf > span:nth-child(3){ justify-content:flex-end; }
 .hf img{ display:block; width:auto; }
-.hdr.ln{ border-bottom:.75pt solid #9aa3ad; padding-bottom:3pt; }
-.ftr.ln{ border-top:.75pt solid #9aa3ad; padding-top:3pt; }
+.hdr.ln{ border-bottom:.75pt solid #000; padding-bottom:3pt; }
+.ftr.ln{ border-top:.75pt solid #000; padding-top:3pt; }
 .wm{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
 .wm span{ font-family:var(--doc-font); font-weight:700; white-space:nowrap; letter-spacing:.05em; user-select:none; }
 .wm img{ display:block; }
@@ -117,6 +117,7 @@ mark{ color:inherit; padding:0; }
 
 /* math */
 .math{ display:inline-block; cursor:default; border-radius:2px; white-space:nowrap; text-indent:0; }
+.math:not(.disp){ padding:.14em 0; }   /* breathing room so tall inline formulas never touch the neighbouring lines */
 .math.disp{ display:block; text-align:center; padding:.3em 0; }
 .math mjx-container{ margin:0 !important; display:inline-block !important; }
 .math.ProseMirror-selectednode,.math.in-sel{ background:var(--selbg); outline:none; }
@@ -125,9 +126,9 @@ mark{ color:inherit; padding:0; }
 
 /* images */
 .imgw{ position:relative; display:inline-block; line-height:0; vertical-align:bottom; }
-.imgw.wl{ float:left; margin:.2em 1em .5em 0; }
-.imgw.wr{ float:right; margin:.2em 0 .5em 1em; }
-.imgw.ctr{ display:block; margin:.4em auto; }
+.imgw.wl{ float:left; margin:.2em var(--img-gap,4mm) var(--img-gap,4mm) 0; }
+.imgw.wr{ float:right; margin:.2em 0 var(--img-gap,4mm) var(--img-gap,4mm); }
+.imgw.ctr{ display:block; margin:var(--img-gap,4mm) auto; }
 .imgw img{ width:100%; height:auto; display:block; }
 #imgFrame .ih{ position:absolute; width:calc(12px*var(--inv)); height:calc(12px*var(--inv)); box-sizing:border-box; background:#fff; border:1.5px solid var(--sel); border-radius:2px; z-index:3; touch-action:none; }
 #imgFrame .ih.nw{ left:calc(-6px*var(--inv)); top:calc(-6px*var(--inv)); cursor:nwse-resize; } #imgFrame .ih.ne{ right:calc(-6px*var(--inv)); top:calc(-6px*var(--inv)); cursor:nesw-resize; }
@@ -230,9 +231,8 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 #shadeLayer > div{ position:absolute; }
 /* text cursor next to formulas */
 .ProseMirror.math-caret{ caret-color:transparent; }
-.fcaret{ display:inline-block; width:0; height:1.15em; margin:0 -1px 0 0; border-left:1.5px solid #111; vertical-align:-0.25em; animation:fblink 1.06s steps(1) infinite; pointer-events:none; }
+#fcaret{ position:absolute; z-index:4; width:0; border-left:1.5px solid #111; animation:fblink 1.06s steps(1) infinite; pointer-events:none; }
 @keyframes fblink{ 50%{ border-left-color:transparent; } }
-.ProseMirror:not(.ProseMirror-focused) .fcaret{ display:none; }
 /* picture dragging */
 .imgw.moving{ opacity:.35; }
 .img-ghost{ position:fixed; z-index:100; opacity:.7; pointer-events:none; box-shadow:var(--shadow); }

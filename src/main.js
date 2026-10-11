@@ -90,6 +90,8 @@ const editor = new Editor({
   },
   onUpdate: () => saveSoon(),
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
+  onFocus: () => updateOverlays(),
+  onBlur: () => updateOverlays(),
   onTransaction: () => { updateToolbar(); updateOverlays(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
@@ -129,8 +131,9 @@ function applyTpl(rerenderMath) {
   dom.style.color = tpl.color;
   dom.style.lineHeight = String(tpl.line);
   dom.style.setProperty('--after', tpl.after + 'pt');
-  if (mathOpts.hunTrig !== tpl.hunTrig || mathOpts.decComma !== tpl.decComma || rerenderMath) {
-    mathOpts.hunTrig = tpl.hunTrig; mathOpts.decComma = tpl.decComma; clearMathCache();
+  dom.style.setProperty('--img-gap', (tpl.imgGap ?? 4) + 'mm');
+  if (mathOpts.hunTrig !== tpl.hunTrig || mathOpts.decComma !== tpl.decComma || mathOpts.displayInline !== tpl.displayInline || rerenderMath) {
+    mathOpts.hunTrig = tpl.hunTrig; mathOpts.decComma = tpl.decComma; mathOpts.displayInline = tpl.displayInline; clearMathCache();
     // force math node views to repaint
     for (const m of $$('.math', dom)) { const t = m.getAttribute('data-tex'); renderInto(m, t, m.classList.contains('disp'), () => relayout(60)); }
   }
@@ -146,7 +149,20 @@ function updateOverlays(mode) {
   if (mode === 'moving') { imgMoving = true; $('#imgFrame').hidden = true; return; }
   imgMoving = false;
   if (ovRaf) return;
-  ovRaf = requestAnimationFrame(() => { ovRaf = 0; drawImgFrame(); drawTableHandles(); });
+  ovRaf = requestAnimationFrame(() => { ovRaf = 0; drawImgFrame(); drawTableHandles(); drawMathCaret(); });
+}
+// visible text cursor right before / after a formula (browsers often hide it there)
+function drawMathCaret() {
+  const c = $('#fcaret'), v = editor.view, sel = editor.state.selection;
+  const $p = sel.$from;
+  const near = sel.empty && v.hasFocus() && ((($p.nodeBefore && $p.nodeBefore.type.name === 'math') || ($p.nodeAfter && $p.nodeAfter.type.name === 'math')));
+  if (!near) { c.hidden = true; return; }
+  try {
+    const k = v.coordsAtPos(sel.from, $p.nodeAfter && $p.nodeAfter.type.name === 'math' ? 1 : -1);
+    const sr = stack.getBoundingClientRect();
+    Object.assign(c.style, { left: (k.left - sr.left) / scale + 'px', top: (k.top - sr.top) / scale + 'px', height: (k.bottom - k.top) / scale + 'px', borderLeftWidth: 1.5 / scale + 'px' });
+    c.hidden = false;
+  } catch (e) { c.hidden = true; }
 }
 const toStack = r => { const sr = stack.getBoundingClientRect(); return { x: (r.left - sr.left) / scale, y: (r.top - sr.top) / scale, w: r.width / scale, h: r.height / scale }; };
 function selectedImageDom() {
@@ -212,11 +228,11 @@ function selectTableRange(r0, c0, r1, c1) {
   const { map, start, table } = c;
   const pa = start + map.positionAt(r0, c0, table), pb = start + map.positionAt(r1, c1, table);
   editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, pa, pb)));
-  editor.view.focus();
+  if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true });
 }
-$('#tblHandles').addEventListener('mousedown', e => { if (e.target.closest('.th-btn')) { e.preventDefault(); e.stopPropagation(); } });
-$('#tblHandles').addEventListener('click', e => {
-  const b = e.target.closest('.th-btn'); if (!b) return;
+$('#tblHandles').addEventListener('mousedown', e => {
+  const b = e.target.closest('.th-btn'); if (!b || e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
   const c = tableContext(editor.state); if (!c) return;
   const { map } = c, i = +b.dataset.i;
   const sel = editor.state.selection, ext = e.shiftKey && sel instanceof CellSelection;
@@ -268,7 +284,7 @@ function updateToolbar() {
   if (tbRaf) return;
   tbRaf = requestAnimationFrame(() => {
     tbRaf = 0;
-    for (const b of $$('[data-state]')) b.classList.toggle('on', !!(STATES[b.dataset.state] && STATES[b.dataset.state]()));
+    for (const b of $$('#ribbon [data-state]')) b.classList.toggle('on', !!(STATES[b.dataset.state] && STATES[b.dataset.state]()));
     const { from } = editor.state.selection;
     let el = null;
     try { const d = editor.view.domAtPos(from); el = d.node.nodeType === 1 ? d.node : d.node.parentElement; } catch (e) { /* ignore */ }
@@ -280,7 +296,7 @@ function updateToolbar() {
     $('#styleSel').value = editor.isActive('heading', { level: 1 }) ? 'h1' : editor.isActive('heading', { level: 2 }) ? 'h2' : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p';
     $('#tableBar').hidden = !editor.isActive('table');
     if (!$('#tableBar').hidden) fillTableFields();
-    for (const b of $$('[data-valign]')) b.classList.toggle('on', (editor.getAttributes('tableCell').vAlign || editor.getAttributes('tableHeader').vAlign || 'top') === b.dataset.valign);
+    for (const b of $$('#tableBar [data-valign]')) b.classList.toggle('on', (editor.getAttributes('tableCell').vAlign || editor.getAttributes('tableHeader').vAlign || 'top') === b.dataset.valign);
   });
 }
 for (const bar of [$('#ribbon'), $('#tableBar')]) {
@@ -363,7 +379,7 @@ $('#lineList').addEventListener('click', e => { const b = e.target.closest('[dat
 $('#openPara').addEventListener('click', () => { const a = $('[data-pop="popPara"]'); closePops(); showPop('popPara', a); });
 $('#popPara').onopen = () => {
   const a = editor.isActive('heading') ? editor.getAttributes('heading') : editor.getAttributes('paragraph');
-  for (const inp of $$('[data-pf]')) {
+  for (const inp of $$('#popPara [data-pf]')) {
     const k = inp.dataset.pf;
     if (inp.type === 'checkbox') inp.checked = !!a[k];
     else inp.value = a[k] ?? (k === 'lineHeight' ? tpl.line : k === 'spaceAfter' ? tpl.after : 0);
@@ -380,6 +396,11 @@ const hl = (r, c) => { for (const d of tg.children) d.classList.toggle('on', +d.
 tg.addEventListener('pointerover', e => { const d = e.target.closest('.tc'); if (d) hl(+d.dataset.r, +d.dataset.c); });
 tg.addEventListener('click', e => { const d = e.target.closest('.tc'); if (d) { closePops(); ch().insertTable({ rows: +d.dataset.r, cols: +d.dataset.c, withHeaderRow: false }).run(); } });
 $('#popTable').onopen = () => hl(0, 0);
+for (const id of ['#popTblIns', '#popTblDel']) $(id).addEventListener('click', e => {
+  const b = e.target.closest('[data-tbl]'); if (!b) return;
+  closePops();
+  editor.chain().focus()[b.dataset.tbl]().run();
+});
 
 /* table tools */
 function curTable() {
@@ -421,7 +442,7 @@ function fillTableFields() {
   if (act !== $('#tpRowH')) $('#tpRowH').value = row.attrs.height || '';
   const cell = c.table.nodeAt(c.map.map[c.rect.top * c.map.width + c.rect.left]);
   if (act !== $('#tpColW')) $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? Math.round(cell.attrs.colwidth[0] / MM * 10) / 10 : '';
-  for (const b of $$('[data-talign]')) b.classList.toggle('on', (c.table.attrs.align || 'left') === b.dataset.talign);
+  for (const b of $$('#tableBar [data-talign]')) b.classList.toggle('on', (c.table.attrs.align || 'left') === b.dataset.talign);
 }
 for (const id of ['#tpWidth', '#tpRowH', '#tpColW']) {
   $(id).addEventListener('focus', rememberTable);

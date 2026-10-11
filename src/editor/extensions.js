@@ -323,19 +323,28 @@ export const MathNode = Node.create({
       // Mouse: click = select the formula; click on its left/right edge = cursor before/after it;
       // press and drag = select text (or table cells) starting at the formula; double click = edit.
       dom.addEventListener('mousedown', e => {
-        if (e.button !== 0 || e.detail > 1) return;
+        if (e.button !== 0) return;
+        if (e.detail === 3) {                      // triple click inside a table: select the whole cell
+          const pos = getPos(), view = editor.view;
+          const cell = typeof pos === 'number' ? cellPosAround(view.state.doc, pos) : null;
+          if (cell != null) { e.preventDefault(); view.dispatch(view.state.tr.setSelection(CellSelection.create(view.state.doc, cell))); }
+          return;
+        }
+        if (e.detail > 1) return;
         e.preventDefault();
         const view = editor.view, pos = getPos();
         if (typeof pos !== 'number') return;
-        view.focus();
         const r = dom.getBoundingClientRect();
         const edge = Math.max(3, Math.min(r.width * 0.22, 9));
         const zone = e.clientX < r.left + edge ? 'before' : e.clientX > r.right - edge ? 'after' : 'node';
         const anchor = e.clientX < r.left + r.width / 2 ? pos : pos + cur.nodeSize;
-        if (e.shiftKey) {
-          view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, view.state.selection.anchor, zone === 'before' ? pos : pos + cur.nodeSize)));
-          return;
-        }
+        // set the selection first, then focus without scrolling (focusing first would jump to the old cursor)
+        const doc0 = view.state.doc;
+        const first = e.shiftKey ? TextSelection.create(doc0, view.state.selection.anchor, zone === 'before' ? pos : pos + cur.nodeSize)
+          : zone === 'node' ? NodeSelection.create(doc0, pos) : TextSelection.create(doc0, zone === 'before' ? pos : pos + cur.nodeSize);
+        view.dispatch(view.state.tr.setSelection(first));
+        if (!view.hasFocus()) view.dom.focus({ preventScroll: true });
+        if (e.shiftKey) return;
         const anchorCell = cellPosAround(view.state.doc, pos);
         const sx = e.clientX, sy = e.clientY;
         let moved = false;
@@ -351,14 +360,7 @@ export const MathNode = Node.create({
             else view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, anchor, hit.pos)));
           } catch (err) { /* position not selectable */ }
         };
-        const up = () => {
-          removeEventListener('mousemove', mv); removeEventListener('mouseup', up);
-          if (moved) return;
-          const doc = view.state.doc, p = getPos();
-          if (typeof p !== 'number') return;
-          if (zone === 'node') view.dispatch(view.state.tr.setSelection(NodeSelection.create(doc, p)));
-          else view.dispatch(view.state.tr.setSelection(TextSelection.create(doc, zone === 'before' ? p : p + cur.nodeSize)));
-        };
+        const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); };
         addEventListener('mousemove', mv); addEventListener('mouseup', up);
       });
       dom.addEventListener('dblclick', e => {
@@ -378,7 +380,7 @@ export const MathNode = Node.create({
         selectNode() { dom._sel = true; dom.classList.add('ProseMirror-selectednode'); },
         deselectNode() { dom._sel = false; dom.classList.remove('ProseMirror-selectednode'); },
         ignoreMutation: () => true,
-        stopEvent: e => e.type === 'mousedown' || e.type === 'dblclick' || e.type === 'dragstart'
+        stopEvent: e => e.type === 'mousedown' || e.type === 'mouseup' || e.type === 'click' || e.type === 'dblclick' || e.type === 'dragstart'
       };
     };
   },
@@ -457,8 +459,7 @@ export const MathNode = Node.create({
               if (n.type === type && pos >= sel.from && pos + n.nodeSize <= sel.to) decos.push(Decoration.node(pos, pos + n.nodeSize, { class: 'in-sel' }));
             });
           }
-          // a clearly visible text cursor right before / after a formula
-          if (nearMath(state)) decos.push(Decoration.widget(sel.from, () => { const c = document.createElement('span'); c.className = 'fcaret no-print'; return c; }, { side: 0, key: 'fc' + sel.from, ignoreSelection: true }));
+          // (the visible cursor next to a formula is drawn as an overlay by the app, so nothing in the text changes)
           return decos.length ? DecorationSet.create(state.doc, decos) : null;
         },
         attributes(state) { return nearMath(state) ? { class: 'math-caret' } : {}; }
@@ -632,7 +633,7 @@ export const KvImage = Node.create({
           tr.insert(at, newNode);
           tr.setSelection(NodeSelection.create(tr.doc, at));
           v.dispatch(tr);
-          v.focus();
+          if (!v.hasFocus()) v.dom.focus({ preventScroll: true });
         };
         addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
       };
@@ -642,7 +643,7 @@ export const KvImage = Node.create({
         e.preventDefault(); e.stopPropagation();
         const p = getPos();
         if (typeof p === 'number' && !selected) view().dispatch(view().state.tr.setSelection(NodeSelection.create(view().state.doc, p)));
-        view().focus();
+        if (!view().hasFocus()) view().dom.focus({ preventScroll: true });
         move(e);
       });
       // used by the selection frame (drawn outside the text so it can never move anything)

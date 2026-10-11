@@ -20,7 +20,8 @@ function hfHTML(kind, slot, i, n, tpl, title, g) {
     if (t) inner += `<span class="hft">${tok(t, i, n, title).replace(/\r?\n/g, '<br>')}</span>`;
     return `<span>${inner}</span>`;
   };
-  const L = g.leftOf(i), R = g.rightOf(i);
+  // header / footer: measured from the paper's left and right edges (margins only apply to the main text)
+  const L = (+tpl.hfLeft || 0) * MM, R = (+tpl.hfRight || 0) * MM;
   const isH = kind === 'hdr';
   const line = isH ? tpl.headerLine : tpl.footerLine;
   const size = isH ? tpl.headerSize : tpl.footerSize, color = isH ? tpl.headerColor : tpl.footerColor;
