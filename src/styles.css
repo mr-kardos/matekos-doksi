@@ -23,7 +23,7 @@ button,input,select,textarea{ font-family:inherit; }
 /* ---------- chrome ---------- */
 .app{ flex:none; background:var(--chrome); border-bottom:1px solid var(--line); position:relative; z-index:20; }
 .bar1{ display:flex; align-items:center; gap:8px; padding:8px 12px 4px; }
-.brand{ display:flex; align-items:center; gap:8px; font-weight:600; }
+.brand{ display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer; }
 .logo{ width:26px; height:26px; border-radius:6px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font:700 16px/1 var(--doc-font); }
 .title{ flex:0 1 300px; min-width:60px; border:1px solid transparent; background:transparent; color:var(--ink); font-weight:500; font-size:14px; padding:5px 8px; border-radius:6px; }
 .title:hover,.title:focus{ border-color:var(--line); background:var(--chrome-2); outline:none; }
@@ -47,7 +47,8 @@ button,input,select,textarea{ font-family:inherit; }
 .tb .ital{ font-family:Georgia,serif; }
 .cbar{ position:absolute; left:8px; right:8px; bottom:4px; height:3px; border-radius:2px; background:#111; }
 .cbtn svg{ margin-top:-4px; }
-.ctxbar{ display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:5px 10px; border-top:1px solid var(--line); background:var(--chrome-2); }
+.ctxbar{ display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:5px 10px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:var(--chrome-2);
+  position:absolute; left:0; right:0; top:100%; box-shadow:0 6px 14px rgba(20,30,45,.10); }   /* floats over the page: the document never moves
 .ctxlabel{ font-size:12px; color:var(--ink-2); margin-right:6px; }
 .ctxsep{ width:1px; height:22px; background:var(--line); margin:0 4px; }
 .ctxbar .tb{ font-weight:500; font-size:13px; }
@@ -107,7 +108,7 @@ mark{ color:inherit; padding:0; }
 .ProseMirror .selectedCell::after{ content:''; position:absolute; inset:0; background:var(--selbg); pointer-events:none; z-index:2; }
 .pagebreak{ height:14px; position:relative; margin:0; }
 .pagebreak::before{ content:''; position:absolute; left:0; right:0; top:6px; border-top:1px dashed #9aa3ad; }
-.pagebreak::after{ content:'Page break'; position:absolute; left:50%; top:0; transform:translateX(-50%); background:#fff; padding:0 6px; font:10px/14px var(--ui); color:#7d8590; }
+.pagebreak::after{ content:'Oldaltörés'; position:absolute; left:50%; top:0; transform:translateX(-50%); background:#fff; padding:0 6px; font:10px/14px var(--ui); color:#7d8590; }
 .pagebreak.ProseMirror-selectednode::before{ border-top-color:var(--sel); }
 
 /* pagination spacers (never visible) */
@@ -267,3 +268,16 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 .tsz svg{ width:18px; height:18px; color:var(--ink); }
 .tsz input{ width:52px; height:28px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 4px; font-size:13px; }
 .tb.wide{ padding:0 8px; }
+
+/* home screen */
+.home{ position:fixed; inset:0; z-index:85; display:grid; place-items:center; background:var(--desk); padding:24px; }
+.home-card{ text-align:center; max-width:560px; width:100%; }
+.home-logo{ width:76px; height:76px; margin:0 auto 14px; border-radius:18px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; font:700 46px/1 var(--doc-font); box-shadow:var(--shadow); }
+.home h1{ font:700 34px/1.2 var(--doc-font); margin:0 0 6px; color:var(--ink); }
+.home-sub{ margin:0 0 28px; color:var(--ink-2); font-size:15px; }
+.home-btns{ display:flex; gap:16px; justify-content:center; flex-wrap:wrap; }
+.hbtn{ display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; width:220px; height:150px; border-radius:14px; border:1px solid var(--line); background:var(--chrome-2); color:var(--ink); font-size:17px; font-weight:600; cursor:pointer; box-shadow:var(--shadow); }
+.hbtn:hover{ border-color:var(--accent); }
+.hbtn.primary{ background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+.hico{ font-size:34px; line-height:1; }
+.hlink{ margin-top:22px; background:none; border:0; color:var(--accent); font-size:14px; cursor:pointer; text-decoration:underline; }

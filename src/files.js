@@ -13,13 +13,13 @@ async function download(filename, blob) {
   let dl = null;
   try { if (window.claude && window.claude.use) dl = await window.claude.use('downloads'); } catch (e) { dl = null; }
   if (dl) {
-    try { await dl.save({ filename, data: blob }); return 'Saved ' + filename; }
-    catch (e) { return e && e.code === 'declined' ? 'Save cancelled' : 'Could not save the file' + (e && e.code ? ' (' + e.code + ')' : ''); }
+    try { await dl.save({ filename, data: blob }); return 'Elmentve: ' + filename; }
+    catch (e) { return e && e.code === 'declined' ? 'Mentés megszakítva' : 'A fájl mentése nem sikerült' + (e && e.code ? ' (' + e.code + ')' : ''); }
   }
   const url = URL.createObjectURL(blob), a = document.createElement('a');
   a.href = url; a.download = filename; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
-  return 'Saved ' + filename;
+  return 'Elmentve: ' + filename;
 }
 
 export function documentJSON(data) { return JSON.stringify({ app: 'matekos-doksi', v: 2, ...data }); }
@@ -50,22 +50,37 @@ export async function saveEditable(data, bodyHTML, saveAs) {
     const { writeTextFile } = await import('@tauri-apps/plugin-fs');
     let path = !saveAs && currentPath;
     if (!path) {
-      path = await save({ defaultPath: safeName(data.title) + '.mdoksi', filters: [{ name: 'Matekos Doksi document', extensions: ['mdoksi'] }] });
-      if (!path) return 'Save cancelled';
+      path = await save({ defaultPath: safeName(data.title) + '.mdoksi', filters: [{ name: 'Matekos Doksi dokumentum', extensions: ['mdoksi'] }] });
+      if (!path) return 'Mentés megszakítva';
     }
     if (/\.html?$/i.test(path)) await writeTextFile(path, documentHTML(data, bodyHTML));
     else await writeTextFile(path, documentJSON(data));
     currentPath = path;
-    return 'Saved ' + path.split(/[\\/]/).pop();
+    return 'Elmentve: ' + path.split(/[\\/]/).pop();
   }
   return download(safeName(data.title) + '.html', new Blob([documentHTML(data, bodyHTML)], { type: 'text/html' }));
+}
+
+/** Desktop: read a document from a path (e.g. a double-clicked .mdoksi file). */
+export async function openPathFile(path) {
+  const { readTextFile } = await import('@tauri-apps/plugin-fs');
+  const text = await readTextFile(path);
+  return { data: parseDocumentFile(text), path, name: String(path).split(/[\\/]/).pop() };
+}
+/** Desktop: files the operating system asked us to open (double-click), plus later requests. */
+export async function watchOpenedFiles(onFile) {
+  const { invoke } = await import('@tauri-apps/api/core');
+  const { listen } = await import('@tauri-apps/api/event');
+  await listen('open-files', e => { const p = e.payload && e.payload[0]; if (p) onFile(p); });
+  const first = await invoke('take_opened_files');
+  return first && first.length ? first[0] : null;
 }
 
 export async function openDocumentFile() {
   if (isTauri()) {
     const { open } = await import('@tauri-apps/plugin-dialog');
     const { readTextFile } = await import('@tauri-apps/plugin-fs');
-    const path = await open({ multiple: false, filters: [{ name: 'Matekos Doksi document', extensions: ['mdoksi', 'kiadvany', 'html', 'htm', 'json'] }] });
+    const path = await open({ multiple: false, filters: [{ name: 'Matekos Doksi dokumentum', extensions: ['mdoksi', 'kiadvany', 'html', 'htm', 'json'] }] });
     if (!path) return null;
     const text = await readTextFile(path);
     return { data: parseDocumentFile(text), path, name: String(path).split(/[\\/]/).pop() };
@@ -87,9 +102,9 @@ export async function savePdfBlob(blob, title) {
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeFile } = await import('@tauri-apps/plugin-fs');
     const path = await save({ defaultPath: safeName(title) + '.pdf', filters: [{ name: 'PDF', extensions: ['pdf'] }] });
-    if (!path) return 'Save cancelled';
+    if (!path) return 'Mentés megszakítva';
     await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
-    return 'Saved ' + String(path).split(/[\\/]/).pop();
+    return 'Elmentve: ' + String(path).split(/[\\/]/).pop();
   }
   return download(safeName(title) + '.pdf', blob);
 }
@@ -102,5 +117,5 @@ export async function printPdfBlob(blob, title) {
   const path = await join(await tempDir(), 'matekos-doksi-print-' + Date.now() + '-' + safeName(title) + '.pdf');
   await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
   await openPath(path);
-  return 'Opened in your PDF viewer – print at “Actual size” (100%)';
+  return 'Megnyitva a PDF-nézőben – nyomtasd „Tényleges méret” (100%) beállítással';
 }

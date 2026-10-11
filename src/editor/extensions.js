@@ -281,6 +281,7 @@ export const LineShade = Mark.create({
 /* Formulas                                                            */
 /* ------------------------------------------------------------------ */
 const mathKey = new PluginKey('mathTools');
+const isBold = n => n.marks.some(m => m.type.name === 'bold');   // bold formulas: \boldsymbol
 const DOLLAR_RE = /(\\?)\$\$([^$]+?)\$\$|(\\?)\$([^$\s](?:[^$]*?[^$\s\\])?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\]/g;
 
 function cellPosAround(doc, pos) {
@@ -317,7 +318,7 @@ export const MathNode = Node.create({
       const paint = () => {
         dom.className = 'math' + (cur.attrs.display ? ' disp' : '') + (dom._sel ? ' ProseMirror-selectednode' : '');
         dom.setAttribute('data-tex', cur.attrs.tex);
-        renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered());
+        renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered(), isBold(cur));
       };
       paint();
       // Mouse: click = select the formula; click on its left/right edge = cursor before/after it;
@@ -372,7 +373,7 @@ export const MathNode = Node.create({
         dom,
         update(n) {
           if (n.type !== cur.type) return false;
-          const changed = n.attrs.tex !== cur.attrs.tex || n.attrs.display !== cur.attrs.display;
+          const changed = n.attrs.tex !== cur.attrs.tex || n.attrs.display !== cur.attrs.display || isBold(n) !== isBold(cur);
           cur = n;
           if (changed) paint();
           return true;

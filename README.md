@@ -1,4 +1,4 @@
-# Matekos Doksi 0.3
+# Matekos Doksi 0.4
 
 WYSIWYG editor for print-ready documents with live inline TeX, built with
 **TipTap** (editor), **MathJax 4** (formulas) and **Tauri 2** (Windows/macOS app).
