@@ -20,7 +20,7 @@ function rgb(c) {
 const hex = c => '#' + [c.r, c.g, c.b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
 const styleOf = cs => { const b = (parseInt(cs.fontWeight, 10) || 400) >= 600, i = /italic|oblique/.test(cs.fontStyle); return b && i ? 'bolditalic' : b ? 'bold' : i ? 'italic' : 'normal'; };
 const supported = s => { for (const ch of s) if (!CMAP.has(ch.codePointAt(0))) return false; return true; };
-const SKIP = '.no-print,.math,.wm,.pagebreak,.lm img,.ibar,.isize,.ih,.mpending';
+const SKIP = '.column-resize-handle,.no-print,.math,.wm,.pagebreak,.lm img,.ibar,.isize,.ih,.mpending';
 
 const blCache = new Map();
 function baselineOffset(cs) {
@@ -118,14 +118,39 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
     const rects = /^(TD|TH|DIV|P|LI|H\d|TABLE|TR|UL|OL)$/.test(el.tagName) ? [el.getBoundingClientRect()] : Array.from(el.getClientRects());
     for (const r of rects) { if (r.width < 0.3 || r.height < 0.3) continue; const a = loc(r.left, r.top); L[a.p].bg.push({ x: a.x, y: a.y, w: pt(r.width), h: pt(r.height), c: bg }); }
   }
-  // ---- table borders ----
-  for (const c of editorDom.querySelectorAll('td,th')) {
-    if (c.closest('.pg-row')) continue;
-    const cs = getComputedStyle(c), r = c.getBoundingClientRect(), a = loc(r.left, r.top), w = pt(r.width), h = pt(r.height);
-    for (const [s, x1, y1, x2, y2] of [['Top', a.x, a.y, a.x + w, a.y], ['Bottom', a.x, a.y + h, a.x + w, a.y + h], ['Left', a.x, a.y, a.x, a.y + h], ['Right', a.x + w, a.y, a.x + w, a.y + h]]) {
-      const bw = parseFloat(cs['border' + s + 'Width']);
-      if (!(bw > 0) || cs['border' + s + 'Style'] === 'none') continue;
-      L[a.p].line.push({ x1, y1, x2, y2, w: bw * PT, c: rgb(cs['border' + s + 'Color']) || { r: 0, g: 0, b: 0 } });
+  // ---- line shading bands ----
+  for (const d of stackEl.querySelectorAll('#shadeLayer > div')) {
+    const r = d.getBoundingClientRect(), c = rgb(getComputedStyle(d).backgroundColor);
+    if (!c || r.width < 0.5) continue;
+    const a = loc(r.left, r.top + 0.5);
+    L[a.p].bg.unshift({ x: a.x, y: (r.top - stackEl.getBoundingClientRect().top) / scale * PT - a.p * g.P * PT, w: pt(r.width), h: pt(r.height), c });
+  }
+  // ---- table borders (resolved like the browser's collapsed-border model) ----
+  for (const table of editorDom.querySelectorAll('table')) {
+    const cells = Array.from(table.querySelectorAll('td,th')).filter(c => !c.closest('.pg-row')).map(c => {
+      const cs = getComputedStyle(c), r = c.getBoundingClientRect();
+      const side = k => ({ st: cs['border' + k + 'Style'], w: parseFloat(cs['border' + k + 'Width']) || 0, c: rgb(cs['border' + k + 'Color']) || { r: 0, g: 0, b: 0 } });
+      return { r, T: side('Top'), B: side('Bottom'), L: side('Left'), R: side('Right') };
+    });
+    const near = (a, b) => Math.abs(a - b) < 2.5 * scale;
+    const over = (a1, a2, b1, b2) => Math.min(a2, b2) - Math.max(a1, b1) > 2 * scale;
+    const eff = s => (s.st === 'none' || s.st === 'hidden') ? 0 : s.w;
+    for (const c of cells) {
+      for (const [k, opp] of [['T', 'B'], ['B', 'T'], ['L', 'R'], ['R', 'L']]) {
+        const me = c[k];
+        const nb = cells.filter(o => o !== c && (
+          k === 'T' ? near(o.r.bottom, c.r.top) && over(o.r.left, o.r.right, c.r.left, c.r.right)
+            : k === 'B' ? near(o.r.top, c.r.bottom) && over(o.r.left, o.r.right, c.r.left, c.r.right)
+              : k === 'L' ? near(o.r.right, c.r.left) && over(o.r.top, o.r.bottom, c.r.top, c.r.bottom)
+                : near(o.r.left, c.r.right) && over(o.r.top, o.r.bottom, c.r.top, c.r.bottom)));
+        if (me.st === 'hidden' || nb.some(o => o[opp].st === 'hidden')) continue;
+        const w = eff(me);
+        if (nb.length) { const nw = Math.max(...nb.map(o => eff(o[opp]))); if (nw > w || (nw === w && (k === 'T' || k === 'L'))) continue; }
+        if (!(w > 0)) continue;
+        const a = loc(c.r.left, c.r.top), W = pt(c.r.width), H = pt(c.r.height);
+        const seg = k === 'T' ? [a.x, a.y, a.x + W, a.y] : k === 'B' ? [a.x, a.y + H, a.x + W, a.y + H] : k === 'L' ? [a.x, a.y, a.x, a.y + H] : [a.x + W, a.y, a.x + W, a.y + H];
+        L[a.p].line.push({ x1: seg[0], y1: seg[1], x2: seg[2], y2: seg[3], w: w * PT, c: me.c });
+      }
     }
   }
   // ---- header / footer rules ----

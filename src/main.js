@@ -6,15 +6,16 @@ import TextAlign from '@tiptap/extension-text-align';
 import Highlight from '@tiptap/extension-highlight';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
-import { Table, TableRow } from '@tiptap/extension-table';
 import { ListItem } from '@tiptap/extension-list';
 import { NodeSelection } from '@tiptap/pm/state';
+import { CellSelection, TableMap } from '@tiptap/pm/tables';
+import { drawShadeBands } from './shading.js';
 
 import { loadFonts } from './fonts.js';
 import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady } from './math.js';
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM } from './template.js';
 import { renderSheets, sheetHTML, esc } from './pages.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext } from './editor/extensions.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
 import { isTauri, saveEditable, openDocumentFile, savePdfBlob, printPdfBlob, setCurrentPath } from './files.js';
@@ -50,7 +51,7 @@ const editor = new Editor({
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
-    Table.configure({ resizable: true, cellMinWidth: 24, lastColumnResizable: false }), TableRow, KvTableHeader, KvTableCell,
+    KvTable, KvTableRow, KvTableHeader, KvTableCell, LineShade,
     ParaFormat, PageBreak,
     MathNode.configure({
       onEdit: (pos, node) => openMath(pos, node),
@@ -101,6 +102,7 @@ function applyLayout(n) {
   stack.style.width = stackW + 'px';
   stack.style.height = (n * g.P - GAP) + 'px';
   applyZoom();
+  drawShadeBands($('#shadeLayer'), dom, stack, scale);
 }
 function applyZoom() {
   const g = geometry(tpl);
@@ -187,6 +189,7 @@ for (const bar of [$('#ribbon'), $('#tableBar')]) {
     if (b.dataset.cmd && COMMANDS[b.dataset.cmd]) return COMMANDS[b.dataset.cmd]();
     if (b.dataset.tbl) return editor.chain().focus()[b.dataset.tbl]().run();
     if (b.dataset.valign) return ch().setCellAttribute('vAlign', b.dataset.valign).run();
+    if (b.dataset.tsel) return selectCells(b.dataset.tsel);
   });
 }
 $('#styleSel').addEventListener('change', e => {
@@ -199,8 +202,10 @@ $('#sizeIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preve
 
 /* popovers */
 let openPop = null, openAnchor = null;
+let tblCtx = null;   // table + selected cell rectangle, remembered while a table popover is open
 function showPop(id, anchor) {
   const p = $('#' + id);
+  if (/^pop(TblProps|Borders|Cell)$/.test(id)) { const c = tableContext(editor.state); tblCtx = c ? { pos: c.pos, rect: c.rect } : null; }
   if (openPop === p) return closePops();
   closePops();
   if (p.onopen) p.onopen();
@@ -223,8 +228,13 @@ function swatches(box, colors, onPick, noneLabel) {
 }
 swatches($('#swText'), ['#111111', '#5d6875', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98', '#ad1457'], c => ch().setColor(c).run());
 swatches($('#swHi'), ['#fff176', '#c5f0a4', '#b3ecf5', '#f8bbd0', '#ffd59e', '#e1bee7', '#e0e0e0'], c => c === 'none' ? ch().unsetHighlight().run() : ch().setHighlight({ color: c }).run(), 'No highlight');
-swatches($('#swShade'), ['#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => ch().setParaAttrs({ shade: c === 'none' ? null : c }).run(), 'No shading');
-swatches($('#swCell'), ['#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee', '#d6e4f0'], c => ch().setCellAttribute('background', c === 'none' ? null : c).run(), 'No fill');
+swatches($('#swShade'), ['#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => {
+  const empty = editor.state.selection.empty;
+  if (c === 'none') return ch().unsetMark('lineShade').setParaAttrs({ shade: null }).run();
+  if (empty) ch().setParaAttrs({ shade: c }).run();          // cursor only: the whole paragraph
+  else ch().setMark('lineShade', { color: c }).run();         // selection: exactly the lines it touches
+}, 'No shading');
+swatches($('#swCell'), ['#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee', '#d6e4f0'], c => forCells('cells', () => ({ background: c === 'none' ? null : c })), 'No fill');
 
 const BUL = ['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'];
 $('#bulGrid').innerHTML = BUL.map(b => `<button data-bul="${b}" aria-label="${b}">${b}</button>`).join('');
@@ -268,6 +278,94 @@ const hl = (r, c) => { for (const d of tg.children) d.classList.toggle('on', +d.
 tg.addEventListener('pointerover', e => { const d = e.target.closest('.tc'); if (d) hl(+d.dataset.r, +d.dataset.c); });
 tg.addEventListener('click', e => { const d = e.target.closest('.tc'); if (d) { closePops(); ch().insertTable({ rows: +d.dataset.r, cols: +d.dataset.c, withHeaderRow: false }).run(); } });
 $('#popTable').onopen = () => hl(0, 0);
+
+/* table tools */
+function selectCells(kind) {
+  const c = tableContext(editor.state); if (!c) return;
+  const { map, rect, start, table } = c;
+  let a, b;
+  if (kind === 'row') { a = [rect.top, 0]; b = [rect.bottom - 1, map.width - 1]; }
+  else if (kind === 'col') { a = [0, rect.left]; b = [map.height - 1, rect.right - 1]; }
+  else { a = [0, 0]; b = [map.height - 1, map.width - 1]; }
+  const pa = start + map.positionAt(a[0], a[1], table), pb = start + map.positionAt(b[0], b[1], table);
+  editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, pa, pb)));
+  editor.view.focus();
+}
+function curTable() {
+  if (tblCtx) {
+    const table = editor.state.doc.nodeAt(tblCtx.pos);
+    if (table && table.type.name === 'table') return { table, pos: tblCtx.pos, start: tblCtx.pos + 1, map: TableMap.get(table), rect: tblCtx.rect };
+  }
+  return tableContext(editor.state);
+}
+function reselectCells(c) {
+  try {
+    const { map, rect, start, table } = c;
+    const pa = start + map.positionAt(rect.top, rect.left, table), pb = start + map.positionAt(rect.bottom - 1, rect.right - 1, table);
+    if (pa !== pb) editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, pa, pb)));
+  } catch (e) { /* ignore */ }
+}
+// scope: 'cells' = selected cells, 'cols' = selected columns in every row, 'table' = whole table
+function forCells(scope, fn) {
+  const c = curTable(); if (!c) return;
+  const { map, rect, start, table } = c;
+  const r = scope === 'table' ? { left: 0, top: 0, right: map.width, bottom: map.height }
+    : scope === 'cols' ? { left: rect.left, right: rect.right, top: 0, bottom: map.height } : rect;
+  const tr = editor.state.tr, seen = new Set();
+  for (let row = r.top; row < r.bottom; row++) for (let col = r.left; col < r.right; col++) {
+    const rel = map.map[row * map.width + col];
+    if (seen.has(rel)) continue; seen.add(rel);
+    const node = table.nodeAt(rel);
+    const attrs = fn(node, row, col);
+    if (attrs) tr.setNodeMarkup(start + rel, undefined, { ...node.attrs, ...attrs });
+  }
+  editor.view.dispatch(tr);
+  reselectCells(curTable());
+}
+$('#popTblProps').onopen = () => {
+  const c = curTable(); if (!c) return;
+  $('#tpWidth').value = c.table.attrs.width || 100;
+  const row = c.table.child(c.rect.top);
+  $('#tpRowH').value = row.attrs.height || '';
+  const cell = c.table.nodeAt(c.map.map[c.rect.top * c.map.width + c.rect.left]);
+  $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? Math.round(cell.attrs.colwidth[0] / MM * 10) / 10 : '';
+};
+$('#tpWidth').addEventListener('change', e => {
+  const pct = Math.max(10, Math.min(100, +e.target.value || 100));
+  const c = curTable(); if (!c) return;
+  const tr = editor.state.tr;
+  tr.setNodeMarkup(c.pos, undefined, { ...c.table.attrs, width: pct === 100 ? null : pct });
+  // if every column has a fixed width, scale them so the table gets the requested width
+  const cells = []; let all = true, sum = 0;
+  c.table.firstChild.forEach(cell => { const w = cell.attrs.colwidth; if (!w || !w[0]) all = false; else sum += w.reduce((x, y) => x + (y || 0), 0); });
+  if (all && sum > 0) {
+    const k = (editor.view.dom.clientWidth * pct / 100) / sum;
+    c.table.descendants((n, rel) => { if (n.type.spec.tableRole && n.type.spec.tableRole.includes('cell') && n.attrs.colwidth) cells.push([rel, n]); return !n.type.spec.tableRole || !n.type.spec.tableRole.includes('cell'); });
+    for (const [rel, n] of cells) tr.setNodeMarkup(c.start + rel, undefined, { ...n.attrs, colwidth: n.attrs.colwidth.map(w => Math.round(w * k)) });
+  }
+  editor.view.dispatch(tr);
+  reselectCells(curTable());
+});
+$('#tpRowH').addEventListener('change', e => {
+  const v = e.target.value === '' ? null : Math.max(3, +e.target.value);
+  const c = curTable(); if (!c) return;
+  const tr = editor.state.tr;
+  c.table.forEach((row, o, i) => { if (i >= c.rect.top && i < c.rect.bottom) tr.setNodeMarkup(c.start + o, undefined, { ...row.attrs, height: v }); });
+  editor.view.dispatch(tr);
+  reselectCells(curTable());
+});
+$('#tpColW').addEventListener('change', e => {
+  const v = e.target.value === '' ? null : Math.round(Math.max(5, +e.target.value) * MM);
+  forCells('cols', n => n.attrs.colspan === 1 ? { colwidth: v ? [v] : null } : null);
+});
+let borderScope = 'cells';
+$('#popBorders').addEventListener('click', e => {
+  const sc = e.target.closest('[data-scope]');
+  if (sc) { borderScope = sc.dataset.scope; for (const b of $$('#popBorders [data-scope]')) b.classList.toggle('on', b === sc); return; }
+  const bw = e.target.closest('[data-bw]');
+  if (bw) forCells(borderScope === 'table' ? 'table' : 'cells', () => ({ borderWidth: bw.dataset.bw === '' ? null : +bw.dataset.bw }));
+});
+swatches($('#swBorder'), ['#7d8590', '#111111', '#1f5f74', '#2e4a9e', '#c0392b', '#1e8449', '#b7950b'], c => forCells(borderScope === 'table' ? 'table' : 'cells', () => ({ borderColor: c === 'none' ? null : c })), 'Default');
 
 /* ------------------------------------------------------------------ */
 /* Pictures                                                            */
@@ -399,18 +497,18 @@ function hfTabs() {
   if (!tabs.find(t => t[0] === hfVariant)) hfVariant = 'odd';
   $('#hfTabs').innerHTML = tabs.map(([k, l]) => `<button data-v="${k}" class="${k === hfVariant ? 'on' : ''}">${l}</button>`).join('');
   const block = kind => {
-    const s = tpl[kind][hfVariant], base = `${kind}.${hfVariant}`;
+    const sl = tpl[kind][hfVariant], base = `${kind}.${hfVariant}`;
+    const picRow = (pos, label) => {
+      const pic = sl.img[pos];
+      return `<div class="hfpic"><span class="hfpl">${label}</span><div class="imgpick"><img src="${esc(pic.src)}" alt=""><button class="btn" data-pickimg="${base}.img.${pos}.src">${pic.src ? 'Change…' : 'Picture…'}</button>${pic.src ? `<button class="btn" data-clearimg="${base}.img.${pos}.src">Remove</button><label class="mini-l">Height <input type="number" min="3" max="80" step="1" data-k="${base}.img.${pos}.h"> mm</label>` : ''}</div></div>`;
+    };
     return `<h4>${kind === 'header' ? 'Header' : 'Footer'}</h4>
       <div class="fgrid three">
-        <label class="fld">Left<input type="text" data-k="${base}.l"></label>
-        <label class="fld">Center<input type="text" data-k="${base}.c"></label>
-        <label class="fld">Right<input type="text" data-k="${base}.r"></label>
+        <label class="fld">Left<textarea rows="2" data-k="${base}.l"></textarea></label>
+        <label class="fld">Center<textarea rows="2" data-k="${base}.c"></textarea></label>
+        <label class="fld">Right<textarea rows="2" data-k="${base}.r"></textarea></label>
       </div>
-      <div class="fgrid" style="margin-top:6px">
-        <div class="fld full">Picture<div class="imgpick"><img src="${esc(s.img)}" alt=""><button class="btn" data-pickimg="${base}.img">Choose…</button>${s.img ? `<button class="btn" data-clearimg="${base}.img">Remove</button>` : ''}</div></div>
-        <label class="fld">Picture position<select data-k="${base}.imgPos"><option value="l">Left</option><option value="c">Center</option><option value="r">Right</option></select></label>
-        <label class="fld">Picture height (mm)<input type="number" min="3" max="60" step="1" data-k="${base}.imgH"></label>
-      </div>`;
+      ${picRow('l', 'Left')}${picRow('c', 'Center')}${picRow('r', 'Right')}`;
   };
   $('#hfEditor').innerHTML = block('header') + block('footer');
 }
@@ -429,6 +527,7 @@ function fillDrawer() {
 }
 function onDrawerInput(e) {
   const el = e.target, k = el.dataset && el.dataset.k; if (!k) return;
+  if (el.tagName === 'TEXTAREA') { setPath(tpl, k, el.value); applyTpl(); saveSoon(); return; }
   let v = el.type === 'checkbox' ? el.checked : (el.type === 'number' || el.type === 'range') ? parseFloat(el.value) : el.value;
   if (typeof v === 'number' && isNaN(v)) return;
   if (el.type === 'radio' && !el.checked) return;
@@ -518,6 +617,11 @@ async function doPrint() {
     p.className = 'print-page';
     p.style.width = g.W + 'px'; p.style.height = g.H + 'px';
     p.innerHTML = sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0);
+    const bands = document.createElement('div');
+    bands.style.cssText = `position:absolute;left:${-g.sheetX(i)}px;top:${-i * g.P}px`;
+    bands.innerHTML = $('#shadeLayer').innerHTML;
+    for (const d of bands.children) d.style.position = 'absolute';
+    p.appendChild(bands);
     const c = editor.view.dom.cloneNode(true);
     c.removeAttribute('contenteditable');
     c.style.left = g.leftOf(i) + 'px';

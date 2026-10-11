@@ -4,7 +4,8 @@ export const PT = 0.75;               // PDF pt per CSS px
 export const GAP = 28;                // gap between pages on screen (px)
 export const SIZES = { A4: [210, 297], A5: [148, 210], B5: [176, 250], Letter: [215.9, 279.4] };
 
-const slot = () => ({ l: '', c: '', r: '', img: '', imgPos: 'l', imgH: 10 });
+const pic = () => ({ src: '', h: 10 });
+const slot = () => ({ l: '', c: '', r: '', img: { l: pic(), c: pic(), r: pic() } });
 export const DEFAULT_TPL = {
   page: 'A4',
   margins: { top: 25, bottom: 25, left: 25, right: 25 },
@@ -13,6 +14,7 @@ export const DEFAULT_TPL = {
   header: { odd: { ...slot(), l: '{title}', r: '{date}' }, even: { ...slot(), l: '{date}', r: '{title}' }, first: slot() },
   footer: { odd: { ...slot(), c: '– {page} –' }, even: { ...slot(), c: '– {page} –' }, first: { ...slot(), c: '– {page} –' } },
   headerDist: 12, footerDist: 12, headerLine: true, footerLine: false,
+  headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
   wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
   size: 12, color: '#111111', line: 1.25, after: 6,
   hunTrig: true, decComma: true
@@ -32,7 +34,15 @@ export function normalizeTpl(t) {
   if (t && t.header && 'l' in t.header) { out.header = { odd: { ...slot(), ...t.header }, even: { ...slot(), ...t.header }, first: { ...slot(), ...t.header } }; }
   if (t && t.footer && 'l' in t.footer) { out.footer = { odd: { ...slot(), ...t.footer }, even: { ...slot(), ...t.footer }, first: { ...slot(), ...t.footer } }; }
   if (t && t.wm && 'on' in t.wm && !('type' in t.wm)) out.wm.type = t.wm.on ? 'text' : 'none';
-  for (const k of ['header', 'footer']) for (const v of ['odd', 'even', 'first']) out[k][v] = { ...slot(), ...out[k][v] };
+  for (const k of ['header', 'footer']) for (const v of ['odd', 'even', 'first']) {
+    const old = out[k][v] || {};
+    const fresh = slot();
+    const n = { ...fresh, ...old, img: fresh.img };
+    if (typeof old.img === 'string') { if (old.img) n.img[old.imgPos || 'l'] = { src: old.img, h: +old.imgH || 10 }; }
+    else if (old.img && typeof old.img === 'object') for (const p of ['l', 'c', 'r']) n.img[p] = { ...pic(), ...(old.img[p] || {}) };
+    delete n.imgPos; delete n.imgH;
+    out[k][v] = n;
+  }
   return out;
 }
 

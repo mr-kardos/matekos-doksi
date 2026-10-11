@@ -90,6 +90,7 @@ button,input,select,textarea{ font-family:inherit; }
 .ProseMirror h2{ font-size:1.35em; line-height:1.25; font-weight:700; --sb:.5em; --sa:.35em; }
 .ProseMirror h3{ font-size:1.12em; line-height:1.3; font-weight:700; --sb:.4em; --sa:.3em; }
 .ProseMirror .shaded{ background-color:var(--shade); }
+
 .ProseMirror ul,.ProseMirror ol{ margin:0; padding:0 0 0 1.8em; list-style:none; }
 .ProseMirror li{ position:relative; }
 .ProseMirror li > p{ --sa:2pt; }
@@ -101,7 +102,7 @@ mark{ color:inherit; padding:0; }
 .ProseMirror .tableWrapper{ padding:0 0 var(--after,6pt); overflow-x:auto; }
 .ProseMirror table{ width:100%; border-collapse:collapse; table-layout:fixed; margin:0; }
 .ProseMirror td,.ProseMirror th{ border:.75pt solid #7d8590; padding:3pt 5pt; vertical-align:top; position:relative; min-width:2em; }
-.ProseMirror td > p:last-child,.ProseMirror th > p:last-child{ --sa:0px; }
+.ProseMirror td > p:last-of-type,.ProseMirror th > p:last-of-type{ --sa:0px; }
 .ProseMirror th{ font-weight:700; text-align:left; }
 .ProseMirror .selectedCell::after{ content:''; position:absolute; inset:0; background:var(--selbg); pointer-events:none; z-index:2; }
 .ProseMirror .column-resize-handle{ position:absolute; right:-2px; top:0; bottom:-2px; width:4px; background:var(--sel); pointer-events:none; }
@@ -228,3 +229,27 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
   .selectedCell::after{ display:none !important; }
   *{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
+
+/* line shading bands (behind the text, above the paper) */
+#shadeLayer{ position:absolute; left:0; top:0; z-index:1; pointer-events:none; }
+#shadeLayer > div{ position:absolute; }
+/* text cursor next to formulas */
+.ProseMirror.math-caret{ caret-color:transparent; }
+.fcaret{ display:inline-block; width:0; height:1.15em; margin:0 -1px 0 0; border-left:1.5px solid #111; vertical-align:-0.25em; animation:fblink 1.06s steps(1) infinite; pointer-events:none; }
+@keyframes fblink{ 50%{ border-left-color:transparent; } }
+.ProseMirror:not(.ProseMirror-focused) .fcaret{ display:none; }
+/* picture dragging */
+.imgw.moving{ opacity:.35; }
+.img-ghost{ position:fixed; z-index:100; opacity:.7; pointer-events:none; box-shadow:var(--shadow); }
+.drop-ind{ position:fixed; width:2px; background:var(--sel); z-index:99; pointer-events:none; }
+.imgw img{ cursor:move; }
+/* table tools */
+.seg2{ display:flex; gap:4px; }
+.seg2 .pitem.on{ background:var(--accent-soft); color:var(--accent); }
+.bwg{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:2px; width:300px; }
+.fld textarea{ border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:4px 7px; font-size:13px; width:100%; resize:vertical; font-family:inherit; }
+.hfpic{ display:flex; align-items:center; gap:8px; margin-top:6px; font-size:12px; color:var(--ink-2); }
+.hfpl{ width:42px; flex:none; }
+.hft{ display:block; white-space:nowrap; }
+.hf > span:nth-child(2) .hft{ text-align:center; }
+.hf > span:nth-child(3) .hft{ text-align:right; }

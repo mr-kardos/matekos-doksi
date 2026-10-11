@@ -51,31 +51,42 @@ function hun(tex) {
   return s;
 }
 
-const cache = new Map();   // key -> Promise<string (svg markup) | null>
+const cache = new Map();   // key -> Promise<{html,error} | null>
+const done = new Map();    // key -> finished result, used synchronously so re-created views never flicker
+const keyOf = (tex, display) => (display ? 'D' : 'I') + (opts.hunTrig ? 1 : 0) + (opts.decComma ? 1 : 0) + '|' + tex;
 export function renderSVG(tex, display) {
-  const key = (display ? 'D' : 'I') + (opts.hunTrig ? 1 : 0) + (opts.decComma ? 1 : 0) + '|' + tex;
+  const key = keyOf(tex, display);
   if (cache.has(key)) return cache.get(key);
   const p = mathReady.then(() => window.MathJax.tex2svgPromise(hun(tex), { display: !!display }))
     .then(node => {
       if (node.querySelector('[data-mjx-error], merror, [data-mml-node="merror"]')) return { html: node.outerHTML, error: true };
       return { html: node.outerHTML, error: false };
     })
-    .catch(() => null);
+    .catch(() => null)
+    .then(r => { done.set(key, r); return r; });
   cache.set(key, p);
   if (cache.size > 3000) cache.delete(cache.keys().next().value);
   return p;
 }
-export function clearMathCache() { cache.clear(); }
+export function clearMathCache() { cache.clear(); done.clear(); }
 
 /** Fill an element with the rendered formula (keeps the old picture until the new one is ready). */
 export function renderInto(el, tex, display, onDone) {
   const tok = el._mj = (el._mj || 0) + 1;
   if (!tex) { el.innerHTML = '<span class="mpending">∅</span>'; return; }
+  const key = keyOf(tex, display);
+  if (done.has(key)) {
+    const r = done.get(key);
+    if (r) { if (el._html !== r.html) { el.innerHTML = r.html; el._html = r.html; } }
+    else { el.innerHTML = ''; const c = document.createElement('span'); c.className = 'mpending merr'; c.textContent = tex; el.appendChild(c); el._html = null; }
+    onDone && onDone();
+    return;
+  }
   if (!el.firstChild) { const c = document.createElement('span'); c.className = 'mpending'; c.textContent = tex; el.appendChild(c); }
   renderSVG(tex, display).then(r => {
     if (el._mj !== tok) return;
     if (!r) { el.innerHTML = ''; const c = document.createElement('span'); c.className = 'mpending merr'; c.textContent = tex; el.appendChild(c); }
-    else el.innerHTML = r.html;
+    else { el.innerHTML = r.html; el._html = r.html; }
     onDone && onDone();
   });
 }

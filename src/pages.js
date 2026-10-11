@@ -9,20 +9,24 @@ function tok(s, i, n, title) {
 }
 
 function hfHTML(kind, slot, i, n, tpl, title, g) {
-  const has = slot.l || slot.c || slot.r || slot.img;
+  const im = slot.img || {};
+  const has = slot.l || slot.c || slot.r || ['l', 'c', 'r'].some(p => im[p] && im[p].src);
   if (!has) return '';
   const cell = pos => {
     let inner = '';
-    if (slot.img && slot.imgPos === pos) inner += `<img src="${esc(slot.img)}" alt="" style="height:${(+slot.imgH || 10) * MM}px">`;
+    const pic = im[pos];
+    if (pic && pic.src) inner += `<img src="${esc(pic.src)}" alt="" style="height:${(+pic.h || 10) * MM}px">`;
     const t = slot[pos];
-    if (t) inner += `<span class="hft">${tok(t, i, n, title)}</span>`;
+    if (t) inner += `<span class="hft">${tok(t, i, n, title).replace(/\r?\n/g, '<br>')}</span>`;
     return `<span>${inner}</span>`;
   };
   const L = g.leftOf(i), R = g.rightOf(i);
-  const line = kind === 'hdr' ? tpl.headerLine : tpl.footerLine;
+  const isH = kind === 'hdr';
+  const line = isH ? tpl.headerLine : tpl.footerLine;
+  const size = isH ? tpl.headerSize : tpl.footerSize, color = isH ? tpl.headerColor : tpl.footerColor;
   // header box: top edge at headerDist from the paper's top; footer box: bottom edge at footerDist from the bottom
-  const anchor = kind === 'hdr' ? `top:${tpl.headerDist * MM}px` : `bottom:${tpl.footerDist * MM}px`;
-  return `<div class="hf ${kind}${line ? ' ln' : ''}" style="left:${L}px;right:${R}px;${anchor}">${cell('l')}${cell('c')}${cell('r')}</div>`;
+  const anchor = isH ? `top:${tpl.headerDist * MM}px` : `bottom:${tpl.footerDist * MM}px`;
+  return `<div class="hf ${kind}${line ? ' ln' : ''}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}">${cell('l')}${cell('c')}${cell('r')}</div>`;
 }
 
 function wmHTML(tpl, g) {

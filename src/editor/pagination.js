@@ -13,7 +13,7 @@ import { geometry } from '../template.js';
 
 export const pgKey = new PluginKey('pagination');
 
-const SKIP_CLASSES = ['lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih'];
+const SKIP_CLASSES = ['lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih', 'fcaret', 'column-resize-handle'];
 
 function lineBoxes(dom, Y, LH) {
   const groups = [];
@@ -115,9 +115,10 @@ function measure(view, tpl, scale) {
     }
     // floating pictures belong to the line they are anchored on
     for (const f of dom.querySelectorAll('.imgw.wl, .imgw.wr')) {
-      const r = f.getBoundingClientRect(), ft = Y(r.top), fb = Y(r.bottom);
+      const r = f.getBoundingClientRect(), fb = Y(r.bottom);
+      const anchorTop = Y(r.top) - (parseFloat(getComputedStyle(f).marginTop) || 0);   // the line the picture is anchored to
       let k = 0;
-      for (let i = 0; i < lines.length; i++) if (lines[i].top <= ft + 1) k = i;
+      for (let i = 0; i < lines.length; i++) if (lines[i].top <= anchorTop + 1) k = i;
       lines[k].bottom = Math.max(lines[k].bottom, fb);
     }
     const target = targetOf(pos, chain);
