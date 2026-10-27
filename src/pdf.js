@@ -4,6 +4,46 @@
 import { jsPDF } from 'jspdf';
 import 'svg2pdf.js';
 import { FONT_B64, CMAP } from './fonts.js';
+import { parse as parseFont } from 'opentype.js';
+import { familyFromCSS, familyFileURL } from './fontsets.js';
+
+/* Text in fonts other than TeX Gyre Bonum: every glyph is written as its vector outline,
+   exactly where the browser placed it (the Bonum text stays real, selectable PDF text). */
+const otCache = new Map();
+const ST_FILE = { normal: 'r', bold: 'b', italic: 'i', bolditalic: 'bi' };
+function otFont(fam, st) {
+  const k = fam + '|' + st;
+  if (!otCache.has(k)) otCache.set(k, (async () => { const url = familyFileURL(fam, ST_FILE[st]); if (!url) return null; return parseFont(await (await fetch(url)).arrayBuffer()); })().catch(() => null));
+  return otCache.get(k);
+}
+const outlineFam = cs => { const f = familyFromCSS(cs.fontFamily); return f && f !== 'bonum' ? f : null; };
+/** opentype path -> list of drawing operations, with an optional point transform. */
+function pathOps(path, tf = (x, y) => [x, y]) {
+  const ops = []; let cx = 0, cy = 0;
+  for (const c of path.commands) {
+    if (c.type === 'M') { ops.push(['M', ...tf(c.x, c.y)]); cx = c.x; cy = c.y; }
+    else if (c.type === 'L') { ops.push(['L', ...tf(c.x, c.y)]); cx = c.x; cy = c.y; }
+    else if (c.type === 'C') { ops.push(['C', ...tf(c.x1, c.y1), ...tf(c.x2, c.y2), ...tf(c.x, c.y)]); cx = c.x; cy = c.y; }
+    else if (c.type === 'Q') {           // quadratic -> cubic
+      const x1 = cx + 2 / 3 * (c.x1 - cx), y1 = cy + 2 / 3 * (c.y1 - cy), x2 = c.x + 2 / 3 * (c.x1 - c.x), y2 = c.y + 2 / 3 * (c.y1 - c.y);
+      ops.push(['C', ...tf(x1, y1), ...tf(x2, y2), ...tf(c.x, c.y)]); cx = c.x; cy = c.y;
+    } else if (c.type === 'Z') ops.push(['Z']);
+  }
+  return ops;
+}
+function drawOps(doc, ops, c) {
+  if (!ops.length) return;
+  doc.setFillColor(c.r, c.g, c.b);
+  let open = false;
+  for (const o of ops) {
+    if (!o.slice(1).every(Number.isFinite)) continue;
+    if (o[0] === 'M') { doc.moveTo(o[1], o[2]); open = true; }
+    else if (o[0] === 'L') doc.lineTo(o[1], o[2]);
+    else if (o[0] === 'C') doc.curveTo(o[1], o[2], o[3], o[4], o[5], o[6]);
+    else if (o[0] === 'Z' && open) doc.close();
+  }
+  doc.fill();
+}
 import { geometry, PT } from './template.js';
 
 function rgb(c) {
@@ -79,7 +119,7 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
     const p = Math.min(pages - 1, Math.max(0, Math.floor(y / g.P)));
     return { p, x: (x - g.sheetX(p)) * PT, y: (y - p * g.P) * PT };
   };
-  const L = Array.from({ length: pages }, () => ({ bg: [], img: [], line: [], text: [], math: [] }));
+  const L = Array.from({ length: pages }, () => ({ bg: [], img: [], line: [], text: [], math: [], path: [] }));
   const range = document.createRange();
   const pt = px => px / scale * PT;
 
@@ -172,6 +212,14 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
   }
   // ---- text ----
   const measureDoc = doc;
+  const need = new Set();
+  for (const root of [editorDom, pagesEl]) for (const el of root.querySelectorAll('*')) {
+    if (!el.firstChild || el.closest('svg')) continue;
+    const cs = getComputedStyle(el), f = outlineFam(cs);
+    if (f) need.add(f + '|' + styleOf(cs));
+  }
+  const OT = new Map();
+  for (const k of need) { const [f, st] = k.split('|'); OT.set(k, await otFont(f, st)); }
   for (const root of [editorDom, pagesEl]) {
     const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: t => (!t.parentElement || t.parentElement.closest(SKIP) || t.parentElement.closest('svg')) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
@@ -180,6 +228,7 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       const node = tw.currentNode, el = node.parentElement, cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       const off = baselineOffset(cs), size = parseFloat(cs.fontSize) * PT, st = styleOf(cs), col = rgb(cs.color) || { r: 0, g: 0, b: 0 };
+      const ofam = outlineFam(cs), ot = ofam ? OT.get(ofam + '|' + st) : null;
       const caps = cs.textTransform === 'uppercase' ? (t => t.toLocaleUpperCase('hu')) : (t => t);
       const re = /[^\s\u200B\uFEFF]+/g; let m;
       while ((m = re.exec(node.data))) {
@@ -187,7 +236,7 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
         range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
         const rects = Array.from(range.getClientRects()).filter(r => r.width > 0.05);
         if (!rects.length) continue;
-        let perChar = rects.length > 1 || !supported(word);
+        let perChar = rects.length > 1 || !supported(word) || !!ot;
         if (!perChar) {
           measureDoc.setFont('Bonum', st); measureDoc.setFontSize(size);
           const want = pt(rects[0].width), have = measureDoc.getTextWidth(word);
@@ -204,7 +253,11 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
           let r = null;
           for (const q of range.getClientRects()) if (q.width > 0.05 && (!r || q.width > r.width)) r = q;
           if (r) {
-            if (CMAP.has(cp)) { const a = loc(r.left, r.top); L[a.p].text.push({ s: ch, x: a.x, y: a.y + off * PT, size, st, c: col }); }
+            if (ot) {
+              const a = loc(r.left, r.top), g = ot.charToGlyph(ch);
+              if (g && g.index) L[a.p].path.push({ ops: pathOps(g.getPath(a.x, a.y + off * PT, size)), c: col });
+              else pushGlyphImage(ch, cs, r, off);
+            } else if (CMAP.has(cp)) { const a = loc(r.left, r.top); L[a.p].text.push({ s: ch, x: a.x, y: a.y + off * PT, size, st, c: col }); }
             else pushGlyphImage(ch, cs, r, off);
           }
           i += len;
@@ -268,14 +321,26 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
     const rx = cx + (px - cx) * Math.cos(a) - (py - cy) * Math.sin(a);
     const ry = cy + (px - cx) * Math.sin(a) + (py - cy) * Math.cos(a);
     wmText = { x: rx * PT, y: ry * PT, size: parseFloat(cs.fontSize) * PT, ls: (parseFloat(cs.letterSpacing) || 0) * PT, c: rgb(wm.color) || { r: 0, g: 0, b: 0 } };
+    const wf = outlineFam(cs);
+    if (wf) {        // watermark in another font: its outline, turned like on screen
+      const f = await otFont(wf, 'bold');
+      if (f) {
+        const cosA = Math.cos(a), sinA = Math.sin(a);
+        const p = f.getPath(wm.text, 0, 0, wmText.size, { letterSpacing: wmText.size ? wmText.ls / wmText.size : 0 });
+        wmText.ops = pathOps(p, (x, y) => [wmText.x + x * cosA - y * sinA, wmText.y + x * sinA + y * cosA]);
+      }
+    }
   }
   for (let i = 0; i < pages; i++) {
     doc.setPage(i + 1);
     const pg = L[i];
     if (wmText) {
-      doc.setFont('Bonum', 'bold'); doc.setFontSize(wmText.size); doc.setTextColor(wmText.c.r, wmText.c.g, wmText.c.b);
       doc.setGState(new doc.GState({ opacity: +wm.opacity }));
-      doc.text(wm.text, wmText.x, wmText.y, { angle: -(+wm.angle || 0), charSpace: wmText.ls });
+      if (wmText.ops) drawOps(doc, wmText.ops, wmText.c);
+      else {
+        doc.setFont('Bonum', 'bold'); doc.setFontSize(wmText.size); doc.setTextColor(wmText.c.r, wmText.c.g, wmText.c.b);
+        doc.text(wm.text, wmText.x, wmText.y, { angle: -(+wm.angle || 0), charSpace: wmText.ls });
+      }
       doc.setGState(new doc.GState({ opacity: 1 }));
     } else if (wmImage) {
       doc.setGState(new doc.GState({ opacity: +wm.opacity }));
@@ -290,6 +355,7 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       doc.setFont('Bonum', t.st); doc.setFontSize(t.size); doc.setTextColor(t.c.r, t.c.g, t.c.b);
       doc.text(t.s, t.x, t.y);
     }
+    for (const p of pg.path) drawOps(doc, p.ops, p.c);
     for (const m of pg.math) { if (!fin(m.x, m.y, m.w, m.h)) continue; try { await doc.svg(m.el, { x: m.x, y: m.y, width: m.w, height: m.h }); } catch (e) { /* skip */ } }
   }
   return doc.output('blob');

@@ -1,4 +1,4 @@
-// Copies the parts of MathJax 4 and the Bonum math font that the app needs into
+// Copies the parts of MathJax 4 and the math fonts that the app needs into
 // public/mathjax so the desktop app works fully offline.
 import { cpSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,8 +12,11 @@ mkdirSync(out, { recursive: true });
 for (const f of ['startup.js', 'core.js', 'loader.js', 'input', 'output', 'adaptors', 'LICENSE']) {
   cpSync(join(nm, 'mathjax', f), join(out, f), { recursive: true });
 }
-const font = join(out, 'fonts', 'mathjax-bonum-font');
-mkdirSync(font, { recursive: true });
-cpSync(join(nm, '@mathjax', 'mathjax-bonum-font', 'svg.js'), join(font, 'svg.js'));
-cpSync(join(nm, '@mathjax', 'mathjax-bonum-font', 'svg'), join(font, 'svg'), { recursive: true });
-console.log('MathJax + Bonum math font copied to public/mathjax');
+// the 9 math fonts of the font sets
+for (const name of ['bonum', 'pagella', 'termes', 'schola', 'modern', 'newcm', 'stix2', 'fira', 'dejavu']) {
+  const src = join(nm, '@mathjax', `mathjax-${name}-font`), dst = join(out, 'fonts', `mathjax-${name}-font`);
+  mkdirSync(dst, { recursive: true });
+  cpSync(join(src, 'svg.js'), join(dst, 'svg.js'));
+  if (existsSync(join(src, 'svg'))) cpSync(join(src, 'svg'), join(dst, 'svg'), { recursive: true });
+}
+console.log('MathJax + 9 math fonts copied to public/mathjax');

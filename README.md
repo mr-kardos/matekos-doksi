@@ -54,6 +54,12 @@ For development with hot reload: `npm run tauri dev`.
 
 ## Fonts
 
+* 9 font sets (text font + matching MathJax 4 math font) and 16 further text fonts, as in Matekos Prezi
+  (`src/fontsets.js`, files in `src/fonts/families/`). The template sets the document's font; the ribbon's
+  font picker changes the selected text. Formulas use the math font that belongs to the text around them.
+* In PDFs, TeX Gyre Bonum text is real (selectable) text; text in the other fonts is written as exact
+  glyph outlines.
+
 * `src/fonts/bonum-*.ttf` – TeX Gyre Bonum (regular, bold, italic, bold italic), converted
   to TrueType outlines for PDF embedding.
 * `fonts-official/texgyrebonum-math.otf` – the official TeX Gyre Bonum Math 1.005.
@@ -82,7 +88,7 @@ tools/                font verification
 ```
 
 
-## 0.5.0 – interface of Matekos Prezi
+## 0.5.1 – interface of Matekos Prezi
 - Home screen, top bar (Fájl ▾, Exportálás ▾, Mentés / Mentés másként, undo/redo, name + status, Sablon, zoom) and ribbon of Matekos Prezi.
 - The title box is the file name: Mentés writes the document's own file (asks only the first time), renaming the title renames the file.
 - Formula editor of Matekos Prezi (favourites, typeset buttons, Ctrl+M/H/L, line breaking per formula).

@@ -30,6 +30,7 @@
       <select id="styleSel" class="sel style" title="Bekezdésstílus" aria-label="Bekezdésstílus">
         <option value="p">Normál</option><option value="h1">Címsor 1</option><option value="h2">Címsor 2</option><option value="h3">Címsor 3</option>
       </select>
+      <button class="tb fontbtn" data-pop="popFont" title="Betűtípus – a kijelölt szövegre (kijelölés nélkül az ezután beírt szövegre)"><span id="fontLabel">Betűtípus</span></button>
       <span class="sizebox"><input id="sizeIn" class="sel size" inputmode="decimal" title="Betűméret (pt)" aria-label="Betűméret" value="12"><button class="tb mini sizedd" data-pop="popSize" data-icon="chev" title="Betűméretek"></button></span>
     </div>
     <div class="grp">
@@ -153,7 +154,7 @@
           <label class="fld">Sorköz<input type="number" min="0.8" max="4" step="0.05" data-k="line"></label>
           <label class="fld">Bekezdés utáni térköz (pt)<input type="number" min="0" max="60" step="1" data-k="after"></label>
           <label class="fld">Térköz a képek körül (mm)<input type="number" min="0" max="30" step="0.5" data-k="imgGap"></label>
-          <div class="fld">Betűtípus<span class="fontname">TeX Gyre Bonum</span></div>
+          <label class="fld full">Betűtípus (szöveg és képletek)<select data-k="font" id="tplFont"></select></label>
         </div>
         <div class="phint">A dokumentumban egyenként átformázott szövegek megtartják a saját formájukat.</div>
       </div>
@@ -222,6 +223,12 @@
 <div class="pop" id="popZoom" hidden>
   <button class="pitem" data-zoom="auto">Illesztés</button>
   <button class="pitem" data-zoom="50">50%</button><button class="pitem" data-zoom="75">75%</button><button class="pitem" data-zoom="90">90%</button><button class="pitem" data-zoom="100">100%</button><button class="pitem" data-zoom="125">125%</button><button class="pitem" data-zoom="150">150%</button><button class="pitem" data-zoom="200">200%</button>
+</div>
+<div class="pop" id="popFont" hidden>
+  <button class="pitem fbase" data-fam="">Alap betűtípus (sablon)</button>
+  <div class="ptitle">Képletbarát betűtípusok<span class="phint">a képletek is ezzel a betűtípussal készülnek</span></div><div id="fontMath"></div>
+  <div class="psep"></div>
+  <div class="ptitle">Egyéb betűtípusok<span class="phint">a képletek a sablon képletbetűjével készülnek</span></div><div id="fontOther"></div>
 </div>
 <div class="pop" id="popSize" hidden><div class="ptitle">Betűméret (pt)</div><div class="sizegrid" id="sizeGrid"></div></div>
 <div class="pop" id="popSpacing" hidden>

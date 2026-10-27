@@ -4,7 +4,7 @@ import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { BulletList, OrderedList } from '@tiptap/extension-list';
 import { Table, TableRow, TableCell, TableHeader, TableView } from '@tiptap/extension-table';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
-import { renderInto, isReady, mathReady } from '../math.js';
+import { renderInto, isReady, mathReady, mathFontFromCSS } from '../math.js';
 
 const numOrNull = v => (v === '' || v === null || v === undefined || isNaN(+v)) ? null : +v;
 
@@ -282,6 +282,20 @@ export const LineShade = Mark.create({
 /* ------------------------------------------------------------------ */
 const mathKey = new PluginKey('mathTools');
 const isBold = n => n.marks.some(m => m.type.name === 'bold');   // bold formulas: \boldsymbol
+/* math font of the document's font set (template); null = Bonum, MathJax's main font */
+let docMathFont = null;
+export function setDocMathFont(key) { const k = key && key !== 'bonum' ? key : null; const ch = k !== docMathFont; docMathFont = k; return ch; }
+/** Font and boldness of a formula, as in Matekos Prezi: from its own marks (the text formatting around it), else the template font. */
+export function mathLook(n) {
+  const ts = n.marks.find(m => m.type.name === 'textStyle');
+  const own = ts && ts.attrs.fontFamily ? mathFontFromCSS(ts.attrs.fontFamily) : undefined;
+  let font = own === undefined ? docMathFont : own;            // a text font without a math version: the document's math font
+  if (own === null) font = docMathFont;
+  if (font === 'bonum') font = null;
+  return { font, bold: isBold(n) };
+}
+/** Formatting a new formula takes over: the marks in effect at the cursor (bold, colour, size, font…). */
+export const marksAt = state => (state.storedMarks || state.selection.$from.marks()).filter(m => !['link', 'code'].includes(m.type.name));
 const DOLLAR_RE = /(\\?)\$\$([^$]+?)\$\$|(\\?)\$([^$\s](?:[^$]*?[^$\s\\])?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\]/g;
 
 function cellPosAround(doc, pos) {
@@ -319,8 +333,8 @@ export const MathNode = Node.create({
       const paint = () => {
         dom.className = 'math' + (cur.attrs.display ? ' disp' : '') + (cur.attrs.wrap ? ' wrap' : '') + (dom._sel ? ' ProseMirror-selectednode' : '');
         dom.setAttribute('data-tex', cur.attrs.tex);
-        dom._lk = isBold(cur);
-        renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered(), isBold(cur), cur.attrs.wrap);
+        const lk = mathLook(cur); dom._lk = lk.font + '|' + lk.bold;
+        renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered(), lk.bold, cur.attrs.wrap, lk.font);
       };
       paint();
       // Mouse: click = select the formula; click on its left/right edge = cursor before/after it;
@@ -375,7 +389,8 @@ export const MathNode = Node.create({
         dom,
         update(n) {
           if (n.type !== cur.type) return false;
-          const changed = n.attrs.tex !== cur.attrs.tex || n.attrs.display !== cur.attrs.display || n.attrs.wrap !== cur.attrs.wrap || isBold(n) !== dom._lk;
+          const lk = mathLook(n);
+          const changed = n.attrs.tex !== cur.attrs.tex || n.attrs.display !== cur.attrs.display || n.attrs.wrap !== cur.attrs.wrap || (lk.font + '|' + lk.bold) !== dom._lk;
           cur = n;
           if (changed) paint();
           return true;
@@ -430,8 +445,10 @@ export const MathNode = Node.create({
           }
         });
         if (!hits.length) return null;
+        // pasted formulas take the formatting of the text where they were pasted (bold, colour, size, font)
+        const here = marksAt(oldState);
         const tr = state.tr;
-        for (const h of hits.reverse()) tr.replaceWith(h.from, h.to, type.create({ tex: h.tex, display: h.display, wrap: true }, null, h.marks));
+        for (const h of hits.reverse()) tr.replaceWith(h.from, h.to, type.create({ tex: h.tex, display: h.display, wrap: true }, null, here.length ? here : h.marks));
         return tr;
       },
       props: {
@@ -449,7 +466,7 @@ export const MathNode = Node.create({
             display = false; start = from - (m[1].length + 1);
           }
           const tex = display ? m[1].trim() : m[1];
-          const tr = view.state.tr.replaceWith(start, to, type.create({ tex, display, wrap: true }));
+          const tr = view.state.tr.replaceWith(start, to, type.create({ tex, display, wrap: true }, null, $from.marks()));
           tr.setSelection(TextSelection.create(tr.doc, start + 1));
           view.dispatch(tr.scrollIntoView());
           return true;

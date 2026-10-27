@@ -2,7 +2,7 @@ import './styles.css';
 import './doksi.css';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import { TextStyle, Color, FontSize } from '@tiptap/extension-text-style';
+import { TextStyle, Color, FontSize, FontFamily } from '@tiptap/extension-text-style';
 import TextAlign from '@tiptap/extension-text-align';
 import Highlight from '@tiptap/extension-highlight';
 import Subscript from '@tiptap/extension-subscript';
@@ -13,10 +13,11 @@ import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import { drawShadeBands } from './shading.js';
 
 import { loadFonts } from './fonts.js';
+import { FONT_SETS, fontSet, allFamilies, familyCSS, familyFromCSS, familyLabel, registerAllFamilies, loadTextFamily } from './fontsets.js';
 import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady } from './math.js';
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM } from './template.js';
 import { renderSheets, sheetHTML, esc } from './pages.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, mathLook, marksAt } from './editor/extensions.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
 import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave } from './files.js';
@@ -52,7 +53,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, LetterSpacing, TextCase, ListHang,
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang,
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -136,6 +137,11 @@ function applyTpl(rerenderMath) {
   dom.style.lineHeight = String(tpl.line);
   dom.style.setProperty('--after', tpl.after + 'pt');
   dom.style.setProperty('--img-gap', (tpl.imgGap ?? 4) + 'mm');
+  // font set of the template: text font + its matching math font
+  const fs = fontSet(tpl.font);
+  document.documentElement.style.setProperty('--doc-font', fs.text === 'bonum' ? "'TeX Gyre Bonum', Georgia, serif" : `${familyCSS(fs.text)}, 'TeX Gyre Bonum', Georgia, serif`);
+  if (fs.text !== 'bonum') loadTextFamily(fs.text).then(() => relayout(30));
+  if (setDocMathFont(fs.math)) rerenderMath = true;
   for (const k of ['h1', 'h2', 'h3']) {
     const st = tpl.styles[k];
     dom.style.setProperty(`--${k}s`, st.size + 'pt'); dom.style.setProperty(`--${k}c`, st.color || 'inherit');
@@ -148,7 +154,9 @@ function applyTpl(rerenderMath) {
     editor.state.doc.descendants((n, pos) => {
       if (n.type.name !== 'math') return;
       const m = editor.view.nodeDOM(pos);
-      if (m) renderInto(m, n.attrs.tex, n.attrs.display, () => relayout(60), n.marks.some(x => x.type.name === 'bold'), n.attrs.wrap);
+      if (!m) return;
+      const lk = mathLook(n); m._lk = lk.font + '|' + lk.bold;
+      renderInto(m, n.attrs.tex, n.attrs.display, () => relayout(60), lk.bold, n.attrs.wrap, lk.font);
     });
   }
   applyLayout(pageCount);
@@ -311,6 +319,7 @@ function updateToolbar() {
       if (document.activeElement !== $('#sizeIn')) $('#sizeIn').value = String(Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2).replace('.', ',');
       $('#colorBar').style.background = cs.color;
     }
+    { const f = currentFamily(); $('#fontLabel').textContent = familyLabel(f || fontSet(tpl.font).text).replace(/ \(.*\)$/, ''); }
     $('#styleSel').value = editor.isActive('heading', { level: 1 }) ? 'h1' : editor.isActive('heading', { level: 2 }) ? 'h2' : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p';
     $('#tableBar').hidden = !editor.isActive('table');
     if (!$('#tableBar').hidden) fillTableFields();
@@ -331,6 +340,19 @@ for (const bar of [$('#ribbon'), $('#tableBar'), $('.b1left')]) {
 $('#styleSel').addEventListener('change', e => {
   const v = e.target.value;
   if (v === 'p') ch().setParagraph().run(); else ch().setHeading({ level: +v[1] }).run();
+});
+/* fonts (Matekos Prezi): the template's font set, or any family on the selected text */
+registerAllFamilies();
+{ const fams = allFamilies(), item = ([f, l]) => `<button class="pitem fitem" data-fam="${f}" style="font-family:${familyCSS(f)}">${l}</button>`;
+  $('#fontMath').innerHTML = fams.math.map(item).join(''); $('#fontOther').innerHTML = fams.other.map(item).join(''); }
+/** Font family at the cursor ('' = the template font). */
+const currentFamily = () => { const ff = editor.getAttributes('textStyle').fontFamily; return ff ? (familyFromCSS(ff) || '') : ''; };
+$('#popFont').onopen = () => { const f = currentFamily(); for (const b of $$('#popFont [data-fam]')) b.classList.toggle('on', b.dataset.fam === f); };
+$('#popFont').addEventListener('click', e => {
+  const b = e.target.closest('[data-fam]'); if (!b) return; closePops();
+  const fam = b.dataset.fam;
+  if (fam) loadTextFamily(fam).then(() => relayout(30));
+  (fam ? ch().setFontFamily(familyCSS(fam)) : ch().unsetFontFamily()).run();
 });
 const setSize = v => { const p = parseFloat(String(v).replace(',', '.')); if (p > 0 && p < 500) ch().setFontSize(p + 'pt').run(); };
 $('#sizeIn').addEventListener('change', e => setSize(e.target.value));
@@ -639,7 +661,10 @@ function openMath(pos, node) {
         }
         return finish();
       }
-      if (t) editor.chain().focus().insertContent({ type: 'math', attrs: { tex: t, display: false, wrap: !!wrap } }).run();
+      if (t) {
+        const st = editor.state, node = st.schema.nodes.math.create({ tex: t, display: false, wrap: !!wrap }, null, marksAt(st));
+        editor.view.dispatch(st.tr.replaceSelectionWith(node, false).scrollIntoView()); editor.view.focus();
+      }
       else finish();
     },
     onDelete: () => {
@@ -679,9 +704,9 @@ function splitter(el, get, set, key, sign) {
   el.addEventListener('pointerdown', e => {
     e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add('drag');
     const x0 = e.clientX, w0 = get();
-    const mv = ev => { set(w0 + sign * (ev.clientX - x0)); applyZoom(); thumbsSoon(); };
+    const mv = ev => { set(w0 + sign * (ev.clientX - x0)); applyZoom(); };
     const up = ev => { el.releasePointerCapture(ev.pointerId); el.classList.remove('drag'); el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
-      lsSet(key, String(set(w0 + sign * (ev.clientX - x0)))); applyZoom(); thumbsSoon(true); };
+      lsSet(key, String(set(w0 + sign * (ev.clientX - x0)))); applyZoom(); };
     el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
   });
 }
@@ -709,14 +734,14 @@ function thumbsSoon(now) { clearTimeout(thumbT); thumbT = setTimeout(renderThumb
 function renderThumbs() {
   if (!$('#home').hidden) return;
   const g = geometry(tpl), dom = editor.view.dom;
-  const fw = Math.max(60, plist.clientWidth - 22 - 4 - 18), k = fw / g.W, fh = Math.round(g.H * k);
+  plist.style.setProperty('--pw', g.W); plist.style.setProperty('--ph', g.H);
   const kids = Array.from(dom.children).map(c => ({ el: c, top: g.mt + c.offsetTop, bottom: g.mt + c.offsetTop + c.offsetHeight }));
   const style = dom.getAttribute('style') || '';
   const frag = document.createDocumentFragment();
   for (let i = 0; i < pageCount; i++) {
     const t = document.createElement('div');
     t.className = 'thumb' + (i === curPage ? ' cur' : ''); t.dataset.i = i;
-    t.innerHTML = `<div class="no">${i + 1}</div><div class="frame" style="width:${fw}px;height:${fh}px"><div class="tpage" style="width:${g.W}px;height:${g.H}px;transform:scale(${k})">${sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0)}</div></div>`;
+    t.innerHTML = `<div class="no">${i + 1}</div><div class="frame"><div class="tpage" style="width:${g.W}px;height:${g.H}px">${sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0)}</div></div>`;
     const tp = t.querySelector('.tpage');
     // line shading of this page
     const bands = document.createElement('div');
@@ -737,7 +762,14 @@ function renderThumbs() {
     frag.appendChild(t);
   }
   plist.replaceChildren(frag);
+  fitThumbs();
 }
+/** Miniature size follows the panel width at once (only a CSS scale – no re-render while dragging). */
+function fitThumbs() {
+  const f = plist.querySelector('.frame'); if (!f) return;
+  plist.style.setProperty('--tk', f.clientWidth / (+plist.style.getPropertyValue('--pw') || 794));
+}
+new ResizeObserver(fitThumbs).observe(plist);
 plist.addEventListener('click', e => {
   const t = e.target.closest('.thumb'); if (!t) return;
   const g = geometry(tpl), i = +t.dataset.i;
@@ -797,6 +829,7 @@ function styleRows() {
         ${body ? '' : ['bold', 'italic', 'underline'].map(t => `<button class="tb${st[t] ? ' on' : ''}" data-stt="${t}" data-st="${k}" title="${{ bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott' }[t]}">${{ bold: '<b>B</b>', italic: '<i>I</i>', underline: '<u>U</u>' }[t]}</button>`).join('')}</div></div>`;
   }).join('');
 }
+$('#tplFont').innerHTML = Object.entries(FONT_SETS).map(([k, f]) => `<option value="${k}">${f.label} – ${f.note}</option>`).join('');
 function fillPanel() {
   hfTabs(); styleRows();
   for (const el of $$('#props [data-k]')) {
@@ -974,14 +1007,20 @@ $('#fOpen').addEventListener('click', doOpen);
 $('#fHome').addEventListener('click', () => { closePops(); sessionOpen = true; clearTimeout(autoT); saveLocal(); showHome(true); });
 $('#expPdf').addEventListener('click', doPdf);
 $('#expPrint').addEventListener('click', doPrint);
-$('#bFile').addEventListener('click', e => showPop('popFile', e.currentTarget));
-$('#bExport').addEventListener('click', e => showPop('popExport', e.currentTarget));
 $('#bZoom').addEventListener('click', e => showPop('popZoom', e.currentTarget));
 $('#popZoom').onopen = () => { for (const b of $$('#popZoom [data-zoom]')) b.classList.toggle('on', b.dataset.zoom === String(zoomMode)); };
 $('#popZoom').addEventListener('click', e => {
   const b = e.target.closest('[data-zoom]'); if (!b) return; closePops();
-  zoomMode = b.dataset.zoom; $('#zoomLabel').textContent = zoomMode === 'auto' ? '' : zoomMode + '%'; applyZoom();
+  zoomMode = b.dataset.zoom; zoomButton(); applyZoom();
 });
+
+function zoomButton() {
+  const fit = zoomMode === 'auto';
+  $('#bZoom').classList.toggle('fit', fit);
+  $('#zoomLabel').textContent = fit ? '' : zoomMode + '%';
+  $('#bZoom').title = fit ? 'Nagyítás: illesztés az ablakhoz' : 'Nagyítás: ' + zoomMode + '%';
+}
+zoomButton();
 
 /* home screen (as in Matekos Prezi) */
 let resumeLabel = '';

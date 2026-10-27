@@ -203,3 +203,18 @@ body.noprops-on .ctxbar{ right:58px; }
 #props .fgrid.three{ grid-template-columns:1fr 1fr 1fr; }
 #props .fld textarea{ min-height:46px; }
 .hfpic .imgpick img{ height:26px; }
+
+/* font picker (Matekos Prezi) */
+.fontbtn{ width:132px; justify-content:space-between; border:1px solid var(--line); background:var(--chrome-2); height:30px; font-weight:500; font-size:13px; padding:0 8px; display:inline-flex; align-items:center; gap:6px; }
+.fontbtn #fontLabel{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fontbtn::after{ content:''; border:4px solid transparent; border-top-color:var(--ink-2); margin-top:4px; flex:none; }
+#popFont{ width:300px; max-height:min(560px, calc(100vh - 140px)); overflow-y:auto; }
+#popFont .fitem{ font-size:16px; font-weight:400; }
+#popFont .ptitle{ margin-top:8px; }
+#popFont .ptitle .phint{ display:block; margin:2px 0 0; font-size:11px; font-weight:400; }
+/* zoom button: the full-screen icon only for "fit to window", otherwise just the percentage */
+.zoombtn svg:first-child{ display:none; }
+.zoombtn.fit svg:first-child{ display:block; }
+/* page miniatures scale with the panel width */
+.thumb .frame{ width:100%; aspect-ratio:calc(var(--pw, 794) / var(--ph, 1123)); }
+.thumb .tpage{ transform:scale(var(--tk, .18)); }

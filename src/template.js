@@ -17,6 +17,7 @@ export const DEFAULT_TPL = {
   hfLeft: 25, hfRight: 25,
   headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
   wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
+  font: 'bonum',
   size: 12, color: '#111111', line: 1.25, after: 6, imgGap: 4,
   styles: {
     h1: { size: 21, color: '#111111', bold: true, italic: false, underline: false },
