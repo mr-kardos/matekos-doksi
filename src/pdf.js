@@ -180,10 +180,11 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       const node = tw.currentNode, el = node.parentElement, cs = getComputedStyle(el);
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
       const off = baselineOffset(cs), size = parseFloat(cs.fontSize) * PT, st = styleOf(cs), col = rgb(cs.color) || { r: 0, g: 0, b: 0 };
+      const caps = cs.textTransform === 'uppercase' ? (t => t.toLocaleUpperCase('hu')) : (t => t);
       const re = /[^\s\u200B\uFEFF]+/g; let m;
       while ((m = re.exec(node.data))) {
-        const word = m[0];
-        range.setStart(node, m.index); range.setEnd(node, m.index + word.length);
+        const word = caps(m[0]);
+        range.setStart(node, m.index); range.setEnd(node, m.index + m[0].length);
         const rects = Array.from(range.getClientRects()).filter(r => r.width > 0.05);
         if (!rects.length) continue;
         let perChar = rects.length > 1 || !supported(word);
@@ -197,8 +198,8 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
           L[a.p].text.push({ s: word, x: a.x, y: a.y + off * PT, size, st, c: col });
           continue;
         }
-        for (let i = 0; i < word.length;) {
-          const cp = word.codePointAt(i), len = cp > 0xffff ? 2 : 1, ch = String.fromCodePoint(cp);
+        for (let i = 0; i < m[0].length;) {
+          const cp0 = m[0].codePointAt(i), len = cp0 > 0xffff ? 2 : 1, ch = caps(String.fromCodePoint(cp0)), cp = ch.codePointAt(0);
           range.setStart(node, m.index + i); range.setEnd(node, m.index + i + len);
           let r = null;
           for (const q of range.getClientRects()) if (q.width > 0.05 && (!r || q.width > r.width)) r = q;

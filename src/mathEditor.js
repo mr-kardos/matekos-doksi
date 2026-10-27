@@ -99,11 +99,18 @@ const CATS = [
     ['→', '\\to'], ['←', '\\leftarrow'], ['↔', '\\leftrightarrow'], ['⇒', '\\Rightarrow'], ['⇐', '\\Leftarrow'], ['⇔', '\\Leftrightarrow'], ['↦', '\\mapsto'], ['↑', '\\uparrow'], ['↓', '\\downarrow'], ['⟶', '\\longrightarrow'], ['⟹', '\\Longrightarrow']
   ]],
   ['Egyéb', [
-    ['szöveg', '\\text{#?}', 'Szöveg a képletben'], ['kis köz', '\\,', 'Kis szóköz'], ['köz', '\\quad', 'Szóköz'], ['∝', '\\propto', 'Arányos'], ['≐', '\\doteq'], ['≙', '\\triangleq', 'Definíció szerint'], ['∗', '\\ast'], ['†', '\\dagger'], ['ℓ', '\\ell'], ['ℏ', '\\hbar'], ['∅', '\\varnothing']
+    ['kis köz', '\\,', 'Kis szóköz'], ['köz', '\\quad', 'Szóköz'], ['∝', '\\propto', 'Arányos'], ['≐', '\\doteq'], ['≙', '\\triangleq', 'Definíció szerint'], ['∗', '\\ast'], ['†', '\\dagger'], ['ℓ', '\\ell'], ['ℏ', '\\hbar'], ['∅', '\\varnothing']
   ]]
 ];
 /* ---- the dialog ---- */
-let dlg, mf, texBox, prev, onApply = null, onDelete = null, cats, palette, curCat = 0, dragging = null;
+let dlg, mf, texBox, prev, onApply = null, onDelete = null, cats, palette, curCat = 'fav', dragging = null;
+/* favourites: chosen palette buttons, kept by the app (for every presentation); first start: the old quick buttons */
+const FAV_KEY = 'matekosdoksi.mathFav';
+let favMode = false;
+const ALL_ITEMS = () => [...CATS.flatMap(c => c[1]), ...FREQUENT];
+function favList() { try { const v = JSON.parse(localStorage.getItem(FAV_KEY)); if (Array.isArray(v)) return v; } catch (e) { /* none yet */ } return []; }
+function saveFav(list) { try { localStorage.setItem(FAV_KEY, JSON.stringify(list)); } catch (e) { /* storage full / off */ } }
+const favItems = () => favList().map(t => ALL_ITEMS().find(it => it[1] === t)).filter(Boolean);
 
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function btn(item, i, group) {
@@ -126,17 +133,31 @@ function markPlaceholders() {
   for (const s of root.querySelectorAll('span')) if (s.childElementCount === 0 && s.textContent === '\u25A2' && !s.classList.contains('kv-ph')) s.classList.add('kv-ph');
 }
 
+/** Font size of the live field: the formula fills the box height with the same margin above and below –
+ *  bigger letters for a plain formula, smaller ones as soon as a fraction, an integral… makes it taller. */
+let fitT = 0;
+function fitField() {
+  const fw = dlg && dlg.querySelector('#mdFwrap'); if (!fw || dlg.hidden) return;
+  const H = fw.clientHeight, margin = Math.max(8, H * 0.14), avail = H - 2 * margin;
+  const cur = parseFloat(mf.style.fontSize) || H * 0.4;
+  const box = mf.shadowRoot?.querySelector('.ML__latex') || mf.shadowRoot?.querySelector('.ML__content');
+  const ch = box ? box.getBoundingClientRect().height : 0;
+  let f = ch > 0 ? cur * avail / ch : H * 0.4;
+  f = Math.max(12, Math.min(H * 0.62, f));
+  if (Math.abs(f - cur) > 0.5) mf.style.fontSize = Math.round(f) + 'px';
+}
+const fitSoon = () => { clearTimeout(fitT); fitT = setTimeout(() => { fitField(); setTimeout(fitField, 30); }, 0); };
 function build() {
   dlg = document.getElementById('mathDlg');
   dlg.innerHTML = `
-    <div class="md-head" id="mdHead"><b>Képletszerkesztő</b><span class="phint">Kattints a képletbe, és építsd fel a gombokkal vagy gépeléssel · Enter: kész · Esc: bezár</span><button class="md-x" id="mdX" aria-label="Bezárás">×</button></div>
-    <div class="mk-row mk-freq" id="mkFreq">${FREQUENT.map((it, i) => btn(it, i, 'f')).join('')}</div>
-    <div class="mk-tabs" id="mkTabs">${CATS.map((c, i) => `<button data-c="${i}" class="${i === 0 ? 'on' : ''}">${c[0]}</button>`).join('')}</div>
+    <div class="md-head" id="mdHead"><b>Képletszerkesztő</b><span class="phint">Építsd fel gombokkal vagy gépeléssel · Enter vagy Ctrl+M: kész · Esc: bezár · Ctrl+H: kitevő · Ctrl+L: index</span><button class="md-x" id="mdX" aria-label="Bezárás">×</button></div>
+    <div class="mk-tabs" id="mkTabs"><button data-c="fav" class="on fav">★ Kedvencek</button>${CATS.map((c, i) => `<button data-c="${i}">${c[0]}</button>`).join('')}</div>
+    <div class="mk-favbar" id="mkFavBar" hidden><span>Kattints a gombokra (bármelyik lapon), amelyeket a Kedvencek közé szeretnél – a pirosak lesznek ott. Újra kattintva kikerülnek.</span><button class="btn primary" id="mkFavDone">Kész</button></div>
     <div class="mk-row mk-pal" id="mkPal"></div>
-    <math-field id="mdField" math-virtual-keyboard-policy="manual"></math-field>
+    <div class="md-fwrap" id="mdFwrap"><div class="md-fscroll" id="mdFscroll"><math-field id="mdField" math-virtual-keyboard-policy="manual"></math-field></div><div class="md-fgrip" id="mdFgrip" title="Húzd a mező (és a betűk) nagyításához"></div></div>
     <details class="md-tex"><summary>TeX-kód</summary><textarea id="mdTex" spellcheck="false" rows="2"></textarea></details>
-    <div class="md-prevwrap"><span class="md-plabel">Végleges megjelenés</span><div class="md-prev" id="mdPrev"></div></div>
-    <div class="md-foot"><span class="sp"></span><button class="btn" id="mdDel" hidden>Képlet törlése</button><button class="btn" id="mdCancel">Mégse</button><button class="btn primary" id="mdOk">Beszúrás</button></div>`;
+    <details class="md-prevd" open><summary>Végleges megjelenés</summary><div class="md-prev" id="mdPrev"></div></details>
+    <div class="md-foot"><label class="chk md-wrapchk" title="Hosszú képlet a sor végén új sorban folytatódik (egyenlőségjel, +, −, zárójel és hasonlók után)"><input type="checkbox" id="mdWrap"> Sortörés a sor végén</label><span class="sp"></span><button class="btn" id="mdDel" hidden>Képlet törlése</button><button class="btn" id="mdCancel">Mégse</button><button class="btn primary" id="mdOk">Beszúrás</button></div>`;
   mf = dlg.querySelector('#mdField');
   texBox = dlg.querySelector('#mdTex');
   prev = dlg.querySelector('#mdPrev');
@@ -145,26 +166,58 @@ function build() {
   mf.macros = { ...mf.macros, ...Object.fromEntries(Object.entries(MACROS).map(([k, v]) => [k, { args: 0, def: v, captureSelection: true, expand: false }])) };
   mf.menuItems = [];
   mf.smartFence = true;
-  mf.addEventListener('input', () => { markPlaceholders(); syncFromField(); });
+  mf.addEventListener('input', () => { markPlaceholders(); syncFromField(); fitSoon(); });
   mf.addEventListener('selection-change', markPlaceholders);
   new MutationObserver(markPlaceholders).observe(mf.shadowRoot, { subtree: true, childList: true, characterData: true });
   const st = document.createElement('style');
-  st.textContent = '.kv-ph{display:inline-block!important;width:.6em;height:.76em;line-height:.76em;vertical-align:-.03em;color:transparent!important;outline:1.5px dashed #2f9a46;outline-offset:-1px;border-radius:1px}';
+  st.textContent = '.kv-ph{color:#2f9a46!important}';
   mf.shadowRoot.appendChild(st);
   mf.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.stopPropagation(); apply(); }
-    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase(), altGr = e.getModifierState && e.getModifierState('AltGraph');
+    const stop = () => { e.preventDefault(); e.stopPropagation(); };
+    if (e.key === 'Enter' && !e.shiftKey) { stop(); apply(); return; }
+    if (e.key === 'Escape') { stop(); close(); return; }
+    if (mod && !e.altKey && k === 'm') { stop(); apply(); return; }
+    if (mod && !e.altKey && k === 'h') { stop(); mf.executeCommand('moveToSuperscript'); return; }
+    if (mod && !e.altKey && k === 'l') { stop(); mf.executeCommand('moveToSubscript'); return; }
+    // the character the keyboard really produced (MathLive may guess the layout wrongly: on a Hungarian
+    // keyboard Shift+7 is "=", which it took for "/" and turned into a fraction)
+    if (e.key.length === 1 && (altGr || (!mod && !e.altKey)) && !/[\p{L}\p{N}\s]/u.test(e.key)) {
+      stop();
+      if (e.key === '/') mf.executeCommand(['insert', '\\frac{#@}{#?}']);
+      else if (e.key === '*') mf.executeCommand(['insert', '\\cdot']);
+      else if (e.key === '^') mf.executeCommand('moveToSuperscript');
+      else if (e.key === '_') mf.executeCommand('moveToSubscript');
+      else mf.executeCommand(['typedText', e.key]);
+    }
   }, true);
+  // the live field: drag its corner to make it (and its letters) bigger
+  const fw = dlg.querySelector('#mdFwrap'), grip = dlg.querySelector('#mdFgrip');
+  const setFH = h => { h = Math.max(56, Math.min(360, h)); fw.style.height = h + 'px'; fitField(); return h; };
+  setFH(+localStorage.getItem('matekosdoksi.mdField') || 84);
+  grip.addEventListener('pointerdown', e => {
+    e.preventDefault(); grip.setPointerCapture(e.pointerId); const y0 = e.clientY, h0 = fw.getBoundingClientRect().height;
+    const mv = ev => setFH(h0 + ev.clientY - y0);
+    const up = ev => { grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); try { localStorage.setItem('matekosdoksi.mdField', String(setFH(h0 + ev.clientY - y0))); } catch (_) {} };
+    grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up);
+  });
   texBox.addEventListener('input', () => { mf.value = texBox.value; markPlaceholders(); syncFromField(); });
-  texBox.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); apply(); } else if (e.key === 'Escape') close(); });
+  texBox.addEventListener('keydown', e => { if ((e.key === 'Enter' && !e.shiftKey) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'm')) { e.preventDefault(); apply(); } else if (e.key === 'Escape') close(); });
   const pick = e => {
+    if (e.target.closest('#mkFavAdd')) { setFavMode(true); return; }
     const b = e.target.closest('.mk'); if (!b) return;
-    const list = b.dataset.g === 'f' ? FREQUENT : CATS[curCat][1];
-    insert(list[+b.dataset.i][1]);
+    const list = b.dataset.g === 'v' ? favItems() : CATS[curCat][1], it = list[+b.dataset.i]; if (!it) return;
+    if (favMode) {                                              // choosing favourites: toggle, no inserting
+      const f = favList(), k = f.indexOf(it[1]);
+      if (k >= 0) f.splice(k, 1); else f.push(it[1]);
+      saveFav(f); showCat(curCat); return;
+    }
+    insert(it[1]);
   };
-  for (const id of ['#mkFreq', '#mkPal']) { const el = dlg.querySelector(id); el.addEventListener('mousedown', e => e.preventDefault()); el.addEventListener('click', pick); }
+  dlg.querySelector('#mkFavDone').addEventListener('click', () => { setFavMode(false); showCat('fav'); });
+  for (const id of ['#mkPal']) { const el = dlg.querySelector(id); el.addEventListener('mousedown', e => e.preventDefault()); el.addEventListener('click', pick); }
   cats.addEventListener('mousedown', e => e.preventDefault());
-  cats.addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) showCat(+b.dataset.c); });
+  cats.addEventListener('click', e => { const b = e.target.closest('[data-c]'); if (b) showCat(b.dataset.c === 'fav' ? 'fav' : +b.dataset.c); });
   dlg.querySelector('#mdX').addEventListener('click', close);
   dlg.querySelector('#mdCancel').addEventListener('click', close);
   dlg.querySelector('#mdOk').addEventListener('click', apply);
@@ -185,22 +238,73 @@ function build() {
     dlg.style.transform = 'none';
   });
   head.addEventListener('pointerup', () => { dragging = null; });
-  showCat(0);
+  // resize by the four corners
+  for (const c of ['nw', 'ne', 'sw', 'se']) {
+    const h = document.createElement('div'); h.className = 'md-rs md-' + c; dlg.appendChild(h);
+    h.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation(); h.setPointerCapture(e.pointerId);
+      const r = dlg.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+      Object.assign(dlg.style, {left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', transform: 'none', maxHeight: 'none'});
+      const mv = ev => {
+        const dx = ev.clientX - x0, dy = ev.clientY - y0;
+        let L = r.left, T = r.top, Wd = r.width, Ht = r.height;
+        if (c.includes('e')) Wd = r.width + dx; if (c.includes('s')) Ht = r.height + dy;
+        if (c.includes('w')) { Wd = r.width - dx; L = r.left + dx; } if (c.includes('n')) { Ht = r.height - dy; T = r.top + dy; }
+        Wd = Math.max(420, Math.min(innerWidth - 8, Wd)); Ht = Math.max(320, Math.min(innerHeight - 8, Ht));
+        if (c.includes('w')) L = r.left + r.width - Wd; if (c.includes('n')) T = r.top + r.height - Ht;
+        Object.assign(dlg.style, {left: Math.max(0, L) + 'px', top: Math.max(0, T) + 'px', width: Wd + 'px', height: Ht + 'px'});
+      };
+      const up = () => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); };
+      h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
+    });
+  }
+  showCat('fav');
+}
+/** The edit button is as tall as the button before it (formula buttons differ in height). */
+function matchAddHeight() {
+  const add = palette.querySelector('#mkFavAdd'); if (!add) return;
+  const fit = () => { const prev = add.previousElementSibling; add.style.height = prev && prev.classList.contains('mk') ? prev.offsetHeight + 'px' : ''; };
+  fit(); setTimeout(fit, 150); setTimeout(fit, 600);
+}
+function setFavMode(on) {
+  favMode = on; dlg.querySelector('#mkFavBar').hidden = !on; dlg.classList.toggle('favmode', on);
+  if (on && curCat === 'fav') showCat(0); else showCat(curCat);
+}
+/** TeX shown on a palette button: the template with sample letters and empty boxes. */
+function labelTex(tpl) {
+  if (/^\\(,|quad|;|:|!)$/.test(tpl.trim())) return null;          // spacing: keep the word label
+  return tpl.replace(/#@/g, 'x').replace(/#0/g, 'a').replace(/#\?/g, '\\square');
 }
 function showCat(i) {
   curCat = i;
-  for (const b of cats.children) b.classList.toggle('on', +b.dataset.c === i);
-  palette.innerHTML = CATS[i][1].map((it, k) => btn(it, k, 'c')).join('');
+  for (const b of cats.children) b.classList.toggle('on', b.dataset.c === String(i));
+  const fav = i === 'fav', items = fav ? favItems() : CATS[i][1], favs = new Set(favList());
+  palette.innerHTML = items.map((it, k) => btn(it, k, fav ? 'v' : 'c')).join('')
+    + (fav && !favMode ? `<button class="mk mk-addfav" id="mkFavAdd" title="Kedvencek szerkesztése" aria-label="Kedvencek szerkesztése"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>` : '');
+  if (favMode) palette.querySelectorAll('.mk[data-i]').forEach(b => b.classList.toggle('isfav', favs.has(items[+b.dataset.i][1])));
+  if (fav) matchAddHeight();
+  items.forEach((it, k) => {
+    const t = labelTex(it[1]); if (!t) return;
+    const b = palette.querySelector(`.mk[data-i="${k}"]`); if (!b) return; const keep = b.innerHTML;
+    const span = document.createElement('span'); span.className = 'mkm';
+    renderInto(span, t, true, () => {
+      const err = span.querySelector('[data-mjx-error], .merr');
+      if (err || !span.querySelector('svg')) { b.innerHTML = keep; return; }
+      b.innerHTML = ''; b.appendChild(span); b.classList.add('typeset');
+      if (curCat === 'fav') matchAddHeight();
+    });
+  });
 }
-function hide() { dlg.hidden = true; onApply = onDelete = null; }
+function hide() { dlg.hidden = true; onApply = onDelete = null; if (favMode) setFavMode(false); }
 function close() { const a = onApply; hide(); a && a(null); }
-function apply() { const a = onApply, t = cleanTex(); hide(); a && a(t); }
+function apply() { const a = onApply, t = cleanTex(), w = dlg.querySelector('#mdWrap').checked; hide(); a && a(t, w); }
 
 /**
  * Open the editor. onApply(tex) is called with the final TeX ('' = empty), or null when cancelled.
  */
-export function openMathEditor({ tex = '', editing = false, top = 80, onApply: ok, onDelete: del }) {
+export function openMathEditor({ tex = '', editing = false, top = 80, wrap = false, onApply: ok, onDelete: del }) {
   if (!dlg) build();
+  dlg.querySelector('#mdWrap').checked = !!wrap;
   onApply = ok; onDelete = del;
   dlg.querySelector('#mdOk').textContent = editing ? 'Frissítés' : 'Beszúrás';
   dlg.querySelector('#mdDel').hidden = !editing;
@@ -210,5 +314,8 @@ export function openMathEditor({ tex = '', editing = false, top = 80, onApply: o
   texBox.value = tex;
   syncFromField();
   requestAnimationFrame(() => { markPlaceholders(); mf.focus(); mf.executeCommand('moveToMathfieldEnd'); });
+  setTimeout(() => { if (isMathEditorOpen() && document.activeElement !== mf) { mf.focus(); mf.executeCommand('moveToMathfieldEnd'); } fitSoon(); }, 80);
 }
 export function isMathEditorOpen() { return dlg && !dlg.hidden; }
+/** Ctrl+M while the editor is open: finish (insert / update). */
+export function applyMathEditor() { if (isMathEditorOpen()) apply(); }

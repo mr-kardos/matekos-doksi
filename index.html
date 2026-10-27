@@ -8,30 +8,29 @@
 <body>
 <header class="app" id="app">
   <div class="bar1">
-    <div class="brand" id="brand" title="Kezdőlap"><span class="logo">M</span><span class="bname">Matekos Doksi</span></div>
-    <input id="docTitle" class="title" value="Névtelen dokumentum" aria-label="Dokumentum címe">
-    <span id="status" class="status"></span>
-    <div class="spacer"></div>
-    <button class="btn" id="newBtn">Új</button>
-    <button class="btn" id="openBtn" title="Matekos Doksi dokumentum megnyitása (Ctrl/⌘+O)">Megnyitás</button>
-    <button class="btn primary" id="saveBtn" title="Mentés (Ctrl/⌘+S)">Mentés</button>
-    <button class="btn" id="printBtn" title="Nyomtatás (Ctrl/⌘+P)">Nyomtatás</button>
-    <button class="btn" id="tplBtn">Oldal és sablon</button>
-    <select id="zoomSel" class="sel" title="Nagyítás" aria-label="Nagyítás">
-      <option value="auto">Illesztés</option><option value="50">50%</option><option value="75">75%</option><option value="90">90%</option><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option><option value="200">200%</option>
-    </select>
-  </div>
-  <div class="ribbon" id="ribbon">
-    <div class="grp">
+    <div class="b1left">
+      <button class="btn menubtn wbtn" data-pop="popFile" id="bFile" title="Új dokumentum, megnyitás, kezdőképernyő"><span>Fájl</span><svg class="ddi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <button class="btn menubtn" data-pop="popExport" id="bExport" title="PDF-be mentés vagy nyomtatás – pontosan úgy, ahogy a képernyőn látszik"><span>Exportálás</span><svg class="ddi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+      <span class="split wbtn"><button class="btn primary" id="bSave" title="Mentés a dokumentum fájljába (Ctrl/⌘+S) – csak az első mentéskor kérdez rá a helyre">Mentés</button><button class="btn primary splitdd" data-pop="popSave" title="Mentés másként" aria-label="Mentés másként"><svg class="ddi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button></span>
+      <span class="b1sep"></span>
       <button class="tb" data-cmd="undo" data-icon="undo" title="Visszavonás (Ctrl/⌘+Z)"></button>
       <button class="tb" data-cmd="redo" data-icon="redo" title="Mégis (Ctrl/⌘+Shift+Z)"></button>
     </div>
+    <div class="b1mid">
+      <input id="docTitle" class="title" value="Névtelen dokumentum" aria-label="Dokumentum címe (a fájl neve)" title="A dokumentum fájljának neve – átírva a fájl is átneveződik">
+      <span id="status" class="status" aria-live="polite"></span>
+    </div>
+    <div class="b1right">
+      <button class="btn tplbtn" id="bTpl" title="Sablonszerkesztő: oldal, élőfej és élőláb, vízjel, szövegstílusok"><span class="tpll">Sablon:</span> <b id="tplName">Oldal és stílusok</b></button>
+      <button class="btn menubtn zoombtn" data-pop="popZoom" id="bZoom" title="Nagyítás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg><span id="zoomLabel"></span><svg class="ddi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    </div>
+  </div>
+  <div class="ribbon" id="ribbon">
     <div class="grp">
       <select id="styleSel" class="sel style" title="Bekezdésstílus" aria-label="Bekezdésstílus">
         <option value="p">Normál</option><option value="h1">Címsor 1</option><option value="h2">Címsor 2</option><option value="h3">Címsor 3</option>
       </select>
-      <input id="sizeIn" class="sel size" list="sizeList" inputmode="decimal" title="Betűméret (pt)" aria-label="Betűméret" value="12">
-      <datalist id="sizeList"><option value="8"><option value="9"><option value="10"><option value="10.5"><option value="11"><option value="12"><option value="14"><option value="16"><option value="18"><option value="20"><option value="24"><option value="28"><option value="32"><option value="36"><option value="48"><option value="72"></datalist>
+      <span class="sizebox"><input id="sizeIn" class="sel size" inputmode="decimal" title="Betűméret (pt)" aria-label="Betűméret" value="12"><button class="tb mini sizedd" data-pop="popSize" data-icon="chev" title="Betűméretek"></button></span>
     </div>
     <div class="grp">
       <button class="tb" data-cmd="bold" data-state="bold" title="Félkövér (Ctrl/⌘+B) – képletekre is"><b>B</b></button>
@@ -40,11 +39,10 @@
       <button class="tb" data-cmd="strike" data-state="strike" title="Áthúzott"><s>S</s></button>
       <button class="tb" data-cmd="superscript" data-state="superscript" title="Felső index">x²</button>
       <button class="tb" data-cmd="subscript" data-state="subscript" title="Alsó index">x₂</button>
-    </div>
-    <div class="grp">
       <button class="tb cbtn" data-pop="popColor" data-icon="colorA" title="Betűszín"><i class="cbar" id="colorBar"></i></button>
       <button class="tb cbtn" data-pop="popHi" data-icon="marker" title="Kijelölt szöveg kiemelése"><i class="cbar" style="background:#fff176"></i></button>
       <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyékolás: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#dbe9ee"></i></button>
+      <button class="tb" data-cmd="upper" data-state="upper" title="Csupa nagybetű / ahogy begépelted (a betűk nem változnak, csak a megjelenésük)"><span class="aa">Aa</span></button>
       <button class="tb" data-cmd="clearFormat" data-icon="clear" title="Formázás törlése"></button>
     </div>
     <div class="grp">
@@ -61,13 +59,14 @@
       <button class="tb" data-cmd="outdent" data-icon="outdent" title="Behúzás csökkentése (listában Shift+Tab)"></button>
       <button class="tb" data-cmd="indent" data-icon="indent" title="Behúzás növelése (listában Tab)"></button>
       <button class="tb" data-pop="popLine" data-icon="lineH" title="Sorköz"></button>
-      <button class="tb" data-pop="popPara" data-icon="para" title="Behúzások és térközök"></button>
+      <button class="tb" data-pop="popPara" data-icon="para" title="Bekezdés: behúzások és bekezdésköz"></button>
+      <button class="tb" data-pop="popSpacing" data-icon="spacing" title="Betűköz"></button>
     </div>
     <div class="grp">
-      <button class="tb" data-pop="popTable" data-icon="table" title="Táblázat beszúrása"></button>
-      <button class="tb" data-cmd="image" data-icon="image" title="Kép beszúrása"></button>
-      <button class="tb" data-cmd="pageBreak" data-icon="pbreak" title="Oldaltörés (Ctrl/⌘+Enter)"></button>
       <button class="tb" data-cmd="math" data-icon="sigma" title="Képlet (Ctrl/⌘+M) – vagy írd $…$ közé a szövegben"><span class="lbl">Képlet</span></button>
+      <button class="tb" data-pop="popTable" data-icon="table" title="Táblázat beszúrása"></button>
+      <button class="tb" data-cmd="image" data-icon="image" title="Kép beszúrása – PNG, JPG, GIF, WebP, SVG"></button>
+      <button class="tb" data-cmd="pageBreak" data-icon="pbreak" title="Oldaltörés (Ctrl/⌘+Enter)"></button>
     </div>
   </div>
   <div class="ctxbar" id="tableBar" hidden>
@@ -93,23 +92,145 @@
   </div>
 </header>
 
-<main class="ws" id="ws">
-  <div class="outer" id="outer">
-    <div class="stack" id="stack">
-      <div id="pages"></div>
-      <div id="shadeLayer"></div>
-      <div id="editorHost"></div>
-      <div id="tblHandles"></div>
-      <div id="fcaret" hidden></div>
-      <div id="imgFrame" hidden><span class="ibar"><button class="tb" data-wrap="wl" title="Körbefuttatás – a kép bárhová húzható" data-icon="wrapL"></button><button class="tb" data-wrap="wr" title="Körbefuttatás, kép jobbra" data-icon="wrapR"></button><button class="tb" data-wrap="ctr" title="Külön sorban, középen" data-icon="center"></button><button class="tb" data-wrap="inl" title="A szöveg sorában" data-icon="inline"></button><span class="sep"></span><button class="tb" data-act="del" title="Kép törlése" data-icon="trash"></button></span><i class="ih nw" data-h="nw"></i><i class="ih ne" data-h="ne"></i><i class="ih sw" data-h="sw"></i><i class="ih se" data-h="se"></i><span class="isize"></span></div>
+<div class="main" id="main">
+  <nav id="pagesNav" aria-label="Oldalak"><div class="plist" id="plist"></div></nav>
+  <div class="lsplit" id="lsplit" title="Húzd a panel szélességének állításához" role="separator" aria-orientation="vertical"></div>
+  <main class="ws" id="ws">
+    <div class="outer" id="outer">
+      <div class="stack" id="stack">
+        <div id="pages"></div>
+        <div id="shadeLayer"></div>
+        <div id="editorHost"></div>
+        <div id="tblHandles"></div>
+        <div id="fcaret" hidden></div>
+        <div id="imgFrame" hidden><span class="ibar"><button class="tb" data-wrap="wl" title="Körbefuttatás – a kép bárhová húzható" data-icon="wrapL"></button><button class="tb" data-wrap="wr" title="Körbefuttatás, kép jobbra" data-icon="wrapR"></button><button class="tb" data-wrap="ctr" title="Külön sorban, középen" data-icon="center"></button><button class="tb" data-wrap="inl" title="A szöveg sorában" data-icon="inline"></button><span class="sep"></span><button class="tb" data-act="del" title="Kép törlése" data-icon="trash"></button></span><i class="ih nw" data-h="nw"></i><i class="ih ne" data-h="ne"></i><i class="ih sw" data-h="sw"></i><i class="ih se" data-h="se"></i><span class="isize"></span></div>
+      </div>
     </div>
-  </div>
-</main>
+  </main>
+  <div class="rsplit" id="rsplit" title="Húzd a panel szélességének állításához" role="separator" aria-orientation="vertical"></div>
+  <aside id="props" aria-label="Sablonszerkesztő">
+    <div class="phead2"><b>Sablon</b><button class="tb" id="propsX" data-icon="panel" title="Jobb oldali panel bezárása"></button></div>
+    <section class="psec" data-sec="page">
+      <button class="psec-h" data-sec-toggle="page"><span class="chev"></span><span>Oldal</span></button>
+      <div class="psec-b">
+        <div class="fgrid">
+          <label class="fld full">Papírméret<select data-k="page"><option>A4</option><option>A5</option><option>B5</option><option>Letter</option></select></label>
+          <label class="fld">Felső margó (mm)<input type="number" min="0" step="1" data-k="margins.top"></label>
+          <label class="fld">Alsó margó (mm)<input type="number" min="0" step="1" data-k="margins.bottom"></label>
+          <label class="fld"><span data-mirror-label="left">Bal margó (mm)</span><input type="number" min="0" step="1" data-k="margins.left"></label>
+          <label class="fld"><span data-mirror-label="right">Jobb margó (mm)</span><input type="number" min="0" step="1" data-k="margins.right"></label>
+          <label class="fld">Kötésmargó (mm)<input type="number" min="0" step="1" data-k="gutter"></label>
+          <label class="chk" style="align-self:end;height:30px"><input type="checkbox" data-k="mirror"> Tükrözött margók</label>
+        </div>
+        <div class="phint">A kötésmargó a kötéshez szükséges plusz hely. Tükrözött margóknál a belső oldalra kerül: páratlan oldalon balra, páros oldalon jobbra.</div>
+      </div>
+    </section>
+    <section class="psec" data-sec="hf">
+      <button class="psec-h" data-sec-toggle="hf"><span class="chev"></span><span>Élőfej és élőláb</span></button>
+      <div class="psec-b">
+        <label class="chk"><input type="checkbox" data-k="oddEven"> Eltérő páros és páratlan oldalakon</label>
+        <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="firstDiff"> Eltérő első oldal</label>
+        <div class="tabs" id="hfTabs"></div>
+        <div id="hfEditor"></div>
+        <div class="fgrid" style="margin-top:10px">
+          <label class="fld">Élőfej távolsága a felső széltől (mm)<input type="number" min="0" step="1" data-k="headerDist"></label>
+          <label class="fld">Élőláb távolsága az alsó széltől (mm)<input type="number" min="0" step="1" data-k="footerDist"></label>
+          <label class="fld">Kezdete a bal lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfLeft"></label>
+          <label class="fld">Vége a jobb lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfRight"></label>
+        </div>
+        <div class="strow" style="margin-top:10px"><div class="sthead"><b>Élőfej szövege</b></div>
+          <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="headerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="headerColor" class="hidecolor"><i class="dot fill" id="hcDot"></i>Szín</label><label class="chk" style="margin-left:6px"><input type="checkbox" data-k="headerLine"> Vonal alatta</label></div></div>
+        <div class="strow"><div class="sthead"><b>Élőláb szövege</b></div>
+          <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="footerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="footerColor" class="hidecolor"><i class="dot fill" id="fcDot"></i>Szín</label><label class="chk" style="margin-left:6px"><input type="checkbox" data-k="footerLine"> Vonal fölötte</label></div></div>
+        <div class="phint">Helyettesítők: <code class="k">{page}</code> oldalszám, <code class="k">{pages}</code> oldalak száma, <code class="k">{date}</code>, <code class="k">{title}</code>.</div>
+      </div>
+    </section>
+    <section class="psec" data-sec="styles">
+      <button class="psec-h" data-sec-toggle="styles"><span class="chev"></span><span>Szövegstílusok</span></button>
+      <div class="psec-b">
+        <div id="styleRows"></div>
+        <div class="fgrid" style="margin-top:4px">
+          <label class="fld">Sorköz<input type="number" min="0.8" max="4" step="0.05" data-k="line"></label>
+          <label class="fld">Bekezdés utáni térköz (pt)<input type="number" min="0" max="60" step="1" data-k="after"></label>
+          <label class="fld">Térköz a képek körül (mm)<input type="number" min="0" max="30" step="0.5" data-k="imgGap"></label>
+          <div class="fld">Betűtípus<span class="fontname">TeX Gyre Bonum</span></div>
+        </div>
+        <div class="phint">A dokumentumban egyenként átformázott szövegek megtartják a saját formájukat.</div>
+      </div>
+    </section>
+    <section class="psec" data-sec="wm">
+      <button class="psec-h" data-sec-toggle="wm"><span class="chev"></span><span>Vízjel</span></button>
+      <div class="psec-b">
+        <div class="seg" id="wmType">
+          <label><input type="radio" name="wmType" value="none" data-k="wm.type"> Nincs</label>
+          <label><input type="radio" name="wmType" value="text" data-k="wm.type"> Szöveg</label>
+          <label><input type="radio" name="wmType" value="image" data-k="wm.type"> Kép</label>
+        </div>
+        <div class="fgrid" style="margin-top:8px" id="wmText">
+          <label class="fld full">Szöveg<input type="text" data-k="wm.text"></label>
+          <label class="fld">Méret<input type="range" min="24" max="220" step="2" data-k="wm.size"></label>
+          <label class="fld">Szög<input type="range" min="-90" max="90" step="1" data-k="wm.angle"></label>
+          <label class="fld">Szín<input type="color" data-k="wm.color"></label>
+        </div>
+        <div class="fgrid" style="margin-top:8px" id="wmImage">
+          <div class="fld full">Kép<div class="imgpick"><img id="wmThumb" alt=""><button class="btn" id="wmPick">Kép választása…</button><button class="btn" id="wmClear">Eltávolítás</button></div></div>
+          <label class="fld">Szélesség (a lap %-ában)<input type="range" min="10" max="100" step="1" data-k="wm.imgWidth"></label>
+          <label class="fld">Szög<input type="range" min="-90" max="90" step="1" data-k="wm.imgAngle"></label>
+        </div>
+        <label class="fld" style="margin-top:8px">Átlátszatlanság<input type="range" min="0.02" max="0.6" step="0.01" data-k="wm.opacity"></label>
+      </div>
+    </section>
+    <section class="psec" data-sec="math">
+      <button class="psec-h" data-sec-toggle="math"><span class="chev"></span><span>Képletek</span></button>
+      <div class="psec-b">
+        <label class="chk"><input type="checkbox" data-k="hunTrig"> A <code class="k">\tan</code>, <code class="k">\cot</code> tg, ctg alakban jelenjen meg</label>
+        <label class="chk" style="margin-top:6px"><input type="checkbox" data-k="decComma"> Tizedesvessző fölösleges szóköz nélkül (3,14)</label>
+        <label class="chk" style="margin-top:6px"><input type="checkbox" data-k="displayInline"> Szövegközi képletek teljes méretben (nagy törtek, határok fölül/alul) – a sorban maradnak</label>
+        <div class="phint">A képletek a körülöttük lévő szöveg méretét, színét és félkövérségét veszik át. Mindig használható: <code class="k">\tg</code> <code class="k">\ctg</code> <code class="k">\arctg</code> <code class="k">\arcctg</code> <code class="k">\sh</code> <code class="k">\ch</code> <code class="k">\th</code> <code class="k">\R</code> <code class="k">\N</code> <code class="k">\Z</code> <code class="k">\Q</code></div>
+      </div>
+    </section>
+    <section class="psec" data-sec="mytpl">
+      <button class="psec-h" data-sec-toggle="mytpl"><span class="chev"></span><span>Saját sablon</span></button>
+      <div class="psec-b">
+        <div class="phint" style="margin:0 0 8px">Ezen a panelen minden a sablon része. Mentsd el egyszer, és minden új dokumentum ebből indul.</div>
+        <div class="btnrow">
+          <button class="btn primary" id="tplSave">Mentés saját sablonként</button>
+          <button class="btn" id="tplLoad">Sablonom alkalmazása</button>
+          <button class="btn" id="tplReset">Alapértelmezés visszaállítása</button>
+        </div>
+        <div class="dmsg" id="tplMsg"></div>
+      </div>
+    </section>
+  </aside>
+  <button class="tb panelopen" id="panelOpen" data-icon="panel" title="Sablonszerkesztő megnyitása"></button>
+</div>
 
 <!-- popovers -->
+<div class="pop" id="popFile" hidden>
+  <button class="pitem" id="fNew">Új dokumentum</button>
+  <button class="pitem" id="fOpen">Megnyitás… <span class="phint">Ctrl/⌘+O</span></button>
+  <div class="psep"></div>
+  <button class="pitem" id="fHome">Kezdőképernyő</button>
+</div>
+<div class="pop" id="popExport" hidden>
+  <button class="pitem" id="expPdf">PDF – pontosan úgy, ahogy a képernyőn látszik</button>
+  <button class="pitem" id="expPrint">Nyomtatás… <span class="phint">Ctrl/⌘+P</span></button>
+</div>
+<div class="pop" id="popSave" hidden>
+  <button class="pitem" id="fSaveAs">Mentés másként… <span class="phint">Ctrl/⌘+Shift+S</span></button>
+</div>
+<div class="pop" id="popZoom" hidden>
+  <button class="pitem" data-zoom="auto">Illesztés</button>
+  <button class="pitem" data-zoom="50">50%</button><button class="pitem" data-zoom="75">75%</button><button class="pitem" data-zoom="90">90%</button><button class="pitem" data-zoom="100">100%</button><button class="pitem" data-zoom="125">125%</button><button class="pitem" data-zoom="150">150%</button><button class="pitem" data-zoom="200">200%</button>
+</div>
+<div class="pop" id="popSize" hidden><div class="ptitle">Betűméret (pt)</div><div class="sizegrid" id="sizeGrid"></div></div>
+<div class="pop" id="popSpacing" hidden>
+  <div class="ptitle">Betűköz</div>
+  <div class="sprow"><input type="range" id="spacingR" min="-3" max="10" step="0.1" value="0"><input type="number" id="spacingIn" min="-3" max="10" step="0.1" value="0"><span>pt</span></div>
+</div>
 <div class="pop" id="popColor" hidden><div class="ptitle">Betűszín</div><div class="swg" id="swText"></div></div>
 <div class="pop" id="popHi" hidden><div class="ptitle">Kijelölt szöveg kiemelése</div><div class="swg" id="swHi"></div></div>
-<div class="pop" id="popShade" hidden><div class="ptitle">Sorárnyékolás – teljes szélességű szín a sorok mögött</div><div class="swg" id="swShade"></div><div class="phint">Jelölj ki szöveget: pontosan azok a sorok kapnak árnyékot, amelyeket érint.<br>Kijelölés nélkül csak a kurzort tartalmazó sor kap árnyékot.<br>A szomszédos árnyékolt sorok egyetlen tömbbé állnak össze.</div></div>
+<div class="pop" id="popShade" hidden><div class="ptitle">Sorárnyékolás – teljes szélességű szín a sorok mögött</div><div class="swg" id="swShade"></div><div class="phint">Jelölj ki szöveget: pontosan azok a sorok kapnak árnyékot, amelyeket érint. Kijelölés nélkül csak a kurzort tartalmazó sor. A szomszédos árnyékolt sorok egyetlen tömbbé állnak össze.</div></div>
 <div class="pop" id="popBorders" hidden>
   <div class="ptitle">Cellaszegélyek</div>
   <div class="seg2"><button class="pitem on" data-scope="cells">Kijelölt cellák</button><button class="pitem" data-scope="table">Teljes táblázat</button></div>
@@ -143,21 +264,19 @@
 <div class="pop" id="popLine" hidden>
   <div class="ptitle">Sorköz</div>
   <div id="lineList"></div>
-  <div class="psep"></div>
-  <button class="pitem" id="openPara">Behúzások és bekezdésköz…</button>
+  <div class="prow lhrow"><label>Egyéni <input type="text" inputmode="decimal" id="lhIn" placeholder="pl. 1,3"></label><button class="btn" id="lhOk">OK</button></div>
 </div>
 <div class="pop" id="popPara" hidden>
   <div class="ptitle">Kijelölt bekezdések</div>
   <div class="pf">
     <label>Bal behúzás (cm)<input type="number" step="0.25" data-pf="indentLeft"></label>
     <label>Jobb behúzás (cm)<input type="number" step="0.25" data-pf="indentRight"></label>
-    <label>Első sor (cm)<input type="number" step="0.25" data-pf="firstLine"></label>
-    <label>Sorköz<input type="number" step="0.05" min="0.8" data-pf="lineHeight"></label>
+    <label>Első sor<select id="pfFirstKind"><option value="none">Nincs</option><option value="first">Első sor beljebb</option><option value="hang">Függő</option></select></label>
+    <label>Mértéke (cm)<input type="number" step="0.25" min="0" id="pfFirstVal"></label>
     <label>Térköz előtte (pt)<input type="number" step="1" min="0" data-pf="spaceBefore"></label>
     <label>Térköz utána (pt)<input type="number" step="1" min="0" data-pf="spaceAfter"></label>
   </div>
   <label class="chk" style="margin-top:8px"><input type="checkbox" data-pf="keepNext"> Együtt a következő bekezdéssel</label>
-  <div class="phint">Negatív első sor érték függő behúzást ad.</div>
 </div>
 <div class="pop" id="popTblIns" hidden>
   <button class="pitem" data-tbl="addRowBefore">Sor fölé</button>
@@ -169,121 +288,32 @@
   <button class="pitem" data-tbl="deleteRow">Sor törlése</button>
   <button class="pitem" data-tbl="deleteColumn">Oszlop törlése</button>
   <div class="psep"></div>
-  <button class="pitem" data-tbl="deleteTable">Táblázat törlése</button>
+  <button class="pitem danger" data-tbl="deleteTable">Az egész táblázat törlése</button>
 </div>
 <div class="pop" id="popTable" hidden><div class="tgrid" id="tgrid"></div><div class="tlabel" id="tlabel">Válassz méretet</div></div>
-<div class="pop" id="popSave" hidden>
-  <div class="ptitle">Dokumentum mentése mint</div>
-  <button class="pitem" id="saveEditable">Szerkeszthető Matekos Doksi dokumentum</button>
-  <button class="pitem" id="savePdf">PDF – pontosan úgy, ahogy a képernyőn látszik (nyomtatáshoz, megosztáshoz)</button>
-</div>
 
 <div class="mprev" id="mprev" hidden></div>
-<div class="busy" id="busy" hidden><div id="busyMsg">Folyamatban…</div></div>
-
-<div class="mathdlg" id="mathDlg" hidden role="dialog" aria-label="Képletszerkesztő"></div>
-
-<aside class="drawer" id="drawer" aria-label="Oldal- és sablonbeállítások">
-  <div class="dhead"><h2>Oldal és sablon</h2><button class="md-x" id="drawerX" aria-label="Bezárás">×</button></div>
-  <section>
-    <h3>Oldal</h3>
-    <div class="fgrid">
-      <label class="fld full">Papírméret<select data-k="page"><option>A4</option><option>A5</option><option>B5</option><option>Letter</option></select></label>
-      <label class="fld">Felső margó (mm)<input type="number" min="0" step="1" data-k="margins.top"></label>
-      <label class="fld">Alsó margó (mm)<input type="number" min="0" step="1" data-k="margins.bottom"></label>
-      <label class="fld"><span data-mirror-label="left">Bal margó (mm)</span><input type="number" min="0" step="1" data-k="margins.left"></label>
-      <label class="fld"><span data-mirror-label="right">Jobb margó (mm)</span><input type="number" min="0" step="1" data-k="margins.right"></label>
-      <label class="fld">Kötésmargó (mm)<input type="number" min="0" step="1" data-k="gutter"></label>
-      <label class="chk" style="align-self:end;height:30px"><input type="checkbox" data-k="mirror"> Tükrözött margók</label>
-    </div>
-    <div class="phint">A kötésmargó a kötéshez szükséges plusz hely. Tükrözött margóknál a belső oldalra kerül: páratlan oldalon balra, páros oldalon jobbra.</div>
-  </section>
-  <section>
-    <h3>Élőfej és élőláb</h3>
-    <label class="chk"><input type="checkbox" data-k="oddEven"> Eltérő páros és páratlan oldalakon</label>
-    <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="firstDiff"> Eltérő első oldal</label>
-    <div class="tabs" id="hfTabs"></div>
-    <div id="hfEditor"></div>
-    <div class="fgrid" style="margin-top:10px">
-      <label class="fld">Élőfej távolsága a felső széltől (mm)<input type="number" min="0" step="1" data-k="headerDist"></label>
-      <label class="fld">Élőláb távolsága az alsó széltől (mm)<input type="number" min="0" step="1" data-k="footerDist"></label>
-      <label class="fld">Kezdete a bal lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfLeft"></label>
-      <label class="fld">Vége a jobb lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfRight"></label>
-      <label class="fld">Élőfej betűmérete (pt)<input type="number" min="5" max="30" step="0.5" data-k="headerSize"></label>
-      <label class="fld">Élőfej szövegszíne<input type="color" data-k="headerColor"></label>
-      <label class="fld">Élőláb betűmérete (pt)<input type="number" min="5" max="30" step="0.5" data-k="footerSize"></label>
-      <label class="fld">Élőláb szövegszíne<input type="color" data-k="footerColor"></label>
-      <label class="chk"><input type="checkbox" data-k="headerLine"> Vonal az élőfej alatt</label>
-      <label class="chk"><input type="checkbox" data-k="footerLine"> Vonal az élőláb fölött</label>
-    </div>
-    <div class="phint">Helyettesítők: <code class="k">{page}</code> oldalszám, <code class="k">{pages}</code> oldalak száma, <code class="k">{date}</code>, <code class="k">{title}</code>.</div>
-  </section>
-  <section>
-    <h3>Vízjel</h3>
-    <div class="seg" id="wmType">
-      <label><input type="radio" name="wmType" value="none" data-k="wm.type"> Nincs</label>
-      <label><input type="radio" name="wmType" value="text" data-k="wm.type"> Szöveg</label>
-      <label><input type="radio" name="wmType" value="image" data-k="wm.type"> Kép</label>
-    </div>
-    <div class="fgrid" style="margin-top:8px" id="wmText">
-      <label class="fld full">Szöveg<input type="text" data-k="wm.text"></label>
-      <label class="fld">Méret<input type="range" min="24" max="220" step="2" data-k="wm.size"></label>
-      <label class="fld">Szög<input type="range" min="-90" max="90" step="1" data-k="wm.angle"></label>
-      <label class="fld">Szín<input type="color" data-k="wm.color"></label>
-    </div>
-    <div class="fgrid" style="margin-top:8px" id="wmImage">
-      <div class="fld full">Kép<div class="imgpick"><img id="wmThumb" alt=""><button class="btn" id="wmPick">Kép választása…</button><button class="btn" id="wmClear">Eltávolítás</button></div></div>
-      <label class="fld">Szélesség (a lap %-ában)<input type="range" min="10" max="100" step="1" data-k="wm.imgWidth"></label>
-      <label class="fld">Szög<input type="range" min="-90" max="90" step="1" data-k="wm.imgAngle"></label>
-    </div>
-    <label class="fld" style="margin-top:8px">Átlátszatlanság<input type="range" min="0.02" max="0.6" step="0.01" data-k="wm.opacity"></label>
-  </section>
-  <section>
-    <h3>Alapértelmezett szöveg</h3>
-    <div class="fgrid">
-      <div class="fld full">Betűtípus<span class="fontname">TeX Gyre Bonum · képletek: TeX Gyre Bonum Math</span></div>
-      <label class="fld">Méret (pt)<input type="number" min="6" max="72" step="0.5" data-k="size"></label>
-      <label class="fld">Szín<input type="color" data-k="color"></label>
-      <label class="fld">Sorköz<input type="number" min="0.8" max="4" step="0.05" data-k="line"></label>
-      <label class="fld">Bekezdés utáni térköz (pt)<input type="number" min="0" max="60" step="1" data-k="after"></label>
-      <label class="fld">Térköz a képek körül (mm)<input type="number" min="0" max="30" step="0.5" data-k="imgGap"></label>
-    </div>
-  </section>
-  <section>
-    <h3>Képletek</h3>
-    <label class="chk"><input type="checkbox" data-k="hunTrig"> A <code class="k">\tan</code>, <code class="k">\cot</code> tg, ctg alakban jelenjen meg</label>
-    <label class="chk" style="margin-top:6px"><input type="checkbox" data-k="decComma"> Tizedesvessző fölösleges szóköz nélkül (3,14)</label>
-    <label class="chk" style="margin-top:6px"><input type="checkbox" data-k="displayInline"> Szövegközi képletek teljes méretben (nagy törtek, határok fölül/alul) – a sorban maradnak</label>
-    <div class="phint">Mindig használható: <code class="k">\tg</code> <code class="k">\ctg</code> <code class="k">\arctg</code> <code class="k">\arcctg</code> <code class="k">\sh</code> <code class="k">\ch</code> <code class="k">\th</code> <code class="k">\R</code> <code class="k">\N</code> <code class="k">\Z</code> <code class="k">\Q</code></div>
-  </section>
-  <section>
-    <h3>Sablon</h3>
-    <div class="phint" style="margin:0 0 8px">Ezen a panelen minden a sablon része. Mentsd el egyszer, és minden új dokumentum ebből indul.</div>
-    <div class="btnrow">
-      <button class="btn primary" id="tplSave">Mentés saját sablonként</button>
-      <button class="btn" id="tplLoad">Sablonom alkalmazása</button>
-      <button class="btn" id="tplReset">Alapértelmezés visszaállítása</button>
-    </div>
-    <div class="dmsg" id="tplMsg"></div>
-  </section>
-</aside>
-
-<div class="home" id="home">
+<div class="home" id="home" hidden>
   <div class="home-card">
-    <div class="home-logo">M</div>
+    <img class="home-logo-img" alt="" width="84" height="84">
     <h1>Matekos Doksi</h1>
-    <p class="home-sub">Nyomdakész matematikai dokumentumok, élő TeX-képletekkel</p>
+    <p class="home-sub home-ver" id="homeVer"></p>
     <div class="home-btns">
-      <button class="hbtn primary" id="homeNew"><span class="hico">＋</span>Új dokumentum</button>
-      <button class="hbtn" id="homeOpen"><span class="hico">📂</span>Meglévő megnyitása</button>
+      <button class="hbtn primary" id="homeNew"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>Új dokumentum</button>
+      <button class="hbtn" id="homeOpen"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 10h18"/></svg></span>Meglévő megnyitása</button>
     </div>
     <button class="hlink" id="homeResume" hidden></button>
   </div>
 </div>
+<div class="cfm" id="cfm" hidden role="alertdialog" aria-modal="true" aria-labelledby="cfmMsg">
+  <div class="cfm-card"><p id="cfmMsg"></p><div class="cfm-btns"><button class="btn" id="cfmNo">Mégse</button><button class="btn danger" id="cfmYes">Igen</button></div></div>
+</div>
+<div class="busy" id="busy" hidden><div id="busyMsg">Folyamatban…</div></div>
+<div class="mathdlg" id="mathDlg" hidden role="dialog" aria-label="Képletszerkesztő"></div>
+<div id="toast" role="status"></div>
+
 <input type="file" id="fileIn" accept="image/*" multiple hidden>
 <input type="file" id="pickIn" accept="image/*" hidden>
-<input type="file" id="openIn" accept=".mdoksi,.kiadvany,.html,.htm,.json" hidden>
-<div id="printRoot" aria-hidden="true"></div>
 
 <script type="module" src="/src/main.js"></script>
 </body>

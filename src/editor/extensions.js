@@ -301,12 +301,13 @@ export const MathNode = Node.create({
   addAttributes() {
     return {
       tex: { default: '', parseHTML: el => el.getAttribute('data-tex') || '' },
-      display: { default: false, parseHTML: el => el.getAttribute('data-display') === '1' || el.classList.contains('disp') }
+      display: { default: false, parseHTML: el => el.getAttribute('data-display') === '1' || el.classList.contains('disp') },
+      wrap: { default: false, parseHTML: el => el.getAttribute('data-wrap') === '1' }
     };
   },
   parseHTML() { return [{ tag: 'span[data-tex]' }]; },
   renderHTML({ node }) {
-    return ['span', { class: 'math' + (node.attrs.display ? ' disp' : ''), 'data-tex': node.attrs.tex, 'data-display': node.attrs.display ? '1' : '0' }];
+    return ['span', { class: 'math' + (node.attrs.display ? ' disp' : '') + (node.attrs.wrap ? ' wrap' : ''), 'data-tex': node.attrs.tex, 'data-display': node.attrs.display ? '1' : '0', ...(node.attrs.wrap ? { 'data-wrap': '1' } : {}) }];
   },
   renderText({ node }) { return node.attrs.display ? `$$${node.attrs.tex}$$` : `$${node.attrs.tex}$`; },
   addNodeView() {
@@ -316,9 +317,10 @@ export const MathNode = Node.create({
       const dom = document.createElement('span');
       dom.contentEditable = 'false';
       const paint = () => {
-        dom.className = 'math' + (cur.attrs.display ? ' disp' : '') + (dom._sel ? ' ProseMirror-selectednode' : '');
+        dom.className = 'math' + (cur.attrs.display ? ' disp' : '') + (cur.attrs.wrap ? ' wrap' : '') + (dom._sel ? ' ProseMirror-selectednode' : '');
         dom.setAttribute('data-tex', cur.attrs.tex);
-        renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered(), isBold(cur));
+        dom._lk = isBold(cur);
+        renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered(), isBold(cur), cur.attrs.wrap);
       };
       paint();
       // Mouse: click = select the formula; click on its left/right edge = cursor before/after it;
@@ -373,7 +375,7 @@ export const MathNode = Node.create({
         dom,
         update(n) {
           if (n.type !== cur.type) return false;
-          const changed = n.attrs.tex !== cur.attrs.tex || n.attrs.display !== cur.attrs.display || isBold(n) !== isBold(cur);
+          const changed = n.attrs.tex !== cur.attrs.tex || n.attrs.display !== cur.attrs.display || n.attrs.wrap !== cur.attrs.wrap || isBold(n) !== dom._lk;
           cur = n;
           if (changed) paint();
           return true;
@@ -429,7 +431,7 @@ export const MathNode = Node.create({
         });
         if (!hits.length) return null;
         const tr = state.tr;
-        for (const h of hits.reverse()) tr.replaceWith(h.from, h.to, type.create({ tex: h.tex, display: h.display }, null, h.marks));
+        for (const h of hits.reverse()) tr.replaceWith(h.from, h.to, type.create({ tex: h.tex, display: h.display, wrap: true }, null, h.marks));
         return tr;
       },
       props: {
@@ -447,7 +449,7 @@ export const MathNode = Node.create({
             display = false; start = from - (m[1].length + 1);
           }
           const tex = display ? m[1].trim() : m[1];
-          const tr = view.state.tr.replaceWith(start, to, type.create({ tex, display }));
+          const tr = view.state.tr.replaceWith(start, to, type.create({ tex, display, wrap: true }));
           tr.setSelection(TextSelection.create(tr.doc, start + 1));
           view.dispatch(tr.scrollIntoView());
           return true;
@@ -665,5 +667,54 @@ export const KvImage = Node.create({
   },
   addCommands() {
     return { insertImage: attrs => ({ commands }) => commands.insertContent({ type: this.name, attrs }) };
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* From Matekos Prezi: hanging indent in lists, letter spacing, caps   */
+/* ------------------------------------------------------------------ */
+/** Hanging indent inside lists: the whole paragraph moves right, the list symbol stays (more space after it). */
+export const ListHang = Extension.create({
+  name: 'listHang',
+  addGlobalAttributes() {
+    return [{ types: ['paragraph'], attributes: { hang: {
+      default: null,
+      parseHTML: el => { const v = parseFloat(el.getAttribute('data-hang')); return isFinite(v) ? v : null; },
+      renderHTML: a => a.hang ? { 'data-hang': a.hang, style: `--hang:${a.hang}cm;padding-left:${a.hang}cm` } : {}
+    } } }];
+  }
+});
+/** Letter spacing as a text style: <span style="letter-spacing:…">. */
+export const LetterSpacing = Extension.create({
+  name: 'letterSpacing',
+  addGlobalAttributes() {
+    return [{ types: ['textStyle'], attributes: { letterSpacing: {
+      default: null,
+      parseHTML: el => el.style.letterSpacing || null,
+      renderHTML: a => a.letterSpacing ? { style: `letter-spacing:${a.letterSpacing}` } : {}
+    } } }];
+  },
+  addCommands() {
+    return {
+      setLetterSpacing: v => ({ chain }) => chain().setMark('textStyle', { letterSpacing: v }).run(),
+      unsetLetterSpacing: () => ({ chain }) => chain().setMark('textStyle', { letterSpacing: null }).removeEmptyTextStyle().run()
+    };
+  }
+});
+/** All caps (only the look – the letters stay as typed). */
+export const TextCase = Extension.create({
+  name: 'textCase',
+  addGlobalAttributes() {
+    return [{ types: ['textStyle'], attributes: { textTransform: {
+      default: null,
+      parseHTML: el => el.style.textTransform === 'uppercase' ? 'uppercase' : null,
+      renderHTML: a => a.textTransform ? { style: `text-transform:${a.textTransform}` } : {}
+    } } }];
+  },
+  addCommands() {
+    return {
+      setUppercase: () => ({ chain }) => chain().setMark('textStyle', { textTransform: 'uppercase' }).run(),
+      unsetUppercase: () => ({ chain }) => chain().setMark('textStyle', { textTransform: null }).removeEmptyTextStyle().run()
+    };
   }
 });

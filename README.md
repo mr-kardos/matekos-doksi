@@ -40,16 +40,6 @@ The installer ends up in `src-tauri/target/release/bundle/`
 
 For development with hot reload: `npm run tauri dev`.
 
-### Browser test version
-
-```
-npm run build:web
-```
-
-This writes one self-contained `dist-web/index.html` that testers can open in
-Chrome, Edge, Safari or Firefox. It needs an internet connection for MathJax;
-the desktop app works fully offline.
-
 ## How printing stays exact
 
 * **Pagination** (`src/editor/pagination.js`) measures the real layout after every change
@@ -61,8 +51,6 @@ the desktop app works fully offline.
   Formulas are written as vector outlines.
 * **Print** in the desktop app opens that exact PDF in the system PDF viewer.
   Print at **Actual size / 100 %**, not "Fit to page".
-* In the browser version, Print uses the browser's print dialog with the same page
-  layout; there, too, set scale to 100 % and margins to "None" if asked.
 
 ## Fonts
 
@@ -77,8 +65,8 @@ the desktop app works fully offline.
 ## File format
 
 `.mdoksi` files are JSON: `{ app, v, title, tpl, doc }` where `doc` is the TipTap
-document and `tpl` the page template. The browser version saves the same data inside an
-`.html` file; the desktop app opens both, as well as `.kiadvany` files and files from the first prototype.
+document and `tpl` the page template. The app also opens `.kiadvany` files and `.html` files
+saved by earlier test versions.
 
 ## Project layout
 
@@ -92,3 +80,12 @@ src/template.js       page geometry, margins, gutter, odd/even pages
 src-tauri/            desktop app (Rust)
 tools/                font verification
 ```
+
+
+## 0.5.0 – interface of Matekos Prezi
+- Home screen, top bar (Fájl ▾, Exportálás ▾, Mentés / Mentés másként, undo/redo, name + status, Sablon, zoom) and ribbon of Matekos Prezi.
+- The title box is the file name: Mentés writes the document's own file (asks only the first time), renaming the title renames the file.
+- Formula editor of Matekos Prezi (favourites, typeset buttons, Ctrl+M/H/L, line breaking per formula).
+- Paragraph settings (first line / hanging indent), line spacing with own value, letter spacing, all caps.
+- Template editor in the right panel (collapsible sections, text styles for normal text and headings).
+- Page list with live miniatures in the left panel.

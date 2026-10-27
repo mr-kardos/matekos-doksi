@@ -1,4 +1,5 @@
 import './styles.css';
+import './doksi.css';
 import { Editor } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TextStyle, Color, FontSize } from '@tiptap/extension-text-style';
@@ -15,21 +16,22 @@ import { loadFonts } from './fonts.js';
 import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady } from './math.js';
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM } from './template.js';
 import { renderSheets, sheetHTML, esc } from './pages.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase } from './editor/extensions.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
-import { isTauri, saveEditable, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath } from './files.js';
+import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave } from './files.js';
 import { SAMPLE_HTML } from './sample.js';
 import { svg } from './icons.js';
-import { openMathEditor } from './mathEditor.js';
+import APP_ICON from '../public/app-icon.png?inline';
+import { openMathEditor, isMathEditorOpen, applyMathEditor } from './mathEditor.js';
 
 const $ = s => document.querySelector(s);
 const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const APP_VERSION = __APP_VERSION__;
 const LS_DOC = 'matekosdoksi.v2.doc', LS_TPL = 'matekosdoksi.v2.tpl';
 const OLD_DOC = 'kiadvany.v2.doc', OLD_TPL = 'kiadvany.v2.tpl';   // earlier test versions
 const store = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } };
 const load = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
-const setStatus = t => { $('#status').textContent = t || ''; };
 
 let tpl = normalizeTpl(DEFAULT_TPL);
 let zoomMode = 'auto', scale = 1, pageCount = 1;
@@ -50,7 +52,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize,
+    TextStyle, Color, FontSize, LetterSpacing, TextCase, ListHang,
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -89,7 +91,7 @@ const editor = new Editor({
       return true;
     }
   },
-  onUpdate: () => saveSoon(),
+  onUpdate: () => { markDirty(); saveSoon(); },
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
   onFocus: () => updateOverlays(),
   onBlur: () => updateOverlays(),
@@ -114,6 +116,7 @@ function applyLayout(n) {
   applyZoom();
   drawShadeBands($('#shadeLayer'), dom, stack, scale, y => Math.floor(y / g.P));
   updateOverlays();
+  thumbsSoon();
 }
 function applyZoom() {
   const g = geometry(tpl);
@@ -133,10 +136,20 @@ function applyTpl(rerenderMath) {
   dom.style.lineHeight = String(tpl.line);
   dom.style.setProperty('--after', tpl.after + 'pt');
   dom.style.setProperty('--img-gap', (tpl.imgGap ?? 4) + 'mm');
+  for (const k of ['h1', 'h2', 'h3']) {
+    const st = tpl.styles[k];
+    dom.style.setProperty(`--${k}s`, st.size + 'pt'); dom.style.setProperty(`--${k}c`, st.color || 'inherit');
+    dom.style.setProperty(`--${k}w`, st.bold ? '700' : '400'); dom.style.setProperty(`--${k}i`, st.italic ? 'italic' : 'normal');
+    dom.style.setProperty(`--${k}u`, st.underline ? 'underline' : 'none');
+  }
   if (mathOpts.hunTrig !== tpl.hunTrig || mathOpts.decComma !== tpl.decComma || mathOpts.displayInline !== tpl.displayInline || rerenderMath) {
     mathOpts.hunTrig = tpl.hunTrig; mathOpts.decComma = tpl.decComma; mathOpts.displayInline = tpl.displayInline; clearMathCache();
-    // force math node views to repaint
-    for (const m of $$('.math', dom)) { const t = m.getAttribute('data-tex'); renderInto(m, t, m.classList.contains('disp'), () => relayout(60)); }
+    // repaint every formula with its own look (bold, line breaking)
+    editor.state.doc.descendants((n, pos) => {
+      if (n.type.name !== 'math') return;
+      const m = editor.view.nodeDOM(pos);
+      if (m) renderInto(m, n.attrs.tex, n.attrs.display, () => relayout(60), n.marks.some(x => x.type.name === 'bold'), n.attrs.wrap);
+    });
   }
   applyLayout(pageCount);
   relayout(0);
@@ -247,10 +260,12 @@ $('#tblHandles').addEventListener('mousedown', e => {
 });
 
 /* ------------------------------------------------------------------ */
-/* Toolbar                                                             */
+/* Toolbar (Matekos Prezi layout)                                      */
 /* ------------------------------------------------------------------ */
 for (const b of $$('[data-icon]')) b.insertAdjacentHTML('afterbegin', svg(b.dataset.icon));
+for (const c of $$('.psec-h .chev')) c.innerHTML = svg('chev');
 const ch = () => editor.chain().focus();
+const isUpper = () => editor.getAttributes('textStyle').textTransform === 'uppercase';
 const COMMANDS = {
   undo: () => ch().undo().run(),
   redo: () => ch().redo().run(),
@@ -260,6 +275,7 @@ const COMMANDS = {
   strike: () => ch().toggleStrike().run(),
   superscript: () => ch().toggleSuperscript().run(),
   subscript: () => ch().toggleSubscript().run(),
+  upper: () => isUpper() ? ch().unsetUppercase().run() : ch().setUppercase().run(),
   clearFormat: () => ch().unsetAllMarks().run(),
   alignLeft: () => ch().setTextAlign('left').run(),
   alignCenter: () => ch().setTextAlign('center').run(),
@@ -276,6 +292,7 @@ const COMMANDS = {
 const STATES = {
   bold: () => editor.isActive('bold'), italic: () => editor.isActive('italic'), underline: () => editor.isActive('underline'),
   strike: () => editor.isActive('strike'), superscript: () => editor.isActive('superscript'), subscript: () => editor.isActive('subscript'),
+  upper: isUpper,
   alignLeft: () => editor.isActive({ textAlign: 'left' }), alignCenter: () => editor.isActive({ textAlign: 'center' }),
   alignRight: () => editor.isActive({ textAlign: 'right' }), alignJustify: () => editor.isActive({ textAlign: 'justify' }),
   bulletList: () => editor.isActive('bulletList'), orderedList: () => editor.isActive('orderedList')
@@ -291,7 +308,7 @@ function updateToolbar() {
     try { const d = editor.view.domAtPos(from); el = d.node.nodeType === 1 ? d.node : d.node.parentElement; } catch (e) { /* ignore */ }
     if (el && editor.view.dom.contains(el)) {
       const cs = getComputedStyle(el);
-      if (document.activeElement !== $('#sizeIn')) $('#sizeIn').value = Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2;
+      if (document.activeElement !== $('#sizeIn')) $('#sizeIn').value = String(Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2).replace('.', ',');
       $('#colorBar').style.background = cs.color;
     }
     $('#styleSel').value = editor.isActive('heading', { level: 1 }) ? 'h1' : editor.isActive('heading', { level: 2 }) ? 'h2' : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p';
@@ -300,8 +317,8 @@ function updateToolbar() {
     for (const b of $$('#tableBar [data-valign]')) b.classList.toggle('on', (editor.getAttributes('tableCell').vAlign || editor.getAttributes('tableHeader').vAlign || 'top') === b.dataset.valign);
   });
 }
-for (const bar of [$('#ribbon'), $('#tableBar')]) {
-  bar.addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
+for (const bar of [$('#ribbon'), $('#tableBar'), $('.b1left')]) {
+  bar.addEventListener('mousedown', e => { if (e.target.closest('button') && !e.target.closest('[data-pop="popFile"],[data-pop="popExport"],[data-pop="popSave"],#bSave')) e.preventDefault(); });
   bar.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.pop) return showPop(b.dataset.pop, b);
@@ -318,6 +335,10 @@ $('#styleSel').addEventListener('change', e => {
 const setSize = v => { const p = parseFloat(String(v).replace(',', '.')); if (p > 0 && p < 500) ch().setFontSize(p + 'pt').run(); };
 $('#sizeIn').addEventListener('change', e => setSize(e.target.value));
 $('#sizeIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); setSize(e.target.value); } });
+const SIZES = [8, 9, 10, 10.5, 11, 12, 13, 14, 16, 18, 20, 22, 24, 26, 28, 32, 36, 40, 48, 60, 72];
+$('#sizeGrid').innerHTML = SIZES.map(v => `<button class="pitem" data-size="${v}">${String(v).replace('.', ',')}</button>`).join('');
+$('#popSize').onopen = () => { const c = parseFloat(String($('#sizeIn').value).replace(',', '.')); for (const b of $('#sizeGrid').children) b.classList.toggle('on', +b.dataset.size === c); };
+$('#sizeGrid').addEventListener('click', e => { const b = e.target.closest('[data-size]'); if (!b) return; closePops(); $('#sizeIn').value = b.textContent; setSize(b.dataset.size); });
 
 /* popovers */
 let openPop = null, openAnchor = null;
@@ -331,7 +352,8 @@ function showPop(id, anchor) {
   p.hidden = false;
   const r = anchor.getBoundingClientRect();
   p.style.left = Math.max(8, Math.min(r.left, innerWidth - p.offsetWidth - 8)) + 'px';
-  p.style.top = (r.bottom + 6) + 'px';
+  let top = r.bottom + 6; if (top + p.offsetHeight > innerHeight - 8) top = Math.max(8, innerHeight - p.offsetHeight - 8);
+  p.style.top = top + 'px';
   openPop = p; openAnchor = anchor;
 }
 function closePops() { if (openPop) { openPop.hidden = true; openPop = null; openAnchor = null; } }
@@ -345,7 +367,7 @@ function swatches(box, colors, onPick, noneLabel) {
   box.addEventListener('click', e => { const b = e.target.closest('button[data-c]'); if (b) { onPick(b.dataset.c); closePops(); } });
   box.querySelector('input').addEventListener('change', e => { onPick(e.target.value); closePops(); });
 }
-swatches($('#swText'), ['#111111', '#5d6875', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98', '#ad1457'], c => ch().setColor(c).run());
+swatches($('#swText'), ['#111111', '#5d6875', '#ffffff', '#da291c', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98'], c => ch().setColor(c).run());
 swatches($('#swHi'), ['#fff176', '#c5f0a4', '#b3ecf5', '#f8bbd0', '#ffd59e', '#e1bee7', '#e0e0e0'], c => c === 'none' ? ch().unsetHighlight().run() : ch().setHighlight({ color: c }).run(), 'Nincs kiemelés');
 swatches($('#swShade'), ['#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => {
   const empty = editor.state.selection.empty;
@@ -358,6 +380,20 @@ swatches($('#swShade'), ['#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', 
 }, 'Nincs árnyékolás');
 swatches($('#swCell'), ['#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee', '#d6e4f0'], c => forCells('cells', () => ({ background: c === 'none' ? null : c })), 'Nincs kitöltés');
 
+/* letter spacing (Prezi) */
+const spR = $('#spacingR'), spN = $('#spacingIn');
+function setSpacing(v, final) {
+  if (!isFinite(v)) return;
+  v = Math.round(v * 10) / 10;
+  if (!final) return;
+  (v ? editor.chain().focus().setLetterSpacing(v + 'pt') : editor.chain().focus().unsetLetterSpacing()).run();
+}
+spR.oninput = () => { spN.value = spR.value; };
+spR.onchange = () => setSpacing(+spR.value, true);
+spN.onchange = () => { const v = parseFloat(String(spN.value).replace(',', '.')); if (!isFinite(v)) return; spR.value = v; setSpacing(v, true); };
+$('#popSpacing').onopen = () => { const ls = editor.getAttributes('textStyle').letterSpacing; spR.value = spN.value = ls ? parseFloat(ls) : 0; };
+
+/* bullets, numbering */
 const BUL = ['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'];
 $('#bulGrid').innerHTML = BUL.map(b => `<button data-bul="${b}" aria-label="${b}">${b}</button>`).join('');
 function setBullet(attrs) {
@@ -370,6 +406,8 @@ $('#popBullet').addEventListener('click', e => {
   if (b.dataset.bul === 'none') { if (editor.isActive('bulletList')) ch().toggleBulletList().run(); return; }
   setBullet({ bulletChar: b.dataset.bul, bulletImage: '' });
 });
+$('#popBullet').onopen = () => { const a = editor.isActive('bulletList') ? editor.getAttributes('bulletList') : null;
+  for (const b of $$('#popBullet [data-bul]')) b.classList.toggle('on', !!a && !a.bulletImage && b.dataset.bul === (a.bulletChar || '')); };
 $('#bulCustomBtn').addEventListener('click', () => { const v = $('#bulCustom').value.trim(); if (v) { closePops(); setBullet({ bulletChar: v, bulletImage: '' }); } });
 $('#bulPicBtn').addEventListener('click', () => pickImage(512, url => { closePops(); setBullet({ bulletImage: url, bulletChar: '', bulletSize: +$('#bulPicSize').value || 0.9 }); }));
 $('#bulPicSize').addEventListener('change', e => { if (editor.isActive('bulletList')) ch().updateAttributes('bulletList', { bulletSize: +e.target.value || 0.9 }).run(); });
@@ -378,17 +416,52 @@ $('#popNum').addEventListener('click', e => {
   if (!editor.isActive('orderedList')) ch().toggleOrderedList().run();
   ch().updateAttributes('orderedList', { numStyle: b.dataset.num }).run();
 });
-$('#lineList').innerHTML = [1, 1.15, 1.25, 1.5, 2, 2.5, 3].map(v => `<button class="pitem" data-lh="${v}">${v}</button>`).join('');
+$('#popNum').onopen = () => { const st = editor.isActive('orderedList') ? (editor.getAttributes('orderedList').numStyle || 'decimal') : null;
+  for (const b of $$('#popNum [data-num]')) b.classList.toggle('on', b.dataset.num === st); };
+
+/* line spacing (Prezi: list + own value) */
+const LH = [1, 1.15, 1.25, 1.5, 2, 2.5, 3];
+$('#lineList').innerHTML = LH.map(v => `<button class="pitem" data-lh="${v}">${String(v).replace('.', ',')}</button>`).join('');
+$('#popLine').onopen = () => {
+  const a = editor.isActive('heading') ? editor.getAttributes('heading') : editor.getAttributes('paragraph');
+  const v = a.lineHeight ? +a.lineHeight : tpl.line;
+  for (const b of $('#lineList').children) b.classList.toggle('on', +b.dataset.lh === v);
+  $('#lhIn').value = !LH.includes(v) ? String(v).replace('.', ',') : '';
+};
 $('#lineList').addEventListener('click', e => { const b = e.target.closest('[data-lh]'); if (!b) return; closePops(); ch().setParaAttrs({ lineHeight: +b.dataset.lh }).run(); });
-$('#openPara').addEventListener('click', () => { const a = $('[data-pop="popPara"]'); closePops(); showPop('popPara', a); });
+$('#lhOk').onclick = () => { const v = parseFloat(String($('#lhIn').value).replace(',', '.')); if (!(v >= 0.5 && v <= 5)) return; closePops(); ch().setParaAttrs({ lineHeight: Math.round(v * 100) / 100 }).run(); };
+$('#lhIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#lhOk').click(); } });
+
+/* paragraph: indents, first line / hanging, spacing (Prezi) */
 $('#popPara').onopen = () => {
   const a = editor.isActive('heading') ? editor.getAttributes('heading') : editor.getAttributes('paragraph');
   for (const inp of $$('#popPara [data-pf]')) {
     const k = inp.dataset.pf;
     if (inp.type === 'checkbox') inp.checked = !!a[k];
-    else inp.value = a[k] ?? (k === 'lineHeight' ? tpl.line : k === 'spaceAfter' ? tpl.after : 0);
+    else inp.value = a[k] ?? (k === 'spaceAfter' ? tpl.after : 0);
   }
+  const hang = a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
+  $('#pfFirstKind').value = hang ? 'hang' : a.firstLine > 0 ? 'first' : 'none';
+  $('#pfFirstVal').value = hang || a.firstLine || '';
 };
+function applyFirstLine() {
+  const kind = $('#pfFirstKind').value, v = Math.max(0, parseFloat(String($('#pfFirstVal').value).replace(',', '.')) || 0);
+  const { state } = editor, tr = state.tr, { from, to } = state.selection;
+  state.doc.nodesBetween(from, to, (n, pos) => {
+    if (n.type.name !== 'paragraph' && n.type.name !== 'heading') return;
+    const inList = state.doc.resolve(pos).parent.type.name === 'listItem', a = n.attrs;
+    const oldHang = a.firstLine < 0 ? -a.firstLine : 0, base = Math.max(0, (a.indentLeft || 0) - oldHang) || null;
+    let na;
+    if (kind === 'none' || !v) na = { firstLine: null, hang: null, indentLeft: base };
+    else if (kind === 'first') na = { firstLine: v, hang: null, indentLeft: base };
+    else if (inList && n.type.name === 'paragraph') na = { hang: v, firstLine: null, indentLeft: base };   // list: more room after the symbol
+    else na = { firstLine: -v, hang: null, indentLeft: (base || 0) + v };
+    tr.setNodeMarkup(pos, undefined, { ...a, ...na });
+  });
+  editor.view.dispatch(tr);
+}
+$('#pfFirstKind').addEventListener('change', applyFirstLine);
+$('#pfFirstVal').addEventListener('change', applyFirstLine);
 $('#popPara').addEventListener('change', e => {
   const k = e.target.dataset.pf; if (!k) return;
   const v = e.target.type === 'checkbox' ? e.target.checked : (e.target.value === '' ? null : +e.target.value);
@@ -543,7 +616,7 @@ function pickImage(maxSide, cb) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Formula dialog and live preview                                     */
+/* Formula editor (Matekos Prezi) and live preview                     */
 /* ------------------------------------------------------------------ */
 function openMath(pos, node) {
   closePops(); showPreview(null);
@@ -554,19 +627,19 @@ function openMath(pos, node) {
   if (!node && !sel.empty) tex = editor.state.doc.textBetween(sel.from, sel.to, ' ');
   const finish = () => { if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true }); };
   openMathEditor({
-    tex, editing: !!node, top: $('#app').getBoundingClientRect().bottom + 10,
-    onApply: t => {
+    tex, editing: !!node, top: $('#app').getBoundingClientRect().bottom + 10, wrap: node ? !!node.attrs.wrap : true,
+    onApply: (t, wrap) => {
       if (t == null) return finish();
       if (editPos != null) {
         const n = editor.state.doc.nodeAt(editPos);
         if (n && n.type.name === 'math') {
           const tr = editor.state.tr;
-          if (!t) tr.delete(editPos, editPos + n.nodeSize); else tr.setNodeMarkup(editPos, undefined, { ...n.attrs, tex: t }, n.marks);
+          if (!t) tr.delete(editPos, editPos + n.nodeSize); else tr.setNodeMarkup(editPos, undefined, { ...n.attrs, tex: t, wrap: !!wrap }, n.marks);
           editor.view.dispatch(tr);
         }
         return finish();
       }
-      if (t) editor.chain().focus().insertContent({ type: 'math', attrs: { tex: t, display: false } }).run();
+      if (t) editor.chain().focus().insertContent({ type: 'math', attrs: { tex: t, display: false, wrap: !!wrap } }).run();
       else finish();
     },
     onDelete: () => {
@@ -594,8 +667,100 @@ function showPreview(p) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Template drawer                                                     */
+/* Side panels: page list (left), template editor (right)              */
 /* ------------------------------------------------------------------ */
+const lsGet = k => load(k), lsSet = (k, v) => store(k, v);
+const LSK = { left: 'matekosdoksi.leftw', right: 'matekosdoksi.rightw', panel: 'matekosdoksi.panel', sections: 'matekosdoksi.sections' };
+const mainEl = $('#main'), plist = $('#plist'), props = $('#props');
+function setLeftWidth(w) { w = Math.max(120, Math.min(420, Math.round(w))); document.body.style.setProperty('--lw', w + 'px'); mainEl.style.setProperty('--lw', w + 'px'); return w; }
+function setRightWidth(w) { w = Math.max(260, Math.min(560, Math.round(w))); document.body.style.setProperty('--rw', w + 'px'); mainEl.style.setProperty('--rw', w + 'px'); return w; }
+setLeftWidth(+lsGet(LSK.left) || 176); setRightWidth(+lsGet(LSK.right) || 320);
+function splitter(el, get, set, key, sign) {
+  el.addEventListener('pointerdown', e => {
+    e.preventDefault(); el.setPointerCapture(e.pointerId); el.classList.add('drag');
+    const x0 = e.clientX, w0 = get();
+    const mv = ev => { set(w0 + sign * (ev.clientX - x0)); applyZoom(); thumbsSoon(); };
+    const up = ev => { el.releasePointerCapture(ev.pointerId); el.classList.remove('drag'); el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
+      lsSet(key, String(set(w0 + sign * (ev.clientX - x0)))); applyZoom(); thumbsSoon(true); };
+    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
+  });
+}
+splitter($('#lsplit'), () => $('#pagesNav').getBoundingClientRect().width, setLeftWidth, LSK.left, 1);
+splitter($('#rsplit'), () => props.getBoundingClientRect().width, setRightWidth, LSK.right, -1);
+function panelVisible(v) {
+  mainEl.classList.toggle('noprops', !v); document.body.classList.toggle('noprops-on', !v);
+  $('#bTpl').classList.toggle('primary', v); lsSet(LSK.panel, v ? '1' : '0'); applyZoom();
+  if (v) fillPanel();
+}
+$('#bTpl').addEventListener('click', () => panelVisible(mainEl.classList.contains('noprops')));
+$('#propsX').addEventListener('click', () => panelVisible(false));
+$('#panelOpen').addEventListener('click', () => panelVisible(true));
+let secState = {}; try { secState = JSON.parse(lsGet(LSK.sections) || '{}'); } catch (e) { secState = {}; }
+for (const sec of $$('#props .psec')) sec.classList.toggle('closed', !!secState[sec.dataset.sec]);
+props.addEventListener('click', e => {
+  const t = e.target.closest('[data-sec-toggle]'); if (!t) return;
+  const k = t.dataset.secToggle; secState[k] = !secState[k]; lsSet(LSK.sections, JSON.stringify(secState));
+  t.closest('.psec').classList.toggle('closed', !!secState[k]);
+});
+
+/* page list: a live miniature of every page; click = go to the page */
+let thumbT = 0, curPage = 0;
+function thumbsSoon(now) { clearTimeout(thumbT); thumbT = setTimeout(renderThumbs, now ? 0 : 450); }
+function renderThumbs() {
+  if (!$('#home').hidden) return;
+  const g = geometry(tpl), dom = editor.view.dom;
+  const fw = Math.max(60, plist.clientWidth - 22 - 4 - 18), k = fw / g.W, fh = Math.round(g.H * k);
+  const kids = Array.from(dom.children).map(c => ({ el: c, top: g.mt + c.offsetTop, bottom: g.mt + c.offsetTop + c.offsetHeight }));
+  const style = dom.getAttribute('style') || '';
+  const frag = document.createDocumentFragment();
+  for (let i = 0; i < pageCount; i++) {
+    const t = document.createElement('div');
+    t.className = 'thumb' + (i === curPage ? ' cur' : ''); t.dataset.i = i;
+    t.innerHTML = `<div class="no">${i + 1}</div><div class="frame" style="width:${fw}px;height:${fh}px"><div class="tpage" style="width:${g.W}px;height:${g.H}px;transform:scale(${k})">${sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0)}</div></div>`;
+    const tp = t.querySelector('.tpage');
+    // line shading of this page
+    const bands = document.createElement('div');
+    bands.style.cssText = `position:absolute;left:${-g.sheetX(i)}px;top:${-i * g.P}px`;
+    bands.innerHTML = $('#shadeLayer').innerHTML;
+    for (const d of bands.children) d.style.position = 'absolute';
+    tp.appendChild(bands);
+    // the blocks that reach into this page (exactly as laid out in the editor)
+    const top = i * g.P, bot = top + g.H;
+    const parts = kids.filter(c => c.bottom > top - 2 && c.top < bot + 2);
+    if (parts.length) {
+      const c = document.createElement('div');
+      c.className = 'ProseMirror'; c.setAttribute('style', style);
+      c.style.left = g.leftOf(i) + 'px'; c.style.top = (parts[0].top - top) + 'px'; c.style.minHeight = '0';
+      for (const p of parts) c.appendChild(p.el.cloneNode(true));
+      tp.appendChild(c);
+    }
+    frag.appendChild(t);
+  }
+  plist.replaceChildren(frag);
+}
+plist.addEventListener('click', e => {
+  const t = e.target.closest('.thumb'); if (!t) return;
+  const g = geometry(tpl), i = +t.dataset.i;
+  pickedAt = Date.now();
+  ws.scrollTo({ top: outer.offsetTop + i * g.P * scale - 12, behavior: 'smooth' });
+  setCurPage(i);
+});
+function setCurPage(i) {
+  if (i === curPage) return;
+  curPage = i;
+  for (const t of plist.children) t.classList.toggle('cur', +t.dataset.i === i);
+  const el = plist.children[i]; if (el) el.scrollIntoView({ block: 'nearest' });
+}
+let pickedAt = 0;
+ws.addEventListener('scroll', () => {
+  if (Date.now() - pickedAt < 900) return;                 // just clicked a page in the list
+  const g = geometry(tpl);
+  if (ws.scrollTop + ws.clientHeight >= ws.scrollHeight - 2) return setCurPage(pageCount - 1);
+  const y = (ws.scrollTop + ws.clientHeight * 0.35 - outer.offsetTop) / scale;
+  setCurPage(Math.max(0, Math.min(pageCount - 1, Math.floor(y / g.P))));
+}, { passive: true });
+
+/* template editor (right panel) */
 const getPath = (o, p) => p.split('.').reduce((a, k) => a && a[k], o);
 const setPath = (o, p, v) => { const ks = p.split('.'), last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
 let hfVariant = 'odd';
@@ -609,7 +774,7 @@ function hfTabs() {
     const sl = tpl[kind][hfVariant], base = `${kind}.${hfVariant}`;
     const picRow = (pos, label) => {
       const pic = sl.img[pos];
-      return `<div class="hfpic"><span class="hfpl">${label}</span><div class="imgpick"><img src="${esc(pic.src)}" alt=""><button class="btn" data-pickimg="${base}.img.${pos}.src">${pic.src ? 'Csere…' : 'Kép…'}</button>${pic.src ? `<button class="btn" data-clearimg="${base}.img.${pos}.src">Eltávolítás</button><label class="mini-l">Magasság <input type="number" min="3" max="80" step="1" data-k="${base}.img.${pos}.h"> mm</label>` : ''}</div></div>`;
+      return `<div class="hfpic"><span class="hfpl">${label}</span><div class="imgpick">${pic.src ? `<img src="${esc(pic.src)}" alt="">` : ''}<button class="btn" data-pickimg="${base}.img.${pos}.src">${pic.src ? 'Csere…' : 'Kép…'}</button>${pic.src ? `<button class="btn" data-clearimg="${base}.img.${pos}.src">Eltávolítás</button><label class="mini-l">Magasság <input type="number" min="3" max="80" step="1" data-k="${base}.img.${pos}.h"> mm</label>` : ''}</div></div>`;
     };
     return `<h4>${kind === 'header' ? 'Élőfej' : 'Élőláb'}</h4>
       <div class="fgrid three">
@@ -621,60 +786,114 @@ function hfTabs() {
   };
   $('#hfEditor').innerHTML = block('header') + block('footer');
 }
-function fillDrawer() {
-  hfTabs();
-  for (const el of $$('#drawer [data-k]')) {
+const STYLE_ROWS = [['body', 'Normál szöveg', 'a dokumentum alapszövege'], ['h1', 'Címsor 1', ''], ['h2', 'Címsor 2', ''], ['h3', 'Címsor 3', '']];
+function styleRows() {
+  $('#styleRows').innerHTML = STYLE_ROWS.map(([k, label, hint]) => {
+    const body = k === 'body', st = body ? { size: tpl.size, color: tpl.color } : tpl.styles[k];
+    const sk = body ? 'size' : `styles.${k}.size`, ck = body ? 'color' : `styles.${k}.color`;
+    return `<div class="strow"><div class="sthead"><b>${label}</b>${hint ? `<span class="phint">${hint}</span>` : ''}</div>
+      <div class="stctl"><input type="number" class="stsize" min="5" max="96" step="0.5" data-k="${sk}" title="Betűméret (pt)"><span class="unit">pt</span>
+        <label class="colbtn btn" title="Betűszín"><input type="color" class="hidecolor" data-k="${ck}"><i class="dot fill" style="--c:${esc(st.color)}"></i>Szín</label>
+        ${body ? '' : ['bold', 'italic', 'underline'].map(t => `<button class="tb${st[t] ? ' on' : ''}" data-stt="${t}" data-st="${k}" title="${{ bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott' }[t]}">${{ bold: '<b>B</b>', italic: '<i>I</i>', underline: '<u>U</u>' }[t]}</button>`).join('')}</div></div>`;
+  }).join('');
+}
+function fillPanel() {
+  hfTabs(); styleRows();
+  for (const el of $$('#props [data-k]')) {
     const v = getPath(tpl, el.dataset.k);
     if (el.type === 'checkbox') el.checked = !!v;
     else if (el.type === 'radio') el.checked = el.value === v;
     else el.value = v ?? '';
   }
-  $('#wmThumb').src = tpl.wm.img || '';
+  $('#hcDot').style.setProperty('--c', tpl.headerColor); $('#fcDot').style.setProperty('--c', tpl.footerColor);
+  $('#wmThumb').src = tpl.wm.img || ''; $('#wmThumb').hidden = !tpl.wm.img;
   $('#wmText').hidden = tpl.wm.type !== 'text';
   $('#wmImage').hidden = tpl.wm.type !== 'image';
   $$('[data-mirror-label]').forEach(s => { s.textContent = tpl.mirror ? (s.dataset.mirrorLabel === 'left' ? 'Belső margó (mm)' : 'Külső margó (mm)') : (s.dataset.mirrorLabel === 'left' ? 'Bal margó (mm)' : 'Jobb margó (mm)'); });
 }
-function onDrawerInput(e) {
+function tplChanged() { markDirty(); applyTpl(); saveSoon(); }
+function onPanelInput(e) {
   const el = e.target, k = el.dataset && el.dataset.k; if (!k) return;
-  if (el.tagName === 'TEXTAREA') { setPath(tpl, k, el.value); applyTpl(); saveSoon(); return; }
+  if (el.tagName === 'TEXTAREA') { setPath(tpl, k, el.value); tplChanged(); return; }
   let v = el.type === 'checkbox' ? el.checked : (el.type === 'number' || el.type === 'range') ? parseFloat(el.value) : el.value;
   if (typeof v === 'number' && isNaN(v)) return;
   if (el.type === 'radio' && !el.checked) return;
   setPath(tpl, k, v);
-  if (k === 'oddEven' || k === 'firstDiff' || k === 'mirror' || k === 'wm.type') fillDrawer();
-  applyTpl(); saveSoon();
+  if (el.type === 'color') { const dot = el.parentElement.querySelector('.dot'); if (dot) dot.style.setProperty('--c', v); }
+  if (k === 'oddEven' || k === 'firstDiff' || k === 'mirror' || k === 'wm.type') fillPanel();
+  tplChanged();
 }
-$('#drawer').addEventListener('input', onDrawerInput);
-$('#drawer').addEventListener('change', onDrawerInput);
-$('#hfTabs').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) { hfVariant = b.dataset.v; fillDrawer(); } });
+props.addEventListener('input', onPanelInput);
+props.addEventListener('change', onPanelInput);
+props.addEventListener('click', e => {
+  const b = e.target.closest('[data-stt]'); if (!b) return;
+  const st = tpl.styles[b.dataset.st]; st[b.dataset.stt] = !st[b.dataset.stt]; b.classList.toggle('on', st[b.dataset.stt]); tplChanged();
+});
+$('#hfTabs').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) { hfVariant = b.dataset.v; fillPanel(); } });
 $('#hfEditor').addEventListener('click', e => {
   const p = e.target.closest('[data-pickimg]'), c = e.target.closest('[data-clearimg]');
-  if (p) pickImage(1600, url => { setPath(tpl, p.dataset.pickimg, url); fillDrawer(); applyTpl(); saveSoon(); });
-  if (c) { setPath(tpl, c.dataset.clearimg, ''); fillDrawer(); applyTpl(); saveSoon(); }
+  if (p) pickImage(1600, url => { setPath(tpl, p.dataset.pickimg, url); fillPanel(); tplChanged(); });
+  if (c) { setPath(tpl, c.dataset.clearimg, ''); fillPanel(); tplChanged(); }
 });
-$('#wmPick').addEventListener('click', () => pickImage(2400, url => { tpl.wm.img = url; tpl.wm.type = 'image'; fillDrawer(); applyTpl(); saveSoon(); }));
-$('#wmClear').addEventListener('click', () => { tpl.wm.img = ''; fillDrawer(); applyTpl(); saveSoon(); });
+$('#wmPick').addEventListener('click', () => pickImage(2400, url => { tpl.wm.img = url; tpl.wm.type = 'image'; fillPanel(); tplChanged(); }));
+$('#wmClear').addEventListener('click', () => { tpl.wm.img = ''; fillPanel(); tplChanged(); });
 const tplMsg = t => { const m = $('#tplMsg'); m.textContent = t; clearTimeout(m._t); m._t = setTimeout(() => { m.textContent = ''; }, 4000); };
 $('#tplSave').addEventListener('click', () => tplMsg(store(LS_TPL, JSON.stringify(tpl)) ? 'Elmentve. Az új dokumentumok ebből a sablonból indulnak.' : 'A sablon mentése nem sikerült.'));
-$('#tplLoad').addEventListener('click', () => { const s = load(LS_TPL); if (!s) return tplMsg('Még nincs mentett sablon.'); tpl = normalizeTpl(JSON.parse(s)); fillDrawer(); applyTpl(true); saveSoon(); tplMsg('Sablon alkalmazva.'); });
-$('#tplReset').addEventListener('click', () => { tpl = normalizeTpl(DEFAULT_TPL); fillDrawer(); applyTpl(true); saveSoon(); tplMsg('Alapbeállítások visszaállítva.'); });
-$('#tplBtn').addEventListener('click', () => { fillDrawer(); $('#drawer').classList.toggle('open'); });
-$('#drawerX').addEventListener('click', () => $('#drawer').classList.remove('open'));
+$('#tplLoad').addEventListener('click', () => { const s = load(LS_TPL); if (!s) return tplMsg('Még nincs mentett sablon.'); tpl = normalizeTpl(JSON.parse(s)); fillPanel(); markDirty(); applyTpl(true); saveSoon(); tplMsg('Sablon alkalmazva.'); });
+$('#tplReset').addEventListener('click', () => { tpl = normalizeTpl(DEFAULT_TPL); fillPanel(); markDirty(); applyTpl(true); saveSoon(); tplMsg('Alapbeállítások visszaállítva.'); });
 const startTpl = () => { const s = load(LS_TPL); try { return normalizeTpl(s ? JSON.parse(s) : DEFAULT_TPL); } catch (e) { return normalizeTpl(DEFAULT_TPL); } };
 
 /* ------------------------------------------------------------------ */
-/* Documents: autosave, new, open, save, PDF, print                    */
+/* Documents (Matekos Prezi behaviour): own file, Save as, renaming,   */
+/* status, autosave, home screen, confirmations                        */
 /* ------------------------------------------------------------------ */
-let saveT = 0;
-function saveSoon() { clearTimeout(saveT); saveT = setTimeout(saveLocal, 800); }
-function docData() { return { title: $('#docTitle').value, tpl, doc: editor.getJSON() }; }
-function saveLocal() { if (!store(LS_DOC, JSON.stringify(docData()))) setStatus('Az automatikus mentés nem sikerült – megtelt a böngésző tárhelye'); }
+let dirty = false, sessionOpen = false, autoT = 0;
+function setStatus(t) {
+  const f = currentFileName(), st = $('#status');
+  st.className = 'status ' + (t ? 'msg' : dirty || !f ? 'unsaved' : 'saved');
+  st.textContent = t || (dirty ? 'Nem mentett' : f ? 'Mentve' : 'Még nincs mentve');
+  st.title = f ? 'A dokumentum fájlja: ' + f : 'A dokumentum még nincs fájlba mentve';
+}
+function flash(t) { setStatus(t); toast(t); clearTimeout(flash._t); flash._t = setTimeout(() => setStatus(), 2600); }
+function markDirty() { if (!dirty) { dirty = true; setStatus(); } }
+function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('on'), 2800); }
+function confirmBox(msg, yes = 'Igen') {
+  return new Promise(res => {
+    const box = $('#cfm'); $('#cfmMsg').textContent = msg; $('#cfmYes').textContent = yes; box.hidden = false; $('#cfmYes').focus();
+    const done = v => { box.hidden = true; removeEventListener('keydown', key, true); $('#cfmYes').onclick = $('#cfmNo').onclick = null; res(v); };
+    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); } else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); } };
+    addEventListener('keydown', key, true);
+    $('#cfmYes').onclick = () => done(true); $('#cfmNo').onclick = () => done(false);
+  });
+}
+const docTitle = () => $('#docTitle').value.trim() || 'Névtelen dokumentum';
+function docData() { return { title: docTitle(), tpl, doc: editor.getJSON() }; }
+const autoValue = () => ({ ...docData(), path: getCurrentPath(), dirty });
+function saveSoon() { clearTimeout(autoT); autoT = setTimeout(saveLocal, 900); }
+async function saveLocal() {
+  if (await autosave(autoValue())) return;
+  setStatus('Az automatikus mentés nem sikerült');
+}
+/** The title box always shows the document's file name (after Save as, opening, renaming). */
+function titleFromFile() { const f = currentFileName(); if (f) $('#docTitle').value = titleOfFile(f); }
+async function renameFromTitle() {
+  const t = docTitle(); $('#docTitle').value = t;
+  renderSheets(pagesEl, pageCount, tpl, t, true); thumbsSoon();
+  if (!currentFileName()) { saveSoon(); return; }
+  try {
+    const n = await renameCurrentFile(t);
+    if (n) { $('#docTitle').value = titleOfFile(n); toast('Átnevezve: ' + n); }
+    saveSoon(); setStatus();
+  } catch (e) { toast('Az átnevezés nem sikerült: ' + (e && e.message || e)); titleFromFile(); }
+}
+$('#docTitle').addEventListener('change', renameFromTitle);
+$('#docTitle').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
 function loadData(d) {
   tpl = normalizeTpl(d.tpl || {});
-  $('#docTitle').value = d.title || 'Dokumentum';
+  $('#docTitle').value = d.title || 'Névtelen dokumentum';
   if (d.doc) editor.commands.setContent(d.doc, { emitUpdate: false });
   else if (typeof d.html === 'string') editor.commands.setContent(d.html, { emitUpdate: false });   // documents from the first prototype
-  fillDrawer(); applyTpl(true);
+  fillPanel(); applyTpl(true);
 }
 function busy(msg) { $('#busyMsg').textContent = msg || ''; $('#busy').hidden = !msg; }
 async function ready() {
@@ -691,138 +910,163 @@ async function makePdf() {
   editor.commands.setTextSelection(0 < editor.state.doc.content.size ? 1 : 0);
   await ready();
   try {
-    return await buildPDF({ editorDom: editor.view.dom, pagesEl, stackEl: stack, scale, tpl, pages: pageCount, title: $('#docTitle').value });
+    return await buildPDF({ editorDom: editor.view.dom, pagesEl, stackEl: stack, scale, tpl, pages: pageCount, title: docTitle() });
   } finally {
     try { editor.view.dispatch(editor.state.tr.setSelection(sel.map(editor.state.doc, editor.state.tr.mapping))); } catch (e) { /* ignore */ }
   }
 }
 async function doSave(saveAs) {
   closePops();
-  try { saveLocal(); setStatus(await saveEditable(docData(), editor.getHTML(), saveAs)); }
-  catch (e) { setStatus('A mentés nem sikerült: ' + (e && e.message || e)); }
+  if (isMathEditorOpen()) applyMathEditor();
+  try {
+    const msg = await saveDocument(docData(), saveAs);
+    if (msg === 'Mentve') { titleFromFile(); dirty = false; saveSoon(); setStatus(); }
+    else flash(msg);
+  } catch (e) { flash('A mentés nem sikerült: ' + (e && e.message || e)); }
 }
 async function doPdf() {
   closePops(); busy('PDF készítése…');
-  try { const blob = await makePdf(); busy(''); setStatus(await savePdfBlob(blob, $('#docTitle').value)); }
-  catch (e) { busy(''); setStatus('A PDF elkészítése nem sikerült: ' + (e && e.message || e)); }
+  try { const blob = await makePdf(); busy(''); flash(await savePdfBlob(blob, docTitle())); }
+  catch (e) { busy(''); flash('A PDF elkészítése nem sikerült: ' + (e && e.message || e)); }
 }
 async function doPrint() {
   closePops();
-  if (isTauri()) {
-    busy('Nyomtatás előkészítése…');
-    try { const blob = await makePdf(); busy(''); setStatus(await printPdfBlob(blob, $('#docTitle').value)); }
-    catch (e) { busy(''); setStatus('A nyomtatás nem sikerült: ' + (e && e.message || e)); }
-    return;
-  }
-  // Browser: print the very same layout, page by page, at true paper size.
-  await ready();
-  const g = geometry(tpl), root = $('#printRoot');
-  let style = document.getElementById('pageRule');
-  if (!style) { style = document.createElement('style'); style.id = 'pageRule'; document.head.appendChild(style); }
-  style.textContent = `@page{size:${g.W / MM}mm ${g.H / MM}mm;margin:0}`;
-  root.innerHTML = '';
-  for (let i = 0; i < pageCount; i++) {
-    const p = document.createElement('div');
-    p.className = 'print-page';
-    p.style.width = g.W + 'px'; p.style.height = g.H + 'px';
-    p.innerHTML = sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0);
-    const bands = document.createElement('div');
-    bands.style.cssText = `position:absolute;left:${-g.sheetX(i)}px;top:${-i * g.P}px`;
-    bands.innerHTML = $('#shadeLayer').innerHTML;
-    for (const d of bands.children) d.style.position = 'absolute';
-    p.appendChild(bands);
-    const c = editor.view.dom.cloneNode(true);
-    c.removeAttribute('contenteditable');
-    c.style.left = g.leftOf(i) + 'px';
-    c.style.top = (g.mt - i * g.P) + 'px';
-    c.style.minHeight = '0';
-    p.appendChild(c);
-    root.appendChild(p);
-  }
-  setTimeout(() => { window.print(); setTimeout(() => { root.innerHTML = ''; }, 500); }, 50);
+  // the exact PDF opens in the system PDF viewer, which prints it at true paper size
+  busy('Nyomtatás előkészítése…');
+  try { const blob = await makePdf(); busy(''); flash(await printPdfBlob(blob, docTitle())); }
+  catch (e) { busy(''); flash('A nyomtatás nem sikerült: ' + (e && e.message || e)); }
 }
-$('#saveBtn').addEventListener('click', e => showPop('popSave', e.currentTarget));
-$('#saveEditable').addEventListener('click', () => doSave(false));
-$('#savePdf').addEventListener('click', doPdf);
-$('#printBtn').addEventListener('click', doPrint);
-$('#openBtn').addEventListener('click', doOpen);
 function openedDocument(r) {
   if (!r) return false;
-  if (r.error) { setStatus('Ez a fájl nem Matekos Doksi dokumentum.'); return false; }
-  loadData(r.data); setCurrentPath(r.path && /\.(mdoksi|kiadvany)$/i.test(r.path) ? r.path : null); saveLocal();
-  setStatus('Megnyitva: ' + r.name);
+  if (r.error) { toast('Ez a fájl nem Matekos Doksi dokumentum.'); return false; }
+  setCurrentPath(r.path && /\.mdoksi$/i.test(r.path) ? r.path : null);
+  loadData(r.data);
+  $('#docTitle').value = titleOfFile(r.name) || r.data.title || 'Névtelen dokumentum';   // the file's own name
+  dirty = false; sessionOpen = true; saveSoon(); setStatus();
+  toast('Megnyitva: ' + r.name);
   showHome(false);
   return true;
 }
 async function doOpen() {
+  closePops();
+  if (dirty && $('#home').hidden && !await confirmBox('A nem mentett módosítások elvesznek. Megnyitsz egy másik dokumentumot?', 'Megnyitás')) return false;
   try { return openedDocument(await openDocumentFile()); }
-  catch (e) { setStatus('A fájl nem nyitható meg: ' + (e && e.message || e)); return false; }
+  catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); return false; }
 }
 async function openPath(p) {
   try { return openedDocument(await openPathFile(p)); }
-  catch (e) { setStatus('A fájl nem nyitható meg: ' + (e && e.message || e)); showHome(true); return false; }
+  catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); showHome(true); return false; }
 }
-function newDocument() {
+async function newDocument() {
+  closePops();
+  if (dirty && $('#home').hidden && !await confirmBox('Új dokumentumot kezdesz. A mostani nem mentett módosításai elvesznek. Folytatod?', 'Új dokumentum')) return false;
   tpl = startTpl(); $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
-  editor.commands.setContent('<p></p>'); fillDrawer(); applyTpl(true); saveLocal();
+  editor.commands.setContent('<p></p>'); fillPanel(); applyTpl(true);
+  dirty = false; sessionOpen = true; setStatus(); saveSoon();
   showHome(false); editor.commands.focus();
+  return true;
 }
-let arm = 0;
-$('#newBtn').addEventListener('click', e => {
-  const b = e.currentTarget;
-  if (!arm) { b.textContent = 'Biztosan új? (a mostani elvész)'; arm = setTimeout(() => { arm = 0; b.textContent = 'Új'; }, 2600); return; }
-  clearTimeout(arm); arm = 0; b.textContent = 'Új';
-  newDocument();
+/* top bar menus */
+$('#bSave').addEventListener('click', () => doSave(false));
+$('#fSaveAs').addEventListener('click', () => doSave(true));
+$('#fNew').addEventListener('click', newDocument);
+$('#fOpen').addEventListener('click', doOpen);
+$('#fHome').addEventListener('click', () => { closePops(); sessionOpen = true; clearTimeout(autoT); saveLocal(); showHome(true); });
+$('#expPdf').addEventListener('click', doPdf);
+$('#expPrint').addEventListener('click', doPrint);
+$('#bFile').addEventListener('click', e => showPop('popFile', e.currentTarget));
+$('#bExport').addEventListener('click', e => showPop('popExport', e.currentTarget));
+$('#bZoom').addEventListener('click', e => showPop('popZoom', e.currentTarget));
+$('#popZoom').onopen = () => { for (const b of $$('#popZoom [data-zoom]')) b.classList.toggle('on', b.dataset.zoom === String(zoomMode)); };
+$('#popZoom').addEventListener('click', e => {
+  const b = e.target.closest('[data-zoom]'); if (!b) return; closePops();
+  zoomMode = b.dataset.zoom; $('#zoomLabel').textContent = zoomMode === 'auto' ? '' : zoomMode + '%'; applyZoom();
 });
 
-/* home screen */
+/* home screen (as in Matekos Prezi) */
+let resumeLabel = '';
 function showHome(show) {
   $('#home').hidden = !show;
   if (show) {
-    const has = !!load(LS_DOC);
-    $('#homeResume').hidden = false;
-    $('#homeResume').textContent = has ? 'Legutóbbi dokumentum folytatása' : 'Mintadokumentum megtekintése';
-  } else { relayout(0); }
+    const f = currentFileName();
+    $('#homeResume').hidden = !(sessionOpen || f || resumeLabel);
+    $('#homeResume').textContent = f ? `Folytatás: ${f}` : sessionOpen ? 'Vissza a megnyitott dokumentumhoz' : resumeLabel;
+  } else { relayout(0); thumbsSoon(true); }
 }
 $('#homeNew').addEventListener('click', newDocument);
 $('#homeOpen').addEventListener('click', doOpen);
-$('#homeResume').addEventListener('click', () => showHome(false));
-$('#brand').addEventListener('click', () => { saveLocal(); showHome(true); });
+$('#homeResume').addEventListener('click', () => { sessionOpen = true; showHome(false); });
+
 document.addEventListener('keydown', e => {
   const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
   if (!mod) return;
   const k = e.key.toLowerCase();
-  if (k === 's') { e.preventDefault(); if (e.shiftKey) doSave(true); else if (isTauri()) doSave(false); else showPop('popSave', $('#saveBtn')); }
+  if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
   else if (k === 'o') { e.preventDefault(); doOpen(); }
   else if (k === 'p') { e.preventDefault(); doPrint(); }
 });
-$('#docTitle').addEventListener('input', () => { renderSheets(pagesEl, pageCount, tpl, $('#docTitle').value); saveSoon(); });
-$('#zoomSel').addEventListener('change', e => { zoomMode = e.target.value; applyZoom(); });
-addEventListener('resize', () => { applyZoom(); closePops(); });
+addEventListener('resize', () => { applyZoom(); closePops(); thumbsSoon(); });
 ws.addEventListener('scroll', () => { closePops(); }, { passive: true });
+function quitBox() {
+  return new Promise(res => {
+    const box = $('#cfm'), extra = document.createElement('button');
+    extra.className = 'btn'; extra.textContent = 'Mentés és kilépés';
+    $('#cfmMsg').textContent = 'A dokumentumban nem mentett módosítások vannak. Kilépsz mentés nélkül?';
+    $('#cfmYes').textContent = 'Kilépés mentés nélkül'; $('#cfmNo').after(extra); box.hidden = false;
+    const done = v => { box.hidden = true; extra.remove(); $('#cfmYes').onclick = $('#cfmNo').onclick = null; res(v); };
+    $('#cfmYes').onclick = () => done('quit'); $('#cfmNo').onclick = () => done('stay'); extra.onclick = () => done('save');
+  });
+}
 
 /* ------------------------------------------------------------------ */
 /* Start                                                               */
 /* ------------------------------------------------------------------ */
 (async function init() {
-  let d = null;
-  try { d = JSON.parse(load(LS_DOC) || load(OLD_DOC) || 'null'); } catch (e) { d = null; }
-  if (!load(LS_TPL) && load(OLD_TPL)) store(LS_TPL, load(OLD_TPL));
-  if (!d) { try { const v1 = JSON.parse(load('kiadvany.doc.v1') || 'null'); if (v1 && v1.html) d = v1; } catch (e) { /* none */ } }
-  if (d && (d.doc || d.html)) loadData(d);
-  else { tpl = startTpl(); $('#docTitle').value = 'Trigonometria'; editor.commands.setContent(SAMPLE_HTML, { emitUpdate: false }); fillDrawer(); applyTpl(true); }
+  $('#homeVer').textContent = 'v' + APP_VERSION;
+  $('.home-logo-img').src = APP_ICON;
+  if (lsGet(LSK.panel) === '0') { mainEl.classList.add('noprops'); document.body.classList.add('noprops-on'); } else $('#bTpl').classList.add('primary');
+  let d = await loadAutosave();
+  if (!d) {    // earlier versions kept the autosave in localStorage
+    try { d = JSON.parse(load(LS_DOC) || load(OLD_DOC) || 'null'); } catch (e) { d = null; }
+    if (!load(LS_TPL) && load(OLD_TPL)) store(LS_TPL, load(OLD_TPL));
+    if (!d) { try { const v1 = JSON.parse(load('kiadvany.doc.v1') || 'null'); if (v1 && v1.html) d = v1; } catch (e) { /* none */ } }
+  }
+  if (d && (d.doc || d.html)) {
+    loadData(d);
+    if (d.path) {
+      setCurrentPath(d.path);
+      // renamed or moved outside the app since the last session: the old place is no longer used
+      if (!await currentFileExists()) { toast(`A(z) „${d.path.split(/[\\/]/).pop()}” fájl már nincs a korábbi helyén – mentéskor új helyet kérdez.`); setCurrentPath(null); }
+      else titleFromFile();
+    }
+    dirty = !!d.dirty;
+    resumeLabel = 'Legutóbbi dokumentum folytatása';
+  } else {
+    tpl = startTpl(); $('#docTitle').value = 'Trigonometria'; editor.commands.setContent(SAMPLE_HTML, { emitUpdate: false }); fillPanel(); applyTpl(true);
+    resumeLabel = 'Mintadokumentum megtekintése';
+  }
+  setStatus();
   loadFonts().then(() => relayout(0));
   document.fonts && document.fonts.addEventListener && document.fonts.addEventListener('loadingdone', () => relayout(30));
   mathReady.then(() => relayout(100));
-  setStatus(isTauri() ? '' : 'Automatikus mentés ebben a böngészőben');
   // the app starts on the home screen – unless it was opened by double-clicking a document
   showHome(true);
   if (isTauri()) {
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window'), win = getCurrentWindow();
+      win.onCloseRequested(async ev => {
+        if (!dirty) return;
+        ev.preventDefault();
+        const r = await quitBox();
+        if (r === 'stay') return;
+        if (r === 'save') { await doSave(false); if (dirty) return; }
+        clearTimeout(autoT); await autosave({ ...autoValue(), dirty: false }); await win.destroy();
+      });
+    } catch (e) { /* not available */ }
     try { const p = await watchOpenedFiles(openPath); if (p) await openPath(p); }
     catch (e) { /* not available */ }
   }
 })();
 
 // Hooks for automated layout/print tests
-window.mdoksi = { editor, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); } };
-
+window.mdoksi = { editor, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };

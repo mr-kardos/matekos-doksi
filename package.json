@@ -1,12 +1,11 @@
 {
   "name": "matekos-doksi",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/copy-mathjax.mjs && vite",
     "build": "node scripts/copy-mathjax.mjs && vite build",
-    "build:web": "vite build --mode web",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -31,7 +30,6 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.5",
-    "vite": "7.3.6",
-    "vite-plugin-singlefile": "2.3.3"
+    "vite": "7.3.6"
   }
 }

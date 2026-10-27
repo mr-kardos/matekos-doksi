@@ -18,6 +18,11 @@ export const DEFAULT_TPL = {
   headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
   wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
   size: 12, color: '#111111', line: 1.25, after: 6, imgGap: 4,
+  styles: {
+    h1: { size: 21, color: '#111111', bold: true, italic: false, underline: false },
+    h2: { size: 16, color: '#111111', bold: true, italic: false, underline: false },
+    h3: { size: 13.5, color: '#111111', bold: true, italic: false, underline: false }
+  },
   hunTrig: true, decComma: true, displayInline: true
 };
 
