@@ -1,7 +1,9 @@
 // Line shading: full-width colour bands behind every line that contains line-shaded content.
 // Bands use the real line boxes (so tall formulas are fully covered) and consecutive shaded
 // lines – also across paragraphs on the same page – merge into one continuous block.
-const SKIP = ['lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih'];
+/** Space kept free for a paragraph line (CSS px): the paragraph gets this much extra padding on that side. */
+export const RULE_GAP = 8;
+const SKIP = ['tab', 'lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih'];
 
 function lineBoxes(block, toY, LH) {
   const rects = [];
@@ -76,7 +78,19 @@ export function drawShadeBands(layer, editorDom, stackEl, scale, pageOf) {
     if (!lines[lines.length - 1].color) cur = null;
     prevBlock = block;
   }
-  layer.innerHTML = bands.map(b => `<div style="left:${b.left}px;top:${b.top}px;width:${b.right - b.left}px;height:${b.bottom - b.top}px;background:${b.color}"></div>`).join('');
+  // margin-to-margin lines above / below paragraphs (drawn here so they span the whole text column)
+  const er = editorDom.getBoundingClientRect(), L0 = toX(er.left), W0 = er.width / scale;
+  const rules = [];
+  for (const b of editorDom.querySelectorAll('[data-rt],[data-rb]')) {
+    const r = b.getBoundingClientRect(), cs = getComputedStyle(b);
+    const pt = parseFloat(cs.paddingTop) || 0, pb = parseFloat(cs.paddingBottom) || 0;
+    for (const [attr, y] of [['data-rt', toY(r.top) + pt - RULE_GAP / 2], ['data-rb', toY(r.bottom) - pb + RULE_GAP / 2]]) {
+      const v = b.getAttribute(attr); if (!v) continue;
+      const [w, c] = v.split(' '), px = (parseFloat(w) || 0.75) / 0.75;
+      rules.push(`<div class="rule" style="left:${L0}px;top:${y - px / 2}px;width:${W0}px;height:${px}px;background:${c || '#111111'}"></div>`);
+    }
+  }
+  layer.innerHTML = bands.map(b => `<div style="left:${b.left}px;top:${b.top}px;width:${b.right - b.left}px;height:${b.bottom - b.top}px;background:${b.color}"></div>`).join('') + rules.join('');
 }
 
 // true when no other text block sits between a and b in the document

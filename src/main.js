@@ -1,6 +1,6 @@
 import './styles.css';
 import './doksi.css';
-import { Editor } from '@tiptap/core';
+import { Editor, generateHTML } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import { TextStyle, Color, FontSize, FontFamily } from '@tiptap/extension-text-style';
 import TextAlign from '@tiptap/extension-text-align';
@@ -8,16 +8,17 @@ import Highlight from '@tiptap/extension-highlight';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { ListItem } from '@tiptap/extension-list';
-import { NodeSelection } from '@tiptap/pm/state';
+import { NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import { drawShadeBands } from './shading.js';
 
 import { loadFonts } from './fonts.js';
 import { FONT_SETS, fontSet, allFamilies, familyCSS, familyFromCSS, familyLabel, registerAllFamilies, loadTextFamily } from './fontsets.js';
 import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady } from './math.js';
-import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM } from './template.js';
-import { renderSheets, sheetHTML, esc } from './pages.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, mathLook, marksAt } from './editor/extensions.js';
+import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
+import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, marksAt, TabNode, listDefaults } from './editor/extensions.js';
+import { layoutTabs, DEFAULT_STEP } from './tabs.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
 import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave } from './files.js';
@@ -38,6 +39,8 @@ let tpl = normalizeTpl(DEFAULT_TPL);
 let zoomMode = 'auto', scale = 1, pageCount = 1;
 let tblCtx = null;                 // table + selected cells, remembered while a table popover / size field is in use
 let ovRaf = 0, imgMoving = false;  // overlay redraw state
+let hfEd = null;                   // header/footer editor while it is open (the ribbon then formats it)
+const AE = () => hfEd || editor;
 const stack = $('#stack'), outer = $('#outer'), ws = $('#ws'), pagesEl = $('#pages');
 
 /* ------------------------------------------------------------------ */
@@ -53,7 +56,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang,
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, TabNode,
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -69,8 +72,29 @@ const editor = new Editor({
   ],
   content: '<p></p>',
   editorProps: {
-    attributes: { spellcheck: 'true', lang: 'hu' },
+    attributes: { spellcheck: 'true', lang: 'hu', class: 'docbody' },
     handleDOMEvents: {
+      // Paragraphs with line-breaking formulas: the browser cannot place the cursor or extend a selection
+      // across them (they are inline, not boxes) – there the editor places cursor and selection itself.
+      mousedown: (view, e) => {
+        if (e.button !== 0 || e.detail > 1 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return false;
+        const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+        if (!t || t.closest('.math,.imgw,td,th,.lm')) return false;
+        const blk = t.closest('p,h1,h2,h3');
+        if (!blk || !blk.querySelector('.math.wrap')) return false;
+        const hit = view.posAtCoords({ left: e.clientX, top: e.clientY }); if (!hit) return false;
+        e.preventDefault();
+        const anchor = hit.pos;
+        view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor)));
+        if (!view.hasFocus()) view.dom.focus({ preventScroll: true });
+        const mv = ev => {
+          const h = view.posAtCoords({ left: ev.clientX, top: ev.clientY }); if (!h) return;
+          try { view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, h.pos))); } catch (err) { /* outside text */ }
+        };
+        const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); };
+        addEventListener('mousemove', mv); addEventListener('mouseup', up);
+        return true;
+      },
       // no dragging of cell contents inside tables
       dragstart: (view, e) => { if (e.target && e.target.closest && (e.target.closest('td,th') || (e.target.parentElement && e.target.parentElement.closest('td,th')))) { e.preventDefault(); return true; } return false; },
       drop: (view, e) => { const t = e.target && (e.target.nodeType === 1 ? e.target : e.target.parentElement); if (t && t.closest('td,th') && !(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) { e.preventDefault(); return true; } return false; }
@@ -111,6 +135,7 @@ function applyLayout(n) {
   dom.style.width = g.colW + 'px';
   dom.style.minHeight = Math.max(0, (n - 1) * g.P + g.H - g.mb - g.mt) + 'px';
   renderSheets(pagesEl, n, tpl, $('#docTitle').value);
+  for (const t of pagesEl.querySelectorAll('.hf-text')) layoutTabs(t, scale);
   const stackW = Math.max(g.sheetX(0), g.sheetX(1)) + g.W;
   stack.style.width = stackW + 'px';
   stack.style.height = (n * g.P - GAP) + 'px';
@@ -130,35 +155,56 @@ function applyZoom() {
   for (const el of [$('#imgFrame'), $('#tblHandles')]) el.style.setProperty('--inv', 1 / scale);
   updateOverlays();
 }
+/** CSS of the paragraph styles of the template (Normál, Főcím, Cím, Alcím). Paragraph-level settings of a
+ *  single paragraph (attributes) still win, because they are inline styles. */
+function styleCSS() {
+  const fam = f => f ? `${familyCSS(f)}, var(--doc-font)` : 'var(--doc-font)';
+  const type = s => `font-family:${fam(s.font)};font-size:${+s.size}pt;color:${s.color};font-weight:${s.bold ? 700 : 400};font-style:${s.italic ? 'italic' : 'normal'};text-decoration:${s.underline ? 'underline' : 'none'};letter-spacing:${+s.letter ? s.letter + 'pt' : 'normal'};`;
+  const para = s => `text-align:${s.align || 'left'};line-height:${+s.line || 1.25};--sb:${+s.spaceBefore || 0}pt;--sa:${+s.spaceAfter || 0}pt;`
+    + `margin-left:${+s.indentLeft || 0}cm;margin-right:${+s.indentRight || 0}cm;text-indent:${+s.firstLine || 0}cm;${s.shade ? `background-color:${s.shade};` : ''}`;
+  const st = tpl.styles;
+  let css = `.docbody p{${type(st.p)}}\n.docbody > p{${para(st.p)}}\n.docbody li > p{text-align:${st.p.align || 'left'};line-height:${+st.p.line || 1.25};}\n`;
+  for (const k of ['h1', 'h2', 'h3']) css += `.docbody ${k}{${type(st[k])}${para(st[k])}}\n`;
+  return css;
+}
+/** Redraw formulas whose look (font, bold – from marks or the paragraph style) changed; all of them when forced. */
+function repaintMath(all) {
+  editor.state.doc.descendants((n, pos) => {
+    if (n.type.name !== 'math') return;
+    const m = editor.view.nodeDOM(pos);
+    if (!m) return;
+    const lk = lookOf(n, m), key = lk.font + '|' + lk.bold;
+    if (!all && m._lk === key) return;
+    m._lk = key;
+    renderInto(m, n.attrs.tex, n.attrs.display, () => relayout(60), lk.bold, n.attrs.wrap, lk.font);
+  });
+}
 function applyTpl(rerenderMath) {
-  const dom = editor.view.dom;
-  dom.style.fontSize = tpl.size + 'pt';
-  dom.style.color = tpl.color;
-  dom.style.lineHeight = String(tpl.line);
-  dom.style.setProperty('--after', tpl.after + 'pt');
+  const dom = editor.view.dom, P = tpl.styles.p;
+  dom.style.fontSize = P.size + 'pt';
+  dom.style.color = P.color;
+  dom.style.lineHeight = String(P.line);
+  dom.style.setProperty('--after', (+P.spaceAfter || 0) + 'pt');
   dom.style.setProperty('--img-gap', (tpl.imgGap ?? 4) + 'mm');
   // font set of the template: text font + its matching math font
   const fs = fontSet(tpl.font);
   document.documentElement.style.setProperty('--doc-font', fs.text === 'bonum' ? "'TeX Gyre Bonum', Georgia, serif" : `${familyCSS(fs.text)}, 'TeX Gyre Bonum', Georgia, serif`);
   if (fs.text !== 'bonum') loadTextFamily(fs.text).then(() => relayout(30));
+  for (const k of ['p', 'h1', 'h2', 'h3']) if (tpl.styles[k].font) loadTextFamily(tpl.styles[k].font).then(() => relayout(30));
   if (setDocMathFont(fs.math)) rerenderMath = true;
-  for (const k of ['h1', 'h2', 'h3']) {
-    const st = tpl.styles[k];
-    dom.style.setProperty(`--${k}s`, st.size + 'pt'); dom.style.setProperty(`--${k}c`, st.color || 'inherit');
-    dom.style.setProperty(`--${k}w`, st.bold ? '700' : '400'); dom.style.setProperty(`--${k}i`, st.italic ? 'italic' : 'normal');
-    dom.style.setProperty(`--${k}u`, st.underline ? 'underline' : 'none');
+  let sheet = document.getElementById('tplStyles');
+  if (!sheet) { sheet = document.createElement('style'); sheet.id = 'tplStyles'; document.head.appendChild(sheet); }
+  const css = styleCSS(); if (sheet.textContent !== css) sheet.textContent = css;
+  // default list symbol / numbering
+  if (listDefaults.bullet !== tpl.lists.bullet || listDefaults.num !== tpl.lists.num) {
+    listDefaults.bullet = tpl.lists.bullet; listDefaults.num = tpl.lists.num;
+    editor.view.dispatch(editor.state.tr.setMeta('listDefaults', true).setMeta('addToHistory', false));
   }
+  hfRenderCache();
   if (mathOpts.hunTrig !== tpl.hunTrig || mathOpts.decComma !== tpl.decComma || mathOpts.displayInline !== tpl.displayInline || rerenderMath) {
     mathOpts.hunTrig = tpl.hunTrig; mathOpts.decComma = tpl.decComma; mathOpts.displayInline = tpl.displayInline; clearMathCache();
-    // repaint every formula with its own look (bold, line breaking)
-    editor.state.doc.descendants((n, pos) => {
-      if (n.type.name !== 'math') return;
-      const m = editor.view.nodeDOM(pos);
-      if (!m) return;
-      const lk = mathLook(n); m._lk = lk.font + '|' + lk.bold;
-      renderInto(m, n.attrs.tex, n.attrs.display, () => relayout(60), lk.bold, n.attrs.wrap, lk.font);
-    });
-  }
+    repaintMath(true);
+  } else requestAnimationFrame(() => repaintMath(false));    // a style's font / weight may have changed
   applyLayout(pageCount);
   relayout(0);
 }
@@ -272,8 +318,8 @@ $('#tblHandles').addEventListener('mousedown', e => {
 /* ------------------------------------------------------------------ */
 for (const b of $$('[data-icon]')) b.insertAdjacentHTML('afterbegin', svg(b.dataset.icon));
 for (const c of $$('.psec-h .chev')) c.innerHTML = svg('chev');
-const ch = () => editor.chain().focus();
-const isUpper = () => editor.getAttributes('textStyle').textTransform === 'uppercase';
+const ch = () => AE().chain().focus();
+const isUpper = () => AE().getAttributes('textStyle').textTransform === 'uppercase';
 const COMMANDS = {
   undo: () => ch().undo().run(),
   redo: () => ch().redo().run(),
@@ -291,19 +337,19 @@ const COMMANDS = {
   alignJustify: () => ch().setTextAlign('justify').run(),
   bulletList: () => ch().toggleBulletList().run(),
   orderedList: () => ch().toggleOrderedList().run(),
-  indent: () => editor.isActive('listItem') ? ch().sinkListItem('listItem').run() : ch().shiftIndent(1).run(),
-  outdent: () => editor.isActive('listItem') ? ch().liftListItem('listItem').run() : ch().shiftIndent(-1).run(),
+  indent: () => AE().isActive('listItem') ? ch().sinkListItem('listItem').run() : ch().shiftIndent(1).run(),
+  outdent: () => AE().isActive('listItem') ? ch().liftListItem('listItem').run() : ch().shiftIndent(-1).run(),
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
   math: () => openMath(null, null)
 };
 const STATES = {
-  bold: () => editor.isActive('bold'), italic: () => editor.isActive('italic'), underline: () => editor.isActive('underline'),
-  strike: () => editor.isActive('strike'), superscript: () => editor.isActive('superscript'), subscript: () => editor.isActive('subscript'),
+  bold: () => AE().isActive('bold'), italic: () => AE().isActive('italic'), underline: () => AE().isActive('underline'),
+  strike: () => AE().isActive('strike'), superscript: () => AE().isActive('superscript'), subscript: () => AE().isActive('subscript'),
   upper: isUpper,
-  alignLeft: () => editor.isActive({ textAlign: 'left' }), alignCenter: () => editor.isActive({ textAlign: 'center' }),
-  alignRight: () => editor.isActive({ textAlign: 'right' }), alignJustify: () => editor.isActive({ textAlign: 'justify' }),
-  bulletList: () => editor.isActive('bulletList'), orderedList: () => editor.isActive('orderedList')
+  alignLeft: () => AE().isActive({ textAlign: 'left' }), alignCenter: () => AE().isActive({ textAlign: 'center' }),
+  alignRight: () => AE().isActive({ textAlign: 'right' }), alignJustify: () => AE().isActive({ textAlign: 'justify' }),
+  bulletList: () => AE().isActive('bulletList'), orderedList: () => AE().isActive('orderedList')
 };
 let tbRaf = 0;
 function updateToolbar() {
@@ -311,19 +357,19 @@ function updateToolbar() {
   tbRaf = requestAnimationFrame(() => {
     tbRaf = 0;
     for (const b of $$('#ribbon [data-state]')) b.classList.toggle('on', !!(STATES[b.dataset.state] && STATES[b.dataset.state]()));
-    const { from } = editor.state.selection;
+    const { from } = AE().state.selection;
     let el = null;
-    try { const d = editor.view.domAtPos(from); el = d.node.nodeType === 1 ? d.node : d.node.parentElement; } catch (e) { /* ignore */ }
-    if (el && editor.view.dom.contains(el)) {
+    try { const d = AE().view.domAtPos(from); el = d.node.nodeType === 1 ? d.node : d.node.parentElement; } catch (e) { /* ignore */ }
+    if (el && AE().view.dom.contains(el)) {
       const cs = getComputedStyle(el);
       if (document.activeElement !== $('#sizeIn')) $('#sizeIn').value = String(Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2).replace('.', ',');
       $('#colorBar').style.background = cs.color;
     }
     { const f = currentFamily(); $('#fontLabel').textContent = familyLabel(f || fontSet(tpl.font).text).replace(/ \(.*\)$/, ''); }
-    $('#styleSel').value = editor.isActive('heading', { level: 1 }) ? 'h1' : editor.isActive('heading', { level: 2 }) ? 'h2' : editor.isActive('heading', { level: 3 }) ? 'h3' : 'p';
-    $('#tableBar').hidden = !editor.isActive('table');
+    $('#styleSel').value = AE().isActive('heading', { level: 1 }) ? 'h1' : AE().isActive('heading', { level: 2 }) ? 'h2' : AE().isActive('heading', { level: 3 }) ? 'h3' : 'p';
+    $('#tableBar').hidden = !AE().isActive('table');
     if (!$('#tableBar').hidden) fillTableFields();
-    for (const b of $$('#tableBar [data-valign]')) b.classList.toggle('on', (editor.getAttributes('tableCell').vAlign || editor.getAttributes('tableHeader').vAlign || 'top') === b.dataset.valign);
+    for (const b of $$('#tableBar [data-valign]')) b.classList.toggle('on', (AE().getAttributes('tableCell').vAlign || AE().getAttributes('tableHeader').vAlign || 'top') === b.dataset.valign);
   });
 }
 for (const bar of [$('#ribbon'), $('#tableBar'), $('.b1left')]) {
@@ -331,8 +377,10 @@ for (const bar of [$('#ribbon'), $('#tableBar'), $('.b1left')]) {
   bar.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.pop) return showPop(b.dataset.pop, b);
+    if (hfEd && (['math', 'image', 'pageBreak', 'bulletList', 'orderedList', 'indent', 'outdent'].includes(b.dataset.cmd) || ['popTable', 'popShade', 'popBullet', 'popNum'].includes(b.dataset.pop)))
+      return toast('Az élőfejben és az élőlábban ez nem használható.');
     if (b.dataset.cmd && COMMANDS[b.dataset.cmd]) return COMMANDS[b.dataset.cmd]();
-    if (b.dataset.tbl) return editor.chain().focus()[b.dataset.tbl]().run();
+    if (b.dataset.tbl) return AE().chain().focus()[b.dataset.tbl]().run();
     if (b.dataset.valign) return ch().setCellAttribute('vAlign', b.dataset.valign).run();
     if (b.dataset.talign) return setTableAttrs({ align: b.dataset.talign });
   });
@@ -346,7 +394,7 @@ registerAllFamilies();
 { const fams = allFamilies(), item = ([f, l]) => `<button class="pitem fitem" data-fam="${f}" style="font-family:${familyCSS(f)}">${l}</button>`;
   $('#fontMath').innerHTML = fams.math.map(item).join(''); $('#fontOther').innerHTML = fams.other.map(item).join(''); }
 /** Font family at the cursor ('' = the template font). */
-const currentFamily = () => { const ff = editor.getAttributes('textStyle').fontFamily; return ff ? (familyFromCSS(ff) || '') : ''; };
+const currentFamily = () => { const ff = AE().getAttributes('textStyle').fontFamily; return ff ? (familyFromCSS(ff) || '') : ''; };
 $('#popFont').onopen = () => { const f = currentFamily(); for (const b of $$('#popFont [data-fam]')) b.classList.toggle('on', b.dataset.fam === f); };
 $('#popFont').addEventListener('click', e => {
   const b = e.target.closest('[data-fam]'); if (!b) return; closePops();
@@ -364,7 +412,7 @@ $('#sizeGrid').addEventListener('click', e => { const b = e.target.closest('[dat
 
 /* popovers */
 let openPop = null, openAnchor = null;
-function rememberTable() { if (tblCtx) return; const c = tableContext(editor.state); tblCtx = c ? { pos: c.pos, rect: c.rect } : null; }
+function rememberTable() { if (tblCtx) return; const c = tableContext(AE().state); tblCtx = c ? { pos: c.pos, rect: c.rect } : null; }
 function showPop(id, anchor) {
   const p = $('#' + id);
   if (/^pop(Borders|Cell)$/.test(id)) rememberTable();
@@ -392,11 +440,11 @@ function swatches(box, colors, onPick, noneLabel) {
 swatches($('#swText'), ['#111111', '#5d6875', '#ffffff', '#da291c', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98'], c => ch().setColor(c).run());
 swatches($('#swHi'), ['#fff176', '#c5f0a4', '#b3ecf5', '#f8bbd0', '#ffd59e', '#e1bee7', '#e0e0e0'], c => c === 'none' ? ch().unsetHighlight().run() : ch().setHighlight({ color: c }).run(), 'Nincs kiemelés');
 swatches($('#swShade'), ['#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => {
-  const empty = editor.state.selection.empty;
+  const empty = AE().state.selection.empty;
   if (c === 'none') return ch().unsetMark('lineShade').setParaAttrs({ shade: null }).run();
   if (empty) {                                                // cursor only: just the line the cursor is in
     const r = currentLineRange();
-    if (r) editor.chain().focus().setTextSelection(r).setMark('lineShade', { color: c }).setTextSelection(editor.state.selection.from).run();
+    if (r) AE().chain().focus().setTextSelection(r).setMark('lineShade', { color: c }).setTextSelection(AE().state.selection.from).run();
     else ch().setParaAttrs({ shade: c }).run();               // empty paragraph: shade its (single) line
   } else ch().setMark('lineShade', { color: c }).run();       // selection: exactly the lines it touches
 }, 'Nincs árnyékolás');
@@ -408,45 +456,45 @@ function setSpacing(v, final) {
   if (!isFinite(v)) return;
   v = Math.round(v * 10) / 10;
   if (!final) return;
-  (v ? editor.chain().focus().setLetterSpacing(v + 'pt') : editor.chain().focus().unsetLetterSpacing()).run();
+  (v ? AE().chain().focus().setLetterSpacing(v + 'pt') : AE().chain().focus().unsetLetterSpacing()).run();
 }
 spR.oninput = () => { spN.value = spR.value; };
 spR.onchange = () => setSpacing(+spR.value, true);
 spN.onchange = () => { const v = parseFloat(String(spN.value).replace(',', '.')); if (!isFinite(v)) return; spR.value = v; setSpacing(v, true); };
-$('#popSpacing').onopen = () => { const ls = editor.getAttributes('textStyle').letterSpacing; spR.value = spN.value = ls ? parseFloat(ls) : 0; };
+$('#popSpacing').onopen = () => { const ls = AE().getAttributes('textStyle').letterSpacing; spR.value = spN.value = ls ? parseFloat(ls) : 0; };
 
 /* bullets, numbering */
 const BUL = ['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'];
 $('#bulGrid').innerHTML = BUL.map(b => `<button data-bul="${b}" aria-label="${b}">${b}</button>`).join('');
 function setBullet(attrs) {
-  if (!editor.isActive('bulletList')) ch().toggleBulletList().run();
+  if (!AE().isActive('bulletList')) ch().toggleBulletList().run();
   ch().updateAttributes('bulletList', attrs).run();
 }
 $('#popBullet').addEventListener('click', e => {
   const b = e.target.closest('[data-bul]'); if (!b) return;
   closePops();
-  if (b.dataset.bul === 'none') { if (editor.isActive('bulletList')) ch().toggleBulletList().run(); return; }
+  if (b.dataset.bul === 'none') { if (AE().isActive('bulletList')) ch().toggleBulletList().run(); return; }
   setBullet({ bulletChar: b.dataset.bul, bulletImage: '' });
 });
-$('#popBullet').onopen = () => { const a = editor.isActive('bulletList') ? editor.getAttributes('bulletList') : null;
+$('#popBullet').onopen = () => { const a = AE().isActive('bulletList') ? AE().getAttributes('bulletList') : null;
   for (const b of $$('#popBullet [data-bul]')) b.classList.toggle('on', !!a && !a.bulletImage && b.dataset.bul === (a.bulletChar || '')); };
 $('#bulCustomBtn').addEventListener('click', () => { const v = $('#bulCustom').value.trim(); if (v) { closePops(); setBullet({ bulletChar: v, bulletImage: '' }); } });
 $('#bulPicBtn').addEventListener('click', () => pickImage(512, url => { closePops(); setBullet({ bulletImage: url, bulletChar: '', bulletSize: +$('#bulPicSize').value || 0.9 }); }));
-$('#bulPicSize').addEventListener('change', e => { if (editor.isActive('bulletList')) ch().updateAttributes('bulletList', { bulletSize: +e.target.value || 0.9 }).run(); });
+$('#bulPicSize').addEventListener('change', e => { if (AE().isActive('bulletList')) ch().updateAttributes('bulletList', { bulletSize: +e.target.value || 0.9 }).run(); });
 $('#popNum').addEventListener('click', e => {
   const b = e.target.closest('[data-num]'); if (!b) return; closePops();
-  if (!editor.isActive('orderedList')) ch().toggleOrderedList().run();
+  if (!AE().isActive('orderedList')) ch().toggleOrderedList().run();
   ch().updateAttributes('orderedList', { numStyle: b.dataset.num }).run();
 });
-$('#popNum').onopen = () => { const st = editor.isActive('orderedList') ? (editor.getAttributes('orderedList').numStyle || 'decimal') : null;
+$('#popNum').onopen = () => { const st = AE().isActive('orderedList') ? (AE().getAttributes('orderedList').numStyle || 'decimal') : null;
   for (const b of $$('#popNum [data-num]')) b.classList.toggle('on', b.dataset.num === st); };
 
 /* line spacing (Prezi: list + own value) */
 const LH = [1, 1.15, 1.25, 1.5, 2, 2.5, 3];
 $('#lineList').innerHTML = LH.map(v => `<button class="pitem" data-lh="${v}">${String(v).replace('.', ',')}</button>`).join('');
 $('#popLine').onopen = () => {
-  const a = editor.isActive('heading') ? editor.getAttributes('heading') : editor.getAttributes('paragraph');
-  const v = a.lineHeight ? +a.lineHeight : tpl.line;
+  const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph');
+  const v = a.lineHeight ? +a.lineHeight : tpl.styles[AE().isActive('heading') ? 'h' + AE().getAttributes('heading').level : 'p'].line;
   for (const b of $('#lineList').children) b.classList.toggle('on', +b.dataset.lh === v);
   $('#lhIn').value = !LH.includes(v) ? String(v).replace('.', ',') : '';
 };
@@ -456,12 +504,13 @@ $('#lhIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.prevent
 
 /* paragraph: indents, first line / hanging, spacing (Prezi) */
 $('#popPara').onopen = () => {
-  const a = editor.isActive('heading') ? editor.getAttributes('heading') : editor.getAttributes('paragraph');
+  const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph');
   for (const inp of $$('#popPara [data-pf]')) {
     const k = inp.dataset.pf;
     if (inp.type === 'checkbox') inp.checked = !!a[k];
-    else inp.value = a[k] ?? (k === 'spaceAfter' ? tpl.after : 0);
+    else inp.value = a[k] ?? '';
   }
+  showTabs();
   const hang = a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
   $('#pfFirstKind').value = hang ? 'hang' : a.firstLine > 0 ? 'first' : 'none';
   $('#pfFirstVal').value = hang || a.firstLine || '';
@@ -480,14 +529,39 @@ function applyFirstLine() {
     else na = { firstLine: -v, hang: null, indentLeft: (base || 0) + v };
     tr.setNodeMarkup(pos, undefined, { ...a, ...na });
   });
-  editor.view.dispatch(tr);
+  AE().view.dispatch(tr);
 }
 $('#pfFirstKind').addEventListener('change', applyFirstLine);
+/* tab stops of the selected paragraphs */
+const curTabs = () => { const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph'); try { return a.tabStops && a.tabStops !== 'hf' ? JSON.parse(a.tabStops) : []; } catch (e) { return []; } };
+const AL = { left: 'balra', center: 'középre', right: 'jobbra' };
+function showTabs() {
+  const t = curTabs();
+  $('#tabList').innerHTML = t.length ? t.map((x, i) => `<div class="tabrow"><span>${String(x.pos).replace('.', ',')} cm – ${AL[x.align] || 'balra'}</span><button class="tb mini" data-deltab="${i}" title="Tabulátor törlése">✕</button></div>`).join('')
+    : '<div class="phint" style="margin:2px 0 4px">Nincs saját tabulátor.</div>';
+}
+function setTabs(list) { list.sort((a, b) => a.pos - b.pos); AE().chain().setParaAttrs({ tabStops: list.length ? JSON.stringify(list) : null }).run(); showTabs(); relayout(0); }
+$('#tabAdd').addEventListener('click', () => { const v = parseFloat(String($('#tabPos').value).replace(',', '.')); if (!(v > 0 && v < 60)) return; setTabs([...curTabs().filter(x => x.pos !== v), { pos: v, align: $('#tabAlign').value }]); $('#tabPos').value = ''; });
+$('#tabList').addEventListener('click', e => { const b = e.target.closest('[data-deltab]'); if (!b) return; const t = curTabs(); t.splice(+b.dataset.deltab, 1); setTabs(t); });
+/* margin-to-margin line above / below the paragraph */
+let ruleW = 0.75, ruleC = '#111111';
+$('#ruleW').addEventListener('click', e => { const b = e.target.closest('[data-rw]'); if (!b) return; ruleW = +b.dataset.rw; for (const x of $$('#ruleW [data-rw]')) x.classList.toggle('on', x === b); });
+$('#popRule').addEventListener('click', e => {
+  const b = e.target.closest('[data-rule]'); if (!b) return;
+  const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph'), val = `${ruleW} ${ruleC}`;
+  if (b.dataset.rule === 'none') AE().chain().focus().setParaAttrs({ ruleTop: null, ruleBottom: null }).run();
+  else if (b.dataset.rule === 'top') AE().chain().focus().setParaAttrs({ ruleTop: a.ruleTop ? null : val }).run();
+  else AE().chain().focus().setParaAttrs({ ruleBottom: a.ruleBottom ? null : val }).run();
+  closePops();
+});
+$('#popRule').onopen = () => { const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph');
+  $('[data-rule="top"]').classList.toggle('on', !!a.ruleTop); $('[data-rule="bottom"]').classList.toggle('on', !!a.ruleBottom); };
+swatches($('#swRule'), ['#111111', '#5d6875', '#9aa3ad', '#da291c', '#1f5f74', '#2e4a9e', '#1e8449'], c => { ruleC = c === 'none' ? '#111111' : c; showPop('popRule', $('[data-pop="popRule"]')); });
 $('#pfFirstVal').addEventListener('change', applyFirstLine);
 $('#popPara').addEventListener('change', e => {
   const k = e.target.dataset.pf; if (!k) return;
   const v = e.target.type === 'checkbox' ? e.target.checked : (e.target.value === '' ? null : +e.target.value);
-  editor.chain().setParaAttrs({ [k]: v }).run();
+  AE().chain().setParaAttrs({ [k]: v }).run();
 });
 const tg = $('#tgrid');
 for (let r = 1; r <= 8; r++) for (let c = 1; c <= 8; c++) { const d = document.createElement('button'); d.className = 'tc'; d.dataset.r = r; d.dataset.c = c; d.setAttribute('aria-label', r + ' × ' + c); tg.appendChild(d); }
@@ -638,6 +712,90 @@ function pickImage(maxSide, cb) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Header and footer: edited right on the page, like in Word           */
+/* (double-click the header or footer area; the ribbon formats it)     */
+/* ------------------------------------------------------------------ */
+const HF_EXT = () => [
+  StarterKit.configure({ heading: false, code: false, codeBlock: false, blockquote: false, horizontalRule: false, link: false,
+    bulletList: false, orderedList: false, listItem: false, listKeymap: false, dropcursor: false, gapcursor: false, trailingNode: false }),
+  TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, TabNode,
+  Highlight.configure({ multicolor: true }), TextAlign.configure({ types: ['paragraph'] }), Subscript, Superscript, ParaFormat
+];
+let hfExtCache = null;
+const hfExtensions = () => hfExtCache || (hfExtCache = HF_EXT());
+function hfRenderCache() {
+  const map = { header: {}, footer: {} };
+  for (const k of ['header', 'footer']) for (const v of ['odd', 'even', 'first']) {
+    const d = tpl[k][v].doc;
+    try { map[k][v] = d ? generateHTML(d, hfExtensions()) : ''; } catch (e) { map[k][v] = ''; }
+  }
+  setHfHTML(map);
+}
+let hfOpen = null;        // {kind, v, i, box}
+function hfZoneAt(clientX, clientY) {
+  const g = geometry(tpl), sr = stack.getBoundingClientRect();
+  const x = (clientX - sr.left) / scale, y = (clientY - sr.top) / scale;
+  const i = Math.floor(y / g.P); if (i < 0 || i >= pageCount) return null;
+  const sx = g.sheetX(i), yy = y - i * g.P;
+  if (x < sx || x > sx + g.W || yy < 0 || yy > g.H) return null;
+  if (yy < g.mt - 2) return { kind: 'header', i };
+  if (yy > g.H - g.mb + 2) return { kind: 'footer', i };
+  return null;
+}
+function openHF(kind, i) {
+  if (hfOpen) closeHF();
+  const v = variantFor(tpl, i);
+  const box = pagesEl.querySelector(`.hf[data-hf="${kind}"][data-i="${i}"]`); if (!box) return;
+  const txt = box.querySelector('.hf-text');
+  const sr = stack.getBoundingClientRect(), r = txt.getBoundingClientRect();
+  const host = document.createElement('div');
+  host.className = 'hf-edit';
+  const isH = kind === 'header';
+  Object.assign(host.style, { left: (r.left - sr.left) / scale + 'px', width: r.width / scale + 'px', fontSize: (isH ? tpl.headerSize : tpl.footerSize) + 'pt', color: isH ? tpl.headerColor : tpl.footerColor });
+  if (isH) host.style.top = (r.top - sr.top) / scale + 'px'; else host.style.bottom = (stack.offsetHeight - (r.bottom - sr.top) / scale) + 'px';
+  host.dataset.label = `${isH ? 'Élőfej' : 'Élőláb'} – ${{ odd: tpl.oddEven ? 'páratlan oldalak' : 'minden oldal', even: 'páros oldalak', first: 'első oldal' }[v]} · Esc vagy dupla kattintás a szövegen: kész`;
+  stack.appendChild(host);
+  txt.style.visibility = 'hidden';
+  stack.classList.add('hfmode');
+  hfEd = new Editor({
+    element: host, extensions: hfExtensions(), content: tpl[kind][v].doc || { type: 'doc', content: [{ type: 'paragraph', attrs: { tabStops: 'hf' } }] },
+    editorProps: { attributes: { class: 'hf-editor', spellcheck: 'true', lang: 'hu' },
+      handleKeyDown: (view, e) => { if (e.key === 'Escape') { closeHF(); return true; } return false; } },
+    onTransaction: () => { updateToolbar(); requestAnimationFrame(() => hfEd && layoutTabs(hfEd.view.dom, scale)); },
+    onSelectionUpdate: () => updateToolbar()
+  });
+  hfOpen = { kind, v, i, txt, host };
+  requestAnimationFrame(() => { if (hfEd) { layoutTabs(hfEd.view.dom, scale); hfEd.commands.focus('end'); } });
+  updateToolbar();
+}
+function closeHF() {
+  if (!hfOpen) return;
+  const { kind, v, txt, host } = hfOpen, ed = hfEd;
+  hfOpen = null; hfEd = null;
+  tpl[kind][v].doc = ed.getJSON();
+  ed.destroy(); host.remove(); txt.style.visibility = '';
+  stack.classList.remove('hfmode');
+  markDirty(); applyTpl(); saveSoon(); updateToolbar();
+}
+stack.addEventListener('dblclick', e => {
+  if (e.target.closest('.hf-edit')) return;
+  const z = hfZoneAt(e.clientX, e.clientY);
+  if (z) { e.preventDefault(); openHF(z.kind, z.i); }
+  else if (hfOpen) closeHF();
+}, true);
+document.addEventListener('pointerdown', e => {
+  if (!hfOpen) return;
+  if (e.target.closest('.hf-edit,.app,.pop,#props,.cfm,.mathdlg')) return;
+  if (e.target.closest('#stack') && hfZoneAt(e.clientX, e.clientY)) return;
+  closeHF();
+}, true);
+$('#props').addEventListener('click', e => {
+  const b = e.target.closest('[data-field]'); if (!b) return;
+  if (!hfEd) { toast('Kattints duplán egy oldal élőfejére vagy élőlábára, és oda kerül a mező.'); return; }
+  hfEd.chain().focus().insertContent(b.dataset.field).run();
+});
+
+/* ------------------------------------------------------------------ */
 /* Formula editor (Matekos Prezi) and live preview                     */
 /* ------------------------------------------------------------------ */
 function openMath(pos, node) {
@@ -714,10 +872,14 @@ splitter($('#lsplit'), () => $('#pagesNav').getBoundingClientRect().width, setLe
 splitter($('#rsplit'), () => props.getBoundingClientRect().width, setRightWidth, LSK.right, -1);
 function panelVisible(v) {
   mainEl.classList.toggle('noprops', !v); document.body.classList.toggle('noprops-on', !v);
-  $('#bTpl').classList.toggle('primary', v); lsSet(LSK.panel, v ? '1' : '0'); applyZoom();
+  lsSet(LSK.panel, v ? '1' : '0'); applyZoom();
   if (v) fillPanel();
 }
-$('#bTpl').addEventListener('click', () => panelVisible(mainEl.classList.contains('noprops')));
+$('#bTpl').addEventListener('click', e => showPop('popPreset', e.currentTarget));
+/* left panel: collapse / open */
+function pagesVisible(v) { mainEl.classList.toggle('nopages', !v); document.body.classList.toggle('nopages-on', !v); lsSet('matekosdoksi.pages', v ? '1' : '0'); applyZoom(); if (v) thumbsSoon(true); }
+$('#pagesX').addEventListener('click', () => pagesVisible(false));
+$('#pagesOpen').addEventListener('click', () => pagesVisible(true));
 $('#propsX').addEventListener('click', () => panelVisible(false));
 $('#panelOpen').addEventListener('click', () => panelVisible(true));
 let secState = {}; try { secState = JSON.parse(lsGet(LSK.sections) || '{}'); } catch (e) { secState = {}; }
@@ -754,7 +916,7 @@ function renderThumbs() {
     const parts = kids.filter(c => c.bottom > top - 2 && c.top < bot + 2);
     if (parts.length) {
       const c = document.createElement('div');
-      c.className = 'ProseMirror'; c.setAttribute('style', style);
+      c.className = 'ProseMirror docbody'; c.setAttribute('style', style);
       c.style.left = g.leftOf(i) + 'px'; c.style.top = (parts[0].top - top) + 'px'; c.style.minHeight = '0';
       for (const p of parts) c.appendChild(p.el.cloneNode(true));
       tp.appendChild(c);
@@ -808,30 +970,46 @@ function hfTabs() {
       const pic = sl.img[pos];
       return `<div class="hfpic"><span class="hfpl">${label}</span><div class="imgpick">${pic.src ? `<img src="${esc(pic.src)}" alt="">` : ''}<button class="btn" data-pickimg="${base}.img.${pos}.src">${pic.src ? 'Csere…' : 'Kép…'}</button>${pic.src ? `<button class="btn" data-clearimg="${base}.img.${pos}.src">Eltávolítás</button><label class="mini-l">Magasság <input type="number" min="3" max="80" step="1" data-k="${base}.img.${pos}.h"> mm</label>` : ''}</div></div>`;
     };
-    return `<h4>${kind === 'header' ? 'Élőfej' : 'Élőláb'}</h4>
-      <div class="fgrid three">
-        <label class="fld">Bal<textarea rows="2" data-k="${base}.l"></textarea></label>
-        <label class="fld">Közép<textarea rows="2" data-k="${base}.c"></textarea></label>
-        <label class="fld">Jobb<textarea rows="2" data-k="${base}.r"></textarea></label>
-      </div>
+    return `<h4>${kind === 'header' ? 'Élőfej képei' : 'Élőláb képei'}</h4>
       ${picRow('l', 'Bal')}${picRow('c', 'Közép')}${picRow('r', 'Jobb')}`;
   };
   $('#hfEditor').innerHTML = block('header') + block('footer');
 }
-const STYLE_ROWS = [['body', 'Normál szöveg', 'a dokumentum alapszövege'], ['h1', 'Címsor 1', ''], ['h2', 'Címsor 2', ''], ['h3', 'Címsor 3', '']];
+const STYLE_ROWS = [['p', 'Normál', 'a dokumentum alapszövege'], ['h1', 'Főcím', ''], ['h2', 'Cím', ''], ['h3', 'Alcím', '']];
+let openStyle = 'p';
+const ALIGNS = [['left', 'alignL', 'Balra'], ['center', 'alignC', 'Középre'], ['right', 'alignR', 'Jobbra'], ['justify', 'alignJ', 'Sorkizárt']];
 function styleRows() {
+  const fams = allFamilies();
+  const famOpts = sel => `<option value="">Alap betűtípus</option><optgroup label="Képletbarát betűtípusok">${fams.math.map(([f, l]) => `<option value="${f}"${f === sel ? ' selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="Egyéb betűtípusok">${fams.other.map(([f, l]) => `<option value="${f}"${f === sel ? ' selected' : ''}>${l}</option>`).join('')}</optgroup>`;
   $('#styleRows').innerHTML = STYLE_ROWS.map(([k, label, hint]) => {
-    const body = k === 'body', st = body ? { size: tpl.size, color: tpl.color } : tpl.styles[k];
-    const sk = body ? 'size' : `styles.${k}.size`, ck = body ? 'color' : `styles.${k}.color`;
-    return `<div class="strow"><div class="sthead"><b>${label}</b>${hint ? `<span class="phint">${hint}</span>` : ''}</div>
-      <div class="stctl"><input type="number" class="stsize" min="5" max="96" step="0.5" data-k="${sk}" title="Betűméret (pt)"><span class="unit">pt</span>
-        <label class="colbtn btn" title="Betűszín"><input type="color" class="hidecolor" data-k="${ck}"><i class="dot fill" style="--c:${esc(st.color)}"></i>Szín</label>
-        ${body ? '' : ['bold', 'italic', 'underline'].map(t => `<button class="tb${st[t] ? ' on' : ''}" data-stt="${t}" data-st="${k}" title="${{ bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott' }[t]}">${{ bold: '<b>B</b>', italic: '<i>I</i>', underline: '<u>U</u>' }[t]}</button>`).join('')}</div></div>`;
+    const st = tpl.styles[k], b = `styles.${k}`, open = openStyle === k;
+    const num = (key, lab, step, min, max, unit) => `<label class="fld">${lab}<span class="unitin"><input type="number" step="${step}"${min != null ? ` min="${min}"` : ''}${max != null ? ` max="${max}"` : ''} data-k="${b}.${key}">${unit ? `<i>${unit}</i>` : ''}</span></label>`;
+    return `<div class="strow stcard${open ? ' open' : ''}" data-style="${k}">
+      <button class="sthead sttoggle" data-sttoggle="${k}"><span class="chev">${svg('chev')}</span><b>${label}</b>${hint ? `<span class="phint">${hint}</span>` : ''}<span class="stprev" style="font-weight:${st.bold ? 700 : 400};font-style:${st.italic ? 'italic' : 'normal'};color:${esc(st.color)}">Aa</span></button>
+      <div class="stbody">
+        <label class="fld full">Betűtípus<select data-k="${b}.font">${famOpts(st.font)}</select></label>
+        <div class="stctl"><input type="number" class="stsize" min="5" max="96" step="0.5" data-k="${b}.size" title="Betűméret (pt)"><span class="unit">pt</span>
+          <label class="colbtn btn" title="Betűszín"><input type="color" class="hidecolor" data-k="${b}.color"><i class="dot fill" style="--c:${esc(st.color)}"></i>Szín</label>
+          ${['bold', 'italic', 'underline'].map(t => `<button class="tb${st[t] ? ' on' : ''}" data-stt="${t}" data-st="${k}" title="${{ bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott' }[t]}">${{ bold: '<b>B</b>', italic: '<i>I</i>', underline: '<u>U</u>' }[t]}</button>`).join('')}</div>
+        <div class="stctl" style="margin-top:6px">${ALIGNS.map(([v, ic, t]) => `<button class="tb${(st.align || 'left') === v ? ' on' : ''}" data-stalign="${v}" data-st="${k}" title="${t}">${svg(ic)}</button>`).join('')}
+          <label class="colbtn btn" title="Sorárnyékolás (a bekezdés sorai mögött)"><input type="color" class="hidecolor" data-k="${b}.shade"><i class="dot fill" style="--c:${esc(st.shade || 'transparent')}"></i>Árnyék</label>
+          ${st.shade ? `<button class="tb" data-noshade="${k}" title="Árnyékolás nélkül">✕</button>` : ''}</div>
+        <div class="fgrid" style="margin-top:8px">
+          ${num('line', 'Sorköz', 0.05, 0.8, 4, '')}${num('letter', 'Betűköz', 0.1, -3, 10, 'pt')}
+          ${num('spaceBefore', 'Térköz előtte', 1, 0, 72, 'pt')}${num('spaceAfter', 'Térköz utána', 1, 0, 72, 'pt')}
+          ${num('indentLeft', 'Bal behúzás', 0.25, 0, 10, 'cm')}${num('indentRight', 'Jobb behúzás', 0.25, 0, 10, 'cm')}
+          ${num('firstLine', 'Első sor (negatív = függő)', 0.25, -5, 5, 'cm')}
+        </div>
+        ${k === 'p' ? `<div class="fgrid" style="margin-top:8px">
+          <label class="fld">Felsorolásjel<select data-k="lists.bullet">${['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'].map(c => `<option>${c}</option>`).join('')}</select></label>
+          <label class="fld">Számozás<select data-k="lists.num"><option value="decimal">1. 2. 3.</option><option value="decimal-paren">1) 2) 3)</option><option value="lower-alpha">a) b) c)</option><option value="upper-alpha">A. B. C.</option><option value="lower-roman">i. ii. iii.</option><option value="upper-roman">I. II. III.</option></select></label>
+        </div><div class="phint">Az új listák ezzel a jellel / számozással indulnak.</div>` : ''}
+      </div></div>`;
   }).join('');
 }
 $('#tplFont').innerHTML = Object.entries(FONT_SETS).map(([k, f]) => `<option value="${k}">${f.label} – ${f.note}</option>`).join('');
 function fillPanel() {
-  hfTabs(); styleRows();
+  hfTabs(); styleRows(); presetName();
   for (const el of $$('#props [data-k]')) {
     const v = getPath(tpl, el.dataset.k);
     if (el.type === 'checkbox') el.checked = !!v;
@@ -842,6 +1020,8 @@ function fillPanel() {
   $('#wmThumb').src = tpl.wm.img || ''; $('#wmThumb').hidden = !tpl.wm.img;
   $('#wmText').hidden = tpl.wm.type !== 'text';
   $('#wmImage').hidden = tpl.wm.type !== 'image';
+  $('#wmOpacity').hidden = tpl.wm.type === 'none';
+  for (const el of $$('#props [data-custom]')) el.hidden = tpl.page !== 'custom';
   $$('[data-mirror-label]').forEach(s => { s.textContent = tpl.mirror ? (s.dataset.mirrorLabel === 'left' ? 'Belső margó (mm)' : 'Külső margó (mm)') : (s.dataset.mirrorLabel === 'left' ? 'Bal margó (mm)' : 'Jobb margó (mm)'); });
 }
 function tplChanged() { markDirty(); applyTpl(); saveSoon(); }
@@ -853,12 +1033,19 @@ function onPanelInput(e) {
   if (el.type === 'radio' && !el.checked) return;
   setPath(tpl, k, v);
   if (el.type === 'color') { const dot = el.parentElement.querySelector('.dot'); if (dot) dot.style.setProperty('--c', v); }
-  if (k === 'oddEven' || k === 'firstDiff' || k === 'mirror' || k === 'wm.type') fillPanel();
+  if (k === 'oddEven' || k === 'firstDiff' || k === 'mirror' || k === 'wm.type' || k === 'page') fillPanel();
+  if (/^styles\.\w+\.font$/.test(k) && v) loadTextFamily(v).then(() => relayout(30));
   tplChanged();
 }
 props.addEventListener('input', onPanelInput);
 props.addEventListener('change', onPanelInput);
 props.addEventListener('click', e => {
+  const tg = e.target.closest('[data-sttoggle]');
+  if (tg) { openStyle = openStyle === tg.dataset.sttoggle ? '' : tg.dataset.sttoggle; for (const c of $$('#styleRows .stcard')) c.classList.toggle('open', c.dataset.style === openStyle); return; }
+  const al = e.target.closest('[data-stalign]');
+  if (al) { tpl.styles[al.dataset.st].align = al.dataset.stalign; for (const x of al.parentElement.querySelectorAll('[data-stalign]')) x.classList.toggle('on', x === al); tplChanged(); return; }
+  const ns = e.target.closest('[data-noshade]');
+  if (ns) { tpl.styles[ns.dataset.noshade].shade = ''; styleRows(); fillPanel(); tplChanged(); return; }
   const b = e.target.closest('[data-stt]'); if (!b) return;
   const st = tpl.styles[b.dataset.st]; st[b.dataset.stt] = !st[b.dataset.stt]; b.classList.toggle('on', st[b.dataset.stt]); tplChanged();
 });
@@ -870,11 +1057,24 @@ $('#hfEditor').addEventListener('click', e => {
 });
 $('#wmPick').addEventListener('click', () => pickImage(2400, url => { tpl.wm.img = url; tpl.wm.type = 'image'; fillPanel(); tplChanged(); }));
 $('#wmClear').addEventListener('click', () => { tpl.wm.img = ''; fillPanel(); tplChanged(); });
-const tplMsg = t => { const m = $('#tplMsg'); m.textContent = t; clearTimeout(m._t); m._t = setTimeout(() => { m.textContent = ''; }, 4000); };
-$('#tplSave').addEventListener('click', () => tplMsg(store(LS_TPL, JSON.stringify(tpl)) ? 'Elmentve. Az új dokumentumok ebből a sablonból indulnak.' : 'A sablon mentése nem sikerült.'));
-$('#tplLoad').addEventListener('click', () => { const s = load(LS_TPL); if (!s) return tplMsg('Még nincs mentett sablon.'); tpl = normalizeTpl(JSON.parse(s)); fillPanel(); markDirty(); applyTpl(true); saveSoon(); tplMsg('Sablon alkalmazva.'); });
-$('#tplReset').addEventListener('click', () => { tpl = normalizeTpl(DEFAULT_TPL); fillPanel(); markDirty(); applyTpl(true); saveSoon(); tplMsg('Alapbeállítások visszaállítva.'); });
-const startTpl = () => { const s = load(LS_TPL); try { return normalizeTpl(s ? JSON.parse(s) : DEFAULT_TPL); } catch (e) { return normalizeTpl(DEFAULT_TPL); } };
+const startTpl = () => normalizeTpl(DEFAULT_TPL);
+
+/* ready-made templates (top bar, like Matekos Prezi); the locked ones come later */
+const PRESETS = [['ures', 'Üres', false], ['feladatsor', 'Feladatsor', true], ['kiadvany', 'Kiadvány', true], ['pre', 'Pré', true]];
+const presetLabel = () => (PRESETS.find(p => p[0] === tpl.preset) || PRESETS[0])[1];
+function presetName() { $('#tplName').textContent = presetLabel(); }
+$('#popPreset').onopen = () => {
+  $('#presetList').innerHTML = PRESETS.map(([k, l, locked]) => `<button class="pitem preset${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}"${locked ? ' aria-disabled="true" title="Hamarosan"' : ''}>${locked ? svg('lock') : ''}<span>${l}</span>${locked ? '<span class="phint">hamarosan</span>' : ''}</button>`).join('');
+};
+$('#popPreset').addEventListener('click', async e => {
+  if (e.target.closest('#openTplPanel')) { closePops(); panelVisible(true); return; }
+  const b = e.target.closest('[data-preset]'); if (!b) return;
+  if (b.classList.contains('locked')) { toast('Ez a sablon hamarosan érkezik.'); return; }
+  closePops();
+  if (!await confirmBox('Az „Üres” sablon lép a mostani helyére (oldal, élőfej és élőláb, vízjel, szövegstílusok). A dokumentum szövege megmarad. Folytatod?', 'Sablon alkalmazása')) return;
+  tpl = normalizeTpl(DEFAULT_TPL); tpl.preset = b.dataset.preset; fillPanel(); markDirty(); applyTpl(true); saveSoon(); presetName();
+  toast('Sablon: ' + presetLabel());
+});
 
 /* ------------------------------------------------------------------ */
 /* Documents (Matekos Prezi behaviour): own file, Save as, renaming,   */
@@ -1063,7 +1263,8 @@ function quitBox() {
 (async function init() {
   $('#homeVer').textContent = 'v' + APP_VERSION;
   $('.home-logo-img').src = APP_ICON;
-  if (lsGet(LSK.panel) === '0') { mainEl.classList.add('noprops'); document.body.classList.add('noprops-on'); } else $('#bTpl').classList.add('primary');
+  if (lsGet(LSK.panel) === '0') { mainEl.classList.add('noprops'); document.body.classList.add('noprops-on'); }
+  if (lsGet('matekosdoksi.pages') === '0') { mainEl.classList.add('nopages'); document.body.classList.add('nopages-on'); }
   let d = await loadAutosave();
   if (!d) {    // earlier versions kept the autosave in localStorage
     try { d = JSON.parse(load(LS_DOC) || load(OLD_DOC) || 'null'); } catch (e) { d = null; }
@@ -1108,4 +1309,4 @@ function quitBox() {
 })();
 
 // Hooks for automated layout/print tests
-window.mdoksi = { editor, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };
+window.mdoksi = { editor, openHF, closeHF, hfZoneAt, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };

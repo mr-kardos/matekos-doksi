@@ -218,3 +218,65 @@ body.noprops-on .ctxbar{ right:58px; }
 /* page miniatures scale with the panel width */
 .thumb .frame{ width:100%; aspect-ratio:calc(var(--pw, 794) / var(--ph, 1123)); }
 .thumb .tpage{ transform:scale(var(--tk, .18)); }
+
+/* ---------- 0.6 ---------- */
+/* tabulators */
+span.tab{ display:inline-block; height:1px; white-space:pre; }
+/* margin-to-margin lines: room above / below the text (the line itself is drawn in the shade layer) */
+.ProseMirror [data-rt]{ padding-top:calc(var(--sb,0px) + 8px) !important; }
+.ProseMirror [data-rb]{ padding-bottom:calc(var(--sa,var(--after,6pt)) + 8px) !important; }
+/* header / footer with rich text */
+.hf{ display:flex; align-items:flex-end; gap:8px; }
+.hf .hf-text{ flex:1; min-width:0; }
+.hf .hf-text p{ margin:0; padding:0; }
+.hf .hfimg{ flex:none; display:inline-flex; }
+.hf .hfimg.c{ position:absolute; left:50%; bottom:0; transform:translateX(-50%); }
+.hf.ftr .hfimg.c{ bottom:auto; top:0; }
+.hf-edit{ position:absolute; z-index:7; min-height:1.3em; line-height:1.3; font-family:var(--doc-font); background:#fff; outline:1.5px dashed #2f6fdb; outline-offset:3px; }
+.hf-edit::before{ content:attr(data-label); position:absolute; left:-3px; bottom:calc(100% + 6px); white-space:nowrap; font:600 11px var(--ui); color:#fff; background:#2f6fdb; padding:2px 7px; border-radius:4px; }
+.hf-edit .hf-editor{ outline:none; }
+.hf-edit .hf-editor p{ margin:0; }
+.stack.hfmode #editorHost, .stack.hfmode #shadeLayer{ opacity:.45; }
+.page .hf:hover{ cursor:text; }
+.fieldrow{ display:flex; flex-wrap:wrap; align-items:center; gap:4px; font-size:12px; color:var(--ink-2); margin:4px 0 8px; }
+.btn.mini{ height:24px; padding:0 8px; font-size:12px; }
+/* paragraph styles (template panel) */
+.stcard{ padding:0; overflow:hidden; }
+.stcard .sttoggle{ display:flex; align-items:center; gap:8px; width:100%; border:0; background:none; color:var(--ink); padding:8px; cursor:pointer; text-align:left; font:inherit; margin:0; }
+.stcard .sttoggle .chev{ width:15px; height:15px; display:inline-grid; place-items:center; transition:transform .15s; transform:rotate(-90deg); }
+.stcard .sttoggle .chev svg{ width:15px; height:15px; }
+.stcard.open .sttoggle .chev{ transform:none; }
+.stcard .stprev{ margin-left:auto; font:18px/1 var(--doc-font); }
+.stcard .stbody{ display:none; padding:0 8px 10px; }
+.stcard.open .stbody{ display:block; }
+.stcard .stctl .tb svg{ width:16px; height:16px; }
+.unitin{ display:flex; align-items:center; gap:4px; }
+.unitin input{ flex:1; min-width:0; }
+.unitin i{ font-style:normal; font-size:11.5px; color:var(--ink-2); }
+#props .fld select optgroup{ font-weight:600; }
+/* watermark opacity: half width */
+.wmop input[type=range]{ width:50% !important; }
+/* presets */
+#popPreset{ width:260px; }
+.pitem.preset{ display:flex; align-items:center; gap:8px; }
+.pitem.preset svg{ width:15px; height:15px; flex:none; }
+.pitem.preset.locked{ color:var(--ink-2); cursor:not-allowed; }
+.pitem.preset .phint{ margin-left:auto !important; }
+/* tab stops & rule popovers */
+#popPara .tabrow{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; padding:2px 4px; }
+#popPara .tabadd{ display:flex; gap:6px; align-items:center; margin-top:4px; }
+#popPara .tabadd input{ width:64px; height:28px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 6px; }
+#popPara .tabadd select{ height:28px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); }
+#popRule{ width:300px; }
+#popRule .seg2{ flex-wrap:wrap; }
+/* left panel: header + collapse */
+#pagesNav .lhead{ display:flex; align-items:center; justify-content:space-between; padding:10px 8px 2px 14px; }
+#pagesNav .lhead b{ font-size:13px; }
+#pagesNav .lhead .tb{ min-width:30px; height:30px; } #pagesNav .lhead .tb svg{ width:17px; height:17px; }
+.main.nopages{ grid-template-columns:0 0 1fr 6px var(--rw,320px); }
+.main.nopages.noprops{ grid-template-columns:0 0 1fr 0 0; }
+.main.nopages #pagesNav, .main.nopages .lsplit{ display:none; }
+.panelopenL{ position:absolute; left:12px; top:10px; z-index:8; display:none !important; background:var(--chrome-2); border:1px solid var(--line); box-shadow:var(--shadow); }
+.main.nopages .panelopenL{ display:inline-flex !important; }
+.panelopenL svg{ width:18px; height:18px; }
+body.nopages-on .ctxbar{ left:58px; }

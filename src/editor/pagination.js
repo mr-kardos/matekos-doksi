@@ -10,10 +10,11 @@ import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { geometry } from '../template.js';
+import { layoutTabs } from '../tabs.js';
 
 export const pgKey = new PluginKey('pagination');
 
-const SKIP_CLASSES = ['lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih', 'fcaret', 'column-resize-handle'];
+const SKIP_CLASSES = ['tab', 'lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih', 'fcaret', 'column-resize-handle'];
 
 function lineBoxes(dom, Y, LH) {
   const groups = [];
@@ -233,6 +234,7 @@ export const Pagination = Extension.create({
       running = true;
       try {
         view.dispatch(view.state.tr.setMeta(pgKey, DecorationSet.empty).setMeta('addToHistory', false));
+        layoutTabs(view.dom, opts.getScale() || 1);
         const res = measure(view, opts.getTpl(), opts.getScale() || 1);
         view.dispatch(view.state.tr.setMeta(pgKey, DecorationSet.create(view.state.doc, res.decos)).setMeta('addToHistory', false));
         storage.pages = res.pages;

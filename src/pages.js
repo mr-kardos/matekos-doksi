@@ -2,32 +2,27 @@ import { MM, geometry, variantFor } from './template.js';
 
 export const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-function tok(s, i, n, title) {
-  return esc(s || '').replace(/\{page\}/g, i + 1).replace(/\{pages\}/g, n)
-    .replace(/\{date\}/g, esc(new Date().toLocaleDateString('hu-HU')))
-    .replace(/\{title\}/g, esc(title));
-}
 
-function hfHTML(kind, slot, i, n, tpl, title, g) {
+/** HTML of the header/footer texts (rendered from their small documents by the app). */
+let HF = {};
+export function setHfHTML(map) { HF = map || {}; }
+const fill = (html, i, n, title) => String(html || '').replace(/\{page\}/g, i + 1).replace(/\{pages\}/g, n)
+  .replace(/\{date\}/g, esc(new Date().toLocaleDateString('hu-HU'))).replace(/\{title\}/g, esc(title));
+function hfHTML(kind, v, slot, i, n, tpl, title, g) {
   const im = slot.img || {};
-  const has = slot.l || slot.c || slot.r || ['l', 'c', 'r'].some(p => im[p] && im[p].src);
-  if (!has) return '';
-  const cell = pos => {
-    let inner = '';
-    const pic = im[pos];
-    if (pic && pic.src) inner += `<img src="${esc(pic.src)}" alt="" style="height:${(+pic.h || 10) * MM}px">`;
-    const t = slot[pos];
-    if (t) inner += `<span class="hft">${tok(t, i, n, title).replace(/\r?\n/g, '<br>')}</span>`;
-    return `<span>${inner}</span>`;
-  };
+  const html = (HF[kind] || {})[v] || '';
+  const hasText = /\S/.test(html.replace(/<[^>]+>/g, '')) || /class="tab"/.test(html);
+  const pics = ['l', 'c', 'r'].filter(p => im[p] && im[p].src);
+  const key = kind === 'header' ? 'hdr' : 'ftr';
   // header / footer: measured from the paper's left and right edges (margins only apply to the main text)
   const L = (+tpl.hfLeft || 0) * MM, R = (+tpl.hfRight || 0) * MM;
-  const isH = kind === 'hdr';
+  const isH = kind === 'header';
   const line = isH ? tpl.headerLine : tpl.footerLine;
   const size = isH ? tpl.headerSize : tpl.footerSize, color = isH ? tpl.headerColor : tpl.footerColor;
-  // header box: top edge at headerDist from the paper's top; footer box: bottom edge at footerDist from the bottom
   const anchor = isH ? `top:${tpl.headerDist * MM}px` : `bottom:${tpl.footerDist * MM}px`;
-  return `<div class="hf ${kind}${line ? ' ln' : ''}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}">${cell('l')}${cell('c')}${cell('r')}</div>`;
+  const pic = p => im[p] && im[p].src ? `<span class="hfimg ${p}"><img src="${esc(im[p].src)}" alt="" style="height:${(+im[p].h || 10) * MM}px"></span>` : '';
+  return `<div class="hf ${key}${line ? ' ln' : ''}${hasText || pics.length ? '' : ' empty'}" data-hf="${kind}" data-v="${v}" data-i="${i}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}">`
+    + pic('l') + `<div class="hf-text">${fill(html, i, n, title)}</div>` + pic('r') + pic('c') + '</div>';
 }
 
 function wmHTML(tpl, g) {
@@ -46,14 +41,14 @@ export function sheetHTML(i, n, tpl, title, g = geometry(tpl), x = g.sheetX(i), 
   const v = variantFor(tpl, i);
   return `<div class="page" data-page="${i}" style="left:${x}px;top:${y}px;width:${g.W}px;height:${g.H}px">`
     + wmHTML(tpl, g)
-    + hfHTML('hdr', tpl.header[v], i, n, tpl, title, g)
-    + hfHTML('ftr', tpl.footer[v], i, n, tpl, title, g)
+    + hfHTML('header', v, tpl.header[v], i, n, tpl, title, g)
+    + hfHTML('footer', v, tpl.footer[v], i, n, tpl, title, g)
     + '</div>';
 }
 
 let lastKey = '';
 export function renderSheets(container, n, tpl, title, force) {
-  const key = JSON.stringify([n, tpl, title]);
+  const key = JSON.stringify([n, tpl, title, HF]);
   if (!force && key === lastKey) return;
   lastKey = key;
   const g = geometry(tpl);

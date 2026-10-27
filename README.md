@@ -88,10 +88,19 @@ tools/                font verification
 ```
 
 
-## 0.5.1 – interface of Matekos Prezi
+## 0.6.0 – interface of Matekos Prezi
 - Home screen, top bar (Fájl ▾, Exportálás ▾, Mentés / Mentés másként, undo/redo, name + status, Sablon, zoom) and ribbon of Matekos Prezi.
 - The title box is the file name: Mentés writes the document's own file (asks only the first time), renaming the title renames the file.
 - Formula editor of Matekos Prezi (favourites, typeset buttons, Ctrl+M/H/L, line breaking per formula).
 - Paragraph settings (first line / hanging indent), line spacing with own value, letter spacing, all caps.
 - Template editor in the right panel (collapsible sections, text styles for normal text and headings).
 - Page list with live miniatures in the left panel.
+
+## 0.6.0
+- Header and footer are edited on the page (double-click), formatted with the ribbon; tab stops centre/right.
+- Tabulators (Tab key, own tab stops left/centre/right per paragraph; default every 1.25 cm).
+- Margin-to-margin line above / below a paragraph.
+- Paragraph styles Normál, Főcím, Cím, Alcím with font, size, colour, B/I/U, shading, alignment, line and letter
+  spacing, indents and spacing; default list symbol and numbering. Formulas take the style's font and weight.
+- Paper sizes A4, A5, A6, A3 and custom; ready-made templates menu (Üres; Feladatsor, Kiadvány, Pré coming);
+  collapsible page panel.

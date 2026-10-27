@@ -2,28 +2,43 @@
 export const MM = 96 / 25.4;          // CSS px per mm
 export const PT = 0.75;               // PDF pt per CSS px
 export const GAP = 28;                // gap between pages on screen (px)
-export const SIZES = { A4: [210, 297], A5: [148, 210], B5: [176, 250], Letter: [215.9, 279.4] };
+export const SIZES = { A4: [210, 297], A5: [148, 210], A6: [105, 148], A3: [297, 420] };
+/** Paper size in mm (A4, A5, A6, A3 or the custom size of the template). */
+export const paperOf = tpl => tpl.page === 'custom' ? [Math.max(30, +tpl.pageW || 210), Math.max(30, +tpl.pageH || 297)] : (SIZES[tpl.page] || SIZES.A4);
 
 const pic = () => ({ src: '', h: 10 });
-const slot = () => ({ l: '', c: '', r: '', img: { l: pic(), c: pic(), r: pic() } });
+const slot = () => ({ doc: null, img: { l: pic(), c: pic(), r: pic() } });
+/** A paragraph style (Normál, Főcím, Cím, Alcím). */
+const style = (o = {}) => ({ font: '', size: 12, color: '#111111', bold: false, italic: false, underline: false, shade: '', align: 'left',
+  line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 6, ...o });
+/** Header/footer text as a small document: left text, centre tab, right tab (like Word). */
+export const hfDoc = (l = '', c = '', r = '') => {
+  const content = [];
+  const add = t => { if (t) content.push({ type: 'text', text: t }); };
+  add(l); if (c || r) content.push({ type: 'tab' }); add(c); if (r) content.push({ type: 'tab' }); add(r);
+  return { type: 'doc', content: [{ type: 'paragraph', attrs: { tabStops: 'hf' }, content: content.length ? content : undefined }] };
+};
 export const DEFAULT_TPL = {
-  page: 'A4',
+  preset: 'ures',
+  page: 'A4', pageW: 210, pageH: 297,
   margins: { top: 25, bottom: 25, left: 25, right: 25 },
   gutter: 0, mirror: false,
   oddEven: false, firstDiff: false,
-  header: { odd: { ...slot(), l: '{title}', r: '{date}' }, even: { ...slot(), l: '{date}', r: '{title}' }, first: slot() },
-  footer: { odd: { ...slot(), c: '– {page} –' }, even: { ...slot(), c: '– {page} –' }, first: { ...slot(), c: '– {page} –' } },
+  header: { odd: { ...slot(), doc: hfDoc('{title}', '', '{date}') }, even: { ...slot(), doc: hfDoc('{date}', '', '{title}') }, first: slot() },
+  footer: { odd: { ...slot(), doc: hfDoc('', '– {page} –') }, even: { ...slot(), doc: hfDoc('', '– {page} –') }, first: { ...slot(), doc: hfDoc('', '– {page} –') } },
   headerDist: 12, footerDist: 12, headerLine: true, footerLine: false,
   hfLeft: 25, hfRight: 25,
   headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
   wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
   font: 'bonum',
-  size: 12, color: '#111111', line: 1.25, after: 6, imgGap: 4,
+  imgGap: 4,
   styles: {
-    h1: { size: 21, color: '#111111', bold: true, italic: false, underline: false },
-    h2: { size: 16, color: '#111111', bold: true, italic: false, underline: false },
-    h3: { size: 13.5, color: '#111111', bold: true, italic: false, underline: false }
+    p: style(),
+    h1: style({ size: 21, bold: true, line: 1.2, spaceAfter: 7 }),
+    h2: style({ size: 16, bold: true, line: 1.25, spaceBefore: 8, spaceAfter: 5 }),
+    h3: style({ size: 13.5, bold: true, line: 1.3, spaceBefore: 6, spaceAfter: 4 })
   },
+  lists: { bullet: '•', num: 'decimal' },
   hunTrig: true, decComma: true, displayInline: true
 };
 
@@ -37,6 +52,13 @@ export function merge(base, o) {
 }
 export function normalizeTpl(t) {
   const out = merge(clone(DEFAULT_TPL), t || {});
+  // before 0.6: the normal text style lived in size/color/line/after
+  if (t && !(t.styles && t.styles.p)) {
+    const p = out.styles.p;
+    if (t.size) p.size = +t.size; if (t.color) p.color = t.color; if (t.line) p.line = +t.line; if (t.after != null) p.spaceAfter = +t.after;
+  }
+  for (const k of ['size', 'color', 'line', 'after']) delete out[k];
+  if (!SIZES[out.page] && out.page !== 'custom') out.page = 'A4';
   // older templates: header/footer used to start at the text margins
   if (t && t.margins && t.hfLeft == null) { out.hfLeft = (+t.margins.left || 25) + (+t.gutter || 0); out.hfRight = +t.margins.right || 25; }
   // v1 templates had a single header/footer and wm.on
@@ -47,6 +69,8 @@ export function normalizeTpl(t) {
     const old = out[k][v] || {};
     const fresh = slot();
     const n = { ...fresh, ...old, img: fresh.img };
+    if (!old.doc && ('l' in old || 'c' in old || 'r' in old)) n.doc = hfDoc(old.l, old.c, old.r);   // left/centre/right texts of 0.5
+    delete n.l; delete n.c; delete n.r;
     if (typeof old.img === 'string') { if (old.img) n.img[old.imgPos || 'l'] = { src: old.img, h: +old.imgH || 10 }; }
     else if (old.img && typeof old.img === 'object') for (const p of ['l', 'c', 'r']) n.img[p] = { ...pic(), ...(old.img[p] || {}) };
     delete n.imgPos; delete n.imgH;
@@ -58,7 +82,7 @@ export function normalizeTpl(t) {
 /** Page geometry in CSS px. The text column has the same width on every page;
  *  gutter / mirror margins only move it horizontally relative to the sheet. */
 export function geometry(tpl) {
-  const s = SIZES[tpl.page] || SIZES.A4, m = tpl.margins;
+  const s = paperOf(tpl), m = tpl.margins;
   const W = s[0] * MM, H = s[1] * MM;
   const g = (tpl.gutter || 0) * MM;
   const mt = m.top * MM, mb = m.bottom * MM;

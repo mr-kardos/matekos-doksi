@@ -41,7 +41,16 @@ export const ParaFormat = Extension.create({
           default: false,
           parseHTML: el => el.getAttribute('data-kn') === '1',
           renderHTML: a => a.keepNext ? { 'data-kn': '1' } : {}
-        }
+        },
+        // tab stops: "hf" (centre + right of a header/footer) or JSON [{pos: cm, align: left|center|right}]
+        tabStops: {
+          default: null,
+          parseHTML: el => el.getAttribute('data-tabs') || null,
+          renderHTML: a => a.tabStops ? { 'data-tabs': typeof a.tabStops === 'string' ? a.tabStops : JSON.stringify(a.tabStops) } : {}
+        },
+        // margin-to-margin line above / below the paragraph: "width color", e.g. "0.75 #111111"
+        ruleTop: { default: null, parseHTML: el => el.getAttribute('data-rt') || null, renderHTML: a => a.ruleTop ? { 'data-rt': a.ruleTop } : {} },
+        ruleBottom: { default: null, parseHTML: el => el.getAttribute('data-rb') || null, renderHTML: a => a.ruleBottom ? { 'data-rb': a.ruleBottom } : {} }
       }
     }];
   },
@@ -92,7 +101,7 @@ export const KvOrderedList = OrderedList.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
-      numStyle: { default: 'decimal', parseHTML: el => el.getAttribute('data-num') || el.style.listStyleType || 'decimal', renderHTML: a => ({ 'data-num': a.numStyle }) }
+      numStyle: { default: null, parseHTML: el => el.getAttribute('data-num') || null, renderHTML: a => a.numStyle ? { 'data-num': a.numStyle } : {} }
     };
   }
 });
@@ -110,6 +119,9 @@ function ordinal(n, style) {
   }
 }
 const DEFAULT_BULLETS = ['•', '◦', '▪'];
+/** Default list symbol and numbering of the document template (Normál stílus). */
+export const listDefaults = { bullet: '•', num: 'decimal' };
+const bulletAt = depth => depth % 3 === 0 ? (listDefaults.bullet || '•') : DEFAULT_BULLETS[depth % 3];
 /** Real (measurable, printable) list markers, rendered as widgets at the start of each item's first line. */
 export const ListMarkers = Extension.create({
   name: 'listMarkers',
@@ -126,20 +138,20 @@ export const ListMarkers = Extension.create({
               const ipos = cpos + 1 + ioff;          // position of listItem
               const first = item.firstChild;
               if (first && first.isTextblock) {
-                const key = ordered ? 'o' + ordinal(start + idx, child.attrs.numStyle)
+                const key = ordered ? 'o' + ordinal(start + idx, child.attrs.numStyle || listDefaults.num)
                   : child.attrs.bulletImage ? 'i' + child.attrs.bulletSize + child.attrs.bulletImage.length + child.attrs.bulletImage.slice(-24)
-                    : 'b' + (child.attrs.bulletChar || DEFAULT_BULLETS[depth % 3]);
+                    : 'b' + (child.attrs.bulletChar || bulletAt(depth));
                 decos.push(Decoration.widget(ipos + 2, () => {
                   const s = document.createElement('span');
                   s.className = 'lm';
                   s.contentEditable = 'false';
-                  if (ordered) s.textContent = ordinal(start + idx, child.attrs.numStyle);
+                  if (ordered) s.textContent = ordinal(start + idx, child.attrs.numStyle || listDefaults.num);
                   else if (child.attrs.bulletImage) {
                     const im = document.createElement('img');
                     im.src = child.attrs.bulletImage; im.alt = '';
                     im.style.height = (child.attrs.bulletSize || 0.9) + 'em';
                     s.appendChild(im);
-                  } else s.textContent = child.attrs.bulletChar || DEFAULT_BULLETS[depth % 3];
+                  } else s.textContent = child.attrs.bulletChar || bulletAt(depth);
                   return s;
                 }, { side: -1, key, ignoreSelection: true }));
               }
@@ -155,7 +167,7 @@ export const ListMarkers = Extension.create({
       key: new PluginKey('listMarkers'),
       state: {
         init: (_, state) => build(state.doc),
-        apply: (tr, old, _o, state) => tr.docChanged ? build(state.doc) : old
+        apply: (tr, old, _o, state) => tr.docChanged || tr.getMeta('listDefaults') ? build(state.doc) : old
       },
       props: { decorations(state) { return this.getState(state); } }
     })];
@@ -294,6 +306,15 @@ export function mathLook(n) {
   if (font === 'bonum') font = null;
   return { font, bold: isBold(n) };
 }
+/** The look from the page itself: the formula's text font and weight (marks, paragraph style, heading). */
+export function lookOf(n, dom) {
+  const base = mathLook(n);
+  if (!dom || !dom.isConnected) return base;
+  const cs = getComputedStyle(dom);
+  let font = mathFontFromCSS(cs.fontFamily) || docMathFont;
+  if (font === 'bonum') font = null;
+  return { font, bold: base.bold || (parseInt(cs.fontWeight, 10) || 400) >= 600 };
+}
 /** Formatting a new formula takes over: the marks in effect at the cursor (bold, colour, size, font…). */
 export const marksAt = state => (state.storedMarks || state.selection.$from.marks()).filter(m => !['link', 'code'].includes(m.type.name));
 const DOLLAR_RE = /(\\?)\$\$([^$]+?)\$\$|(\\?)\$([^$\s](?:[^$]*?[^$\s\\])?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\]/g;
@@ -333,8 +354,10 @@ export const MathNode = Node.create({
       const paint = () => {
         dom.className = 'math' + (cur.attrs.display ? ' disp' : '') + (cur.attrs.wrap ? ' wrap' : '') + (dom._sel ? ' ProseMirror-selectednode' : '');
         dom.setAttribute('data-tex', cur.attrs.tex);
-        const lk = mathLook(cur); dom._lk = lk.font + '|' + lk.bold;
+        const lk = lookOf(cur, dom); dom._lk = lk.font + '|' + lk.bold;
         renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered(), lk.bold, cur.attrs.wrap, lk.font);
+        // once on the page: take the font / weight of the paragraph style around it (e.g. a bold heading)
+        if (!dom.isConnected) requestAnimationFrame(() => { const l2 = lookOf(cur, dom); if (dom.isConnected && l2.font + '|' + l2.bold !== dom._lk) paint(); });
       };
       paint();
       // Mouse: click = select the formula; click on its left/right edge = cursor before/after it;
@@ -389,7 +412,7 @@ export const MathNode = Node.create({
         dom,
         update(n) {
           if (n.type !== cur.type) return false;
-          const lk = mathLook(n);
+          const lk = lookOf(n, dom);
           const changed = n.attrs.tex !== cur.attrs.tex || n.attrs.display !== cur.attrs.display || n.attrs.wrap !== cur.attrs.wrap || (lk.font + '|' + lk.bold) !== dom._lk;
           cur = n;
           if (changed) paint();
@@ -732,6 +755,28 @@ export const TextCase = Extension.create({
     return {
       setUppercase: () => ({ chain }) => chain().setMark('textStyle', { textTransform: 'uppercase' }).run(),
       unsetUppercase: () => ({ chain }) => chain().setMark('textStyle', { textTransform: null }).removeEmptyTextStyle().run()
+    };
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Tabulators: a tab character jumps to the next tab stop              */
+/* ------------------------------------------------------------------ */
+export const TabNode = Node.create({
+  name: 'tab',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: false,
+  parseHTML() { return [{ tag: 'span.tab' }]; },
+  renderHTML() { return ['span', { class: 'tab' }]; },
+  renderText() { return '\t'; },
+  // the width is set by the tab layout; the editor must not treat that as a change of the text
+  addNodeView() { return () => { const dom = document.createElement('span'); dom.className = 'tab'; dom.contentEditable = 'false'; return { dom, ignoreMutation: () => true }; }; },
+  addKeyboardShortcuts() {
+    return {
+      // lists and tables keep their own Tab behaviour (they run first); anywhere else Tab inserts a tab
+      Tab: () => this.editor.isActive('table') ? false : this.editor.commands.insertContent({ type: 'tab' })
     };
   }
 });

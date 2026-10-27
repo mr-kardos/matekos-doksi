@@ -1,4 +1,7 @@
 export const ICONS = {
+  ruleLine: '<path d="M3 5h18" stroke-width="2.4"/><path d="M6 10h12M6 14h9M6 18h11" opacity=".55"/>',
+  tabstop: '<path d="M4 12h12M12 8l4 4-4 4M20 6v12"/>',
+  panelL: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   alignL: '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>',
