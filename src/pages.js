@@ -20,7 +20,8 @@ function hfHTML(kind, v, slot, i, n, tpl, title, g) {
   const mid = Math.max(10, Math.min(80, +tpl.hfMid || 34)), side = (100 - mid) / 2;
   const pic = p => im[p] && im[p].src ? `<img class="hfimg" src="${esc(im[p].src)}" alt="" style="height:${(+im[p].h || 10) * MM}px">` : '';
   const cell = (p, w) => `<div class="hfc hfc-${p}" style="width:${w}%">${p === 'r' ? '' : pic(p)}<div class="hf-text" data-cell="${p}">${fill(cells[p], i, n, title)}</div>${p === 'r' ? pic(p) : ''}</div>`;
-  return `<div class="hf ${key}" data-hf="${kind}" data-v="${v}" data-i="${i}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}${fam ? `;font-family:'MP ${esc(fam)}', var(--doc-font)` : ''}">`
+  const line = isH ? tpl.headerLine : tpl.footerLine;
+  return `<div class="hf ${key}${line ? (isH ? ' rb' : ' rt') : ''}" data-hf="${kind}" data-v="${v}" data-i="${i}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}${fam ? `;font-family:'MP ${esc(fam)}', var(--doc-font)` : ''}">`
     + cell('l', side) + cell('c', mid) + cell('r', side) + '</div>';
 }
 

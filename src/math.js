@@ -99,6 +99,7 @@ const keyOf = (tex, display, bold, wrap, font) => (display ? 'D' : 'I') + (bold 
 let queue = Promise.resolve();
 /** wrap: the formula may break into lines (after =, +, −, relations…) at the edge of its text box. */
 export function renderSVG(tex, display, bold, wrap, font) {
+  tex = cleanTeX(tex);
   const key = keyOf(tex, display, bold, wrap, font);
   if (cache.has(key)) return cache.get(key);
   // one formula at a time, so the line-break setting belongs to the right formula
@@ -125,7 +126,10 @@ export function renderSVG(tex, display, bold, wrap, font) {
 export function clearMathCache() { cache.clear(); done.clear(); }
 
 /** Fill an element with the rendered formula (keeps the old picture until the new one is ready). */
+/** TeX copied from other programs may carry invisible characters or look-alike backslashes. */
+export const cleanTeX = t => String(t || '').replace(/[\u200B-\u200D\u2060\uFEFF\u00AD]/g, '').replace(/[\u00A0\u2009\u202F]/g, ' ').replace(/[\uFF3C\u29F5]/g, '\\');
 export function renderInto(el, tex, display, onDone, bold, wrap, font) {
+  tex = cleanTeX(tex);
   const tok = el._mj = (el._mj || 0) + 1;
   if (!tex) { el.innerHTML = '<span class="mpending">∅</span>'; return; }
   const key = keyOf(tex, display, bold, wrap, font);

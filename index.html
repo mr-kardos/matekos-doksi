@@ -39,7 +39,7 @@
       <button class="tb" data-cmd="subscript" data-state="subscript" title="Alsó index">x₂</button>
       <button class="tb cbtn" data-pop="popColor" data-icon="colorA" title="Betűszín"><i class="cbar" id="colorBar"></i></button>
       <button class="tb cbtn" data-pop="popHi" data-icon="marker" title="Kijelölt szöveg kiemelése"><i class="cbar" style="background:#fff176"></i></button>
-      <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyékolás: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#dbe9ee"></i></button>
+      <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyék: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#dbe9ee"></i></button>
       <button class="tb" data-cmd="upper" data-state="upper" title="Csupa nagybetű / ahogy begépelted (a betűk nem változnak, csak a megjelenésük)"><span class="aa">Aa</span></button>
       <button class="tb" data-cmd="clearFormat" data-icon="clear" title="Formázás törlése"></button>
     </div>
@@ -141,7 +141,7 @@
         <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="firstDiff"> Eltérő első oldal</label>
         <div class="tabs" id="hfTabs"></div>
         <div class="btnrow hfbtns"><button class="btn" data-edithf="header">Élőfej szerkesztése</button><button class="btn" data-edithf="footer">Élőláb szerkesztése</button></div>
-        <div class="phint" style="margin:6px 0 4px">A szöveget az oldalon írod, és a felső szalag gombjaival formázod. Három oszlop van (bal, közép, jobb); a Tab a következő oszlopba lép. Vonal a felső szalag „Elválasztó vonal” gombjával tehető alá vagy fölé.</div>
+        <div class="phint" style="margin:6px 0 4px">A szöveget az oldalon írod, és a felső szalag gombjaival formázod. Három oszlop van (bal, közép, jobb); a Tab a következő oszlopba lép. A teljes szélességű vonalat lent állítod be; a felső szalag „Elválasztó vonal” gombja az adott oszlopban húz vonalat.</div>
         <div class="fieldrow"><span>Mező beszúrása:</span><button class="btn mini" data-field="{page}">oldalszám</button><button class="btn mini" data-field="{pages}">oldalak száma</button><button class="btn mini" data-field="{date}">dátum</button><button class="btn mini" data-field="{title}">cím</button></div>
         <div id="hfEditor"></div>
         <div class="fgrid" style="margin-top:10px">
@@ -152,10 +152,10 @@
           <label class="fld full">Középső oszlop szélessége (%)<input type="number" min="10" max="80" step="1" data-k="hfMid"></label>
         </div>
         <div class="strow" style="margin-top:10px"><div class="sthead"><b>Élőfej szövege</b></div>
-          <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="headerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="headerColor" class="hidecolor"><i class="dot fill" id="hcDot"></i>Szín</label></div>
+          <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="headerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="headerColor" class="hidecolor"><i class="dot fill" id="hcDot"></i>Szín</label><label class="chk" style="margin-left:6px"><input type="checkbox" data-k="headerLine"> Vonal alatta</label></div>
           <select class="hffont" data-k="headerFont" title="Az élőfej betűtípusa"></select></div>
         <div class="strow"><div class="sthead"><b>Élőláb szövege</b></div>
-          <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="footerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="footerColor" class="hidecolor"><i class="dot fill" id="fcDot"></i>Szín</label></div>
+          <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="footerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="footerColor" class="hidecolor"><i class="dot fill" id="fcDot"></i>Szín</label><label class="chk" style="margin-left:6px"><input type="checkbox" data-k="footerLine"> Vonal fölötte</label></div>
           <select class="hffont" data-k="footerFont" title="Az élőláb betűtípusa"></select></div>
       </div>
     </section>
@@ -235,9 +235,10 @@
   <div class="ptitle">Betűköz</div>
   <div class="sprow"><input type="range" id="spacingR" min="-3" max="10" step="0.1" value="0"><input type="number" id="spacingIn" min="-3" max="10" step="0.1" value="0"><span>pt</span></div>
 </div>
+<div class="pop" id="popAnyColor" hidden><div class="ptitle" id="anyColorTitle">Szín</div><div id="swAny"></div></div>
 <div class="pop" id="popColor" hidden><div class="ptitle">Betűszín</div><div class="swg" id="swText"></div></div>
 <div class="pop" id="popHi" hidden><div class="ptitle">Kijelölt szöveg kiemelése</div><div class="swg" id="swHi"></div></div>
-<div class="pop" id="popShade" hidden><div class="ptitle">Sorárnyékolás – teljes szélességű szín a sorok mögött</div><div class="swg" id="swShade"></div><div class="phint">Jelölj ki szöveget: pontosan azok a sorok kapnak árnyékot, amelyeket érint. Kijelölés nélkül csak a kurzort tartalmazó sor. A szomszédos árnyékolt sorok egyetlen tömbbé állnak össze.</div></div>
+<div class="pop" id="popShade" hidden><div class="ptitle">Sorárnyék – teljes szélességű szín a sorok mögött</div><div class="swg" id="swShade"></div><div class="phint">Jelölj ki szöveget: pontosan azok a sorok kapnak árnyékot, amelyeket érint. Kijelölés nélkül csak a kurzort tartalmazó sor. A szomszédos árnyékolt sorok egyetlen tömbbé állnak össze.</div></div>
 <div class="pop" id="popBorders" hidden>
   <div class="ptitle">Cellaszegélyek</div>
   <div class="seg2"><button class="pitem on" data-scope="cells">Kijelölt cellák</button><button class="pitem" data-scope="table">Teljes táblázat</button></div>
@@ -266,6 +267,11 @@
   <button class="pitem" data-num="upper-alpha">A. B. C.</button>
   <button class="pitem" data-num="lower-roman">i. ii. iii.</button>
   <button class="pitem" data-num="upper-roman">I. II. III.</button>
+  <div class="psep"></div>
+  <div class="prow numstart"><label>Kezdő szám <input type="number" id="numStart" min="0" step="1"></label><button class="btn" id="numStartOk">OK</button></div>
+  <div class="psep"></div>
+  <div class="ptitle">Belső lista ugyanabban a sorban <span class="phint" style="display:inline">(pl. 1. a) …)</span></div>
+  <div class="seg2 nestrow"><button class="pitem" data-nest="lower-alpha">a)</button><button class="pitem" data-nest="decimal">1.</button><button class="pitem" data-nest="lower-roman">i.</button><button class="pitem" data-nest="upper-alpha">A.</button></div>
 </div>
 <div class="pop" id="popLine" hidden>
   <div class="ptitle">Sorköz</div>

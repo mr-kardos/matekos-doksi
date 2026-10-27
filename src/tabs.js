@@ -10,15 +10,16 @@ function stopsOf(block, boxW) {
   try { return JSON.parse(v).map(s => ({ pos: (+s.pos || 0) * CM, align: s.align || 'left', leader: s.leader || '' })).filter(s => s.pos > 0).sort((a, b) => a.pos - b.pos); }
   catch (e) { return []; }
 }
-/** Width of the content after a tab, up to the next tab or the end of its line. */
+/** Width of the content after a tab, up to the next tab or the end of its line. The content may sit in other
+ *  elements (marks such as line shading, formulas…), so the range runs through the block in document order. */
 function segWidth(tab, scale) {
+  const block = tab.closest('p,h1,h2,h3,li,td,th') || tab.parentElement;
+  const tabs = Array.from(block.querySelectorAll('span.tab')), next = tabs[tabs.indexOf(tab) + 1];
   const r = document.createRange();
   r.setStartAfter(tab);
-  let end = tab.nextSibling, last = null;
-  while (end && !(end.nodeType === 1 && end.classList && end.classList.contains('tab'))) { last = end; end = end.nextSibling; }
-  if (!last) return 0;
-  r.setEndAfter(last);
-  const t = tab.getBoundingClientRect(), y = (t.top + t.bottom) / 2, rects = Array.from(r.getClientRects()).filter(q => q.width > 0 && y >= q.top - 2 && y <= q.bottom + 2);   // same line as the tab
+  if (next) r.setEndBefore(next); else r.setEnd(block, block.childNodes.length);
+  const t = tab.getBoundingClientRect(), y = (t.top + t.bottom) / 2;
+  const rects = Array.from(r.getClientRects()).filter(q => q.width > 0 && y >= q.top - 2 && y <= q.bottom + 2);   // same line as the tab
   if (!rects.length) return 0;
   const l = Math.min(...rects.map(q => q.left)), rr = Math.max(...rects.map(q => q.right));
   return (rr - l) / scale;

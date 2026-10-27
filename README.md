@@ -111,3 +111,11 @@ tools/                font verification
 - Tabulators in their own popover, with dotted / line fill; right tab at the right margin never wraps.
 - Formatting marks (eye button), Matekos infinity bullet, document colours in every colour picker.
 - Ready-made templates in a red box at the top of the template panel; the Sablon button opens/closes the panel.
+
+## 0.6.2
+- Header/footer as a table (equal-height columns, middle 50 % by default), closed only with „Kész”; full-width line
+  below/above again; ribbon line inside one column. Pictures settings in one row.
+- Lists: changing some items starts a new list for them; start number; inner list on the same line (1. a) …).
+- Formatting marks: bigger, tab and indent sizes, differences from the paragraph styles.
+- Colour settings of the template panel use the palette; Sorárnyék with „Nincs” option.
+- Fixes: tabs with line shading and formulas; TeX pasted with invisible characters.

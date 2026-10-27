@@ -300,3 +300,6 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 .md-prev{ min-height:30px; margin-top:2px; padding:4px 8px; font-size:16px; }
 .mph{ color:#8a8f96; font:13px var(--ui); }
 .md-foot .sp{ flex:1; }
+/* same-line nested lists ("1. a) …"): the outer marker sits in the first line of the inner list */
+.ProseMirror p.lm-collapsed{ height:0; padding:0 !important; margin:0 !important; overflow:hidden; }
+.lm.lm-up{ transform:translateX(calc(-100% - .45em - var(--up) * 1.8em)); }

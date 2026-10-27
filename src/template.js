@@ -22,9 +22,9 @@ export const DEFAULT_TPL = {
   margins: { top: 25, bottom: 25, left: 25, right: 25 },
   gutter: 0, mirror: false,
   oddEven: false, firstDiff: false,
-  header: { odd: { ...slot('', '', '{date}'), l: cellDoc('{title}', 'left', null, LINE) }, even: { ...slot('', '', '{title}'), l: cellDoc('{date}', 'left', null, LINE) }, first: slot() },
+  header: { odd: slot('{title}', '', '{date}'), even: slot('{date}', '', '{title}'), first: slot() },
   footer: { odd: slot('', '– {page} –'), even: slot('', '– {page} –'), first: slot('', '– {page} –') },
-  headerDist: 12, footerDist: 12, hfMid: 34, headerFont: '', footerFont: '',
+  headerDist: 12, footerDist: 12, hfMid: 50, headerFont: '', footerFont: '', headerLine: true, footerLine: false,
   hfLeft: 25, hfRight: 25,
   headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
   wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
@@ -75,15 +75,16 @@ export function normalizeTpl(t) {
       ['l', 'c', 'r'].forEach((p, i) => { n[p] = cellDoc(parts[i], ALIGN[p]); });
     }
     delete n.doc;
-    // the old "line under the header / above the footer" setting becomes a line of the left cell
-    const lineKey = k === 'header' ? 'headerLine' : 'footerLine';
-    if (t && t[lineKey] && n.l && n.l.content && n.l.content[0]) n.l.content[0].attrs = { ...(n.l.content[0].attrs || {}), ...(k === 'header' ? LINE : LINE_TOP) };
+    // 0.6.1 kept the header line as a line of the left column: it is the box's line again
+    const lineKey = k === 'header' ? 'headerLine' : 'footerLine', ra = k === 'header' ? 'ruleBottom' : 'ruleTop';
+    const p0 = n.l && n.l.content && n.l.content[0];
+    if (t && !(lineKey in t) && p0 && p0.attrs && p0.attrs[ra] === '0.75 #000000') { out[lineKey] = true; p0.attrs = { ...p0.attrs, [ra]: null }; }
     if (typeof old.img === 'string') { if (old.img) n.img[old.imgPos || 'l'] = { src: old.img, h: +old.imgH || 10 }; }
     else if (old.img && typeof old.img === 'object') for (const p of ['l', 'c', 'r']) n.img[p] = { ...pic(), ...(old.img[p] || {}) };
     delete n.imgPos; delete n.imgH;
     out[k][v] = n;
   }
-  delete out.headerLine; delete out.footerLine;
+  if (t && t.hfMid == null) out.hfMid = 50;
   return out;
 }
 

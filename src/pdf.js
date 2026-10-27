@@ -177,6 +177,16 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       L[a1.p].line.push({ x1: a1.x, y1: a1.y + wpt / 2, x2: a1.x + pt(hb.width), y2: a1.y + wpt / 2, w: wpt, c: col });
     }
   }
+  // ---- lines inside a header / footer column (paragraph borders) ----
+  for (const b of pagesEl.querySelectorAll('.hf [data-rt], .hf [data-rb]')) {
+    const r = b.getBoundingClientRect(), cs = getComputedStyle(b);
+    for (const side of ['Top', 'Bottom']) {
+      const w = parseFloat(cs['border' + side + 'Width']) || 0; if (cs['border' + side + 'Style'] === 'none' || !w) continue;
+      const col = rgb(cs['border' + side + 'Color']) || { r: 17, g: 17, b: 17 };
+      const y = side === 'Top' ? r.top + w * scale / 2 : r.bottom - w * scale / 2, a1 = loc(r.left, y);
+      L[a1.p].line.push({ x1: a1.x, y1: a1.y, x2: a1.x + pt(r.width), y2: a1.y, w: w * PT, c: col });
+    }
+  }
   // ---- tab leaders (dots / line) ----
   for (const root of [editorDom, pagesEl]) for (const t of root.querySelectorAll('span.tab[data-leader]')) {
     const r = t.getBoundingClientRect(); if (r.width < 2) continue;

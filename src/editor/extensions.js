@@ -130,39 +130,50 @@ export const ListMarkers = Extension.create({
   addProseMirrorPlugins() {
     const build = doc => {
       const decos = [];
-      const walk = (node, pos, depth) => {
+      /** carry: markers of outer items whose first line is the first line of a nested list (same-line nesting) */
+      const walk = (node, pos, depth, carry) => {
         node.forEach((child, off) => {
           const cpos = pos + off + 1;
           if (child.type.name === 'bulletList' || child.type.name === 'orderedList') {
             const ordered = child.type.name === 'orderedList';
-            const start = ordered ? (child.attrs.start || 1) : 1;
+            const start = ordered ? (child.attrs.start ?? 1) : 1;
             child.forEach((item, ioff, idx) => {
               const ipos = cpos + 1 + ioff;          // position of listItem
               const first = item.firstChild;
-              if (first && first.isTextblock) {
-                const key = ordered ? 'o' + ordinal(start + idx, child.attrs.numStyle || listDefaults.num)
+              const mk = {
+                key: ordered ? 'o' + ordinal(start + idx, child.attrs.numStyle || listDefaults.num)
                   : child.attrs.bulletImage ? 'i' + child.attrs.bulletSize + child.attrs.bulletImage.length + child.attrs.bulletImage.slice(-24)
-                    : 'b' + (child.attrs.bulletChar || bulletAt(depth));
-                decos.push(Decoration.widget(ipos + 2, () => {
-                  const s = document.createElement('span');
-                  s.className = 'lm';
-                  s.contentEditable = 'false';
-                  if (ordered) s.textContent = ordinal(start + idx, child.attrs.numStyle || listDefaults.num);
-                  else if (child.attrs.bulletImage) {
-                    const im = document.createElement('img');
-                    im.src = child.attrs.bulletImage; im.alt = '';
-                    im.style.height = (child.attrs.bulletSize || 0.9) + 'em';
-                    s.appendChild(im);
-                  } else s.textContent = child.attrs.bulletChar || bulletAt(depth);
-                  return s;
-                }, { side: -1, key, ignoreSelection: true }));
+                    : 'b' + (child.attrs.bulletChar || bulletAt(depth)),
+                text: ordered ? ordinal(start + idx, child.attrs.numStyle || listDefaults.num) : child.attrs.bulletImage ? null : (child.attrs.bulletChar || bulletAt(depth)),
+                img: !ordered && child.attrs.bulletImage ? child.attrs.bulletImage : null, size: child.attrs.bulletSize || 0.9
+              };
+              const here = idx === 0 && carry ? carry : [];
+              // an item that starts with an empty line and a list: the nested list's first item shares the line
+              const sameLine = first && first.isTextblock && !first.content.size && item.childCount > 1 && /List$/.test(item.child(1).type.name);
+              if (sameLine) {
+                decos.push(Decoration.node(ipos + 1, ipos + 1 + first.nodeSize, { class: 'lm-collapsed' }));
+                walk(item, ipos, depth + 1, [...here.map(m => ({ ...m, up: m.up + 1 })), { ...mk, up: 1 }]);
+                return;
               }
-              walk(item, ipos, depth + 1);
+              if (first && first.isTextblock) {
+                for (const m of [{ ...mk, up: 0 }, ...here]) {
+                  decos.push(Decoration.widget(ipos + 2, () => {
+                    const s = document.createElement('span');
+                    s.className = 'lm' + (m.up ? ' lm-up' : '');
+                    if (m.up) s.style.setProperty('--up', m.up);
+                    s.contentEditable = 'false';
+                    if (m.img) { const im = document.createElement('img'); im.src = m.img; im.alt = ''; im.style.height = m.size + 'em'; s.appendChild(im); }
+                    else s.textContent = m.text;
+                    return s;
+                  }, { side: -1, key: m.key + '|' + m.up, ignoreSelection: true }));
+                }
+              }
+              walk(item, ipos, depth + 1, null);
             });
-          } else if (!child.isTextblock && child.childCount) walk(child, cpos, depth);
+          } else if (!child.isTextblock && child.childCount) walk(child, cpos, depth, null);
         });
       };
-      walk(doc, -1, 0);
+      walk(doc, -1, 0, null);
       return DecorationSet.create(doc, decos);
     };
     return [new Plugin({

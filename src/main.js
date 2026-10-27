@@ -121,7 +121,7 @@ const editor = new Editor({
   },
   onUpdate: () => { markDirty(); saveSoon(); },
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
-  onFocus: () => updateOverlays(),
+  onFocus: () => { if (hfEd) { hfEd = null; updateToolbar(); } updateOverlays(); },
   onBlur: () => updateOverlays(),
   onTransaction: () => { updateToolbar(); updateOverlays(); marksSoon(); }
 });
@@ -152,7 +152,7 @@ function applyLayout(n) {
 let showMarks = load('matekosdoksi.marks') === '1', marksRaf = 0;
 function marksSoon() {
   if (marksRaf) return;
-  marksRaf = requestAnimationFrame(() => { marksRaf = 0; const l = $('#marksLayer'); if (!showMarks) { l.innerHTML = ''; return; } drawMarks(l, editor.view.dom, stack, scale); });
+  marksRaf = requestAnimationFrame(() => { marksRaf = 0; const l = $('#marksLayer'); if (!showMarks) { l.innerHTML = ''; return; } drawMarks(l, editor.view.dom, stack, scale, tpl.styles, css => { const f = familyFromCSS(css); return f ? familyLabel(f).replace(/ \(.*\)$/, '') : css.split(',')[0].replace(/['"]/g, ''); }); });
 }
 function applyZoom() {
   const g = geometry(tpl);
@@ -487,7 +487,25 @@ swatches($('#swShade'), ['#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', 
     if (r) AE().chain().focus().setTextSelection(r).setMark('lineShade', { color: c }).setTextSelection(AE().state.selection.from).run();
     else ch().setParaAttrs({ shade: c }).run();               // empty paragraph: shade its (single) line
   } else ch().setMark('lineShade', { color: c }).run();       // selection: exactly the lines it touches
-}, 'Nincs árnyékolás');
+}, 'Nincs sorárnyék');
+/* colour settings of the template panel: the same palette as the ribbon (with the document's colours) */
+let anyColorCb = null;
+swatches($('#swAny'), ['#111111', '#5d6875', '#9aa3ad', '#ffffff', '#da291c', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98', '#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => anyColorCb && anyColorCb(c), 'Nincs');
+$('#props').addEventListener('click', e => {
+  const inp = e.target.closest('input[type=color]') || (e.target.closest('.colbtn') && e.target.closest('.colbtn').querySelector('input[type=color]'));
+  if (!inp) return;
+  e.preventDefault();
+  const host = inp.closest('.colbtn') || inp, none = host.dataset && host.dataset.none;
+  $('#anyColorTitle').textContent = (host.getAttribute('title') || 'Szín').replace(/\s*\(.*$/, '');
+  $('#popAnyColor').classList.toggle('nonone', !none);
+  const nb = $('#swAny .sw.none'); if (nb) nb.textContent = none || 'Nincs';
+  anyColorCb = c => {
+    if (c === 'none') { setPath(tpl, inp.dataset.k, ''); const dot = host.querySelector && host.querySelector('.dot'); if (dot) { dot.style.setProperty('--c', 'transparent'); dot.classList.add('none'); } tplChanged(); return; }
+    inp.value = c; const dot = host.querySelector && host.querySelector('.dot'); if (dot) dot.classList.remove('none');
+    inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  showPop('popAnyColor', host);
+}, true);
 swatches($('#swCell'), ['#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee', '#d6e4f0'], c => forCells('cells', () => ({ background: c === 'none' ? null : c })), 'Nincs kitöltés');
 
 /* letter spacing (Prezi) */
@@ -507,9 +525,54 @@ $('#popSpacing').onopen = () => { const ls = AE().getAttributes('textStyle').let
 const BUL = ['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'];
 $('#bulGrid').innerHTML = BUL.map(b => `<button data-bul="${b}" aria-label="${b}">${b}</button>`).join('')
   + `<button data-bulimg="matekos" title="Matekos végtelen jel" aria-label="Matekos végtelen jel"><img src="${MATEKOS_BULLET}" alt="" style="height:.7em"></button>`;
-function setBullet(attrs) {
-  if (!AE().isActive('bulletList')) ch().toggleBulletList().run();
-  ch().updateAttributes('bulletList', attrs).run();
+/* Lists: a change of symbol / numbering on only some items starts a new list for exactly those items */
+function listAround(state, typeName) {
+  const { $from, $to } = state.selection;
+  for (let d = $from.depth; d > 0; d--) {
+    const n = $from.node(d);
+    if (n.type.name === typeName) {
+      const pos = $from.before(d);
+      if ($to.pos > pos + n.nodeSize) return null;
+      let b = n.childCount - 1;
+      const $t = state.doc.resolve(Math.min($to.pos, pos + n.nodeSize - 1));
+      for (let e = $t.depth; e > 0; e--) if ($t.node(e) === n) { b = $t.index(e); break; }
+      return { node: n, pos, a: $from.index(d), b };
+    }
+  }
+  return null;
+}
+function applyListAttrs(typeName, attrs) {
+  const ed = AE();
+  if (!ed.isActive(typeName)) { ed.chain().focus()[typeName === 'bulletList' ? 'toggleBulletList' : 'toggleOrderedList']().run(); }
+  const st = ed.state, r = listAround(st, typeName);
+  if (!r) return;
+  const { node, pos, a, b } = r, ordered = typeName === 'orderedList';
+  if (a === 0 && b === node.childCount - 1) { ed.chain().focus().updateAttributes(typeName, attrs).run(); return; }
+  const items = []; node.forEach(c => items.push(c));
+  const start = ordered ? (node.attrs.start ?? 1) : null;
+  const parts = [];
+  if (a > 0) parts.push(node.type.create(node.attrs, items.slice(0, a)));
+  parts.push(node.type.create({ ...node.attrs, ...(ordered ? { start: 1 } : {}), ...attrs }, items.slice(a, b + 1)));
+  if (b < items.length - 1) parts.push(node.type.create({ ...node.attrs, ...(ordered ? { start: start + b + 1 } : {}) }, items.slice(b + 1)));
+  const tr = st.tr.replaceWith(pos, pos + node.nodeSize, parts);
+  ed.view.dispatch(tr.scrollIntoView()); ed.view.focus();
+}
+function setBullet(attrs) { applyListAttrs('bulletList', attrs); }
+/** "1. a) …": the current line becomes the first item of a list inside the current item, on the same line. */
+function nestSameLine(numStyle) {
+  const ed = AE(), st = ed.state, { $from } = st.selection;
+  let d = $from.depth; while (d > 0 && $from.node(d).type.name !== 'listItem') d--;
+  if (d <= 0) { ed.chain().focus().toggleOrderedList().updateAttributes('orderedList', { numStyle }).run(); return; }
+  const li = $from.node(d), liPos = $from.before(d), i = $from.index(d), S = st.schema.nodes;
+  const kids = []; li.forEach(c => kids.push(c));
+  const inner = S.orderedList.create({ numStyle, start: 1 }, [S.listItem.create(null, kids.slice(i))]);
+  const content = i === 0 ? [S.paragraph.create(), inner] : [...kids.slice(0, i), inner];
+  const tr = st.tr.replaceWith(liPos, liPos + li.nodeSize, S.listItem.create(li.attrs, content));
+  // cursor: same place, now inside the inner list
+  const off = $from.pos - $from.start(d + 1);
+  let target = liPos + 1 + (i === 0 ? 2 : kids.slice(0, i).reduce((x, n) => x + n.nodeSize, 0)) + 1 + 1 + 1 + off;
+  try { tr.setSelection(TextSelection.create(tr.doc, Math.min(target, tr.doc.content.size))); } catch (e) { /* keep */ }
+  ed.view.dispatch(tr.scrollIntoView()); ed.view.focus();
 }
 $('#popBullet').addEventListener('click', e => {
   if (e.target.closest('[data-bulimg]')) { closePops(); setBullet({ bulletImage: MATEKOS_BULLET, bulletChar: '', bulletSize: 0.7 }); return; }
@@ -524,12 +587,16 @@ $('#bulCustomBtn').addEventListener('click', () => { const v = $('#bulCustom').v
 $('#bulPicBtn').addEventListener('click', () => pickImage(512, url => { closePops(); setBullet({ bulletImage: url, bulletChar: '', bulletSize: +$('#bulPicSize').value || 0.9 }); }));
 $('#bulPicSize').addEventListener('change', e => { if (AE().isActive('bulletList')) ch().updateAttributes('bulletList', { bulletSize: +e.target.value || 0.9 }).run(); });
 $('#popNum').addEventListener('click', e => {
+  const n = e.target.closest('[data-nest]'); if (n) { closePops(); nestSameLine(n.dataset.nest); return; }
   const b = e.target.closest('[data-num]'); if (!b) return; closePops();
-  if (!AE().isActive('orderedList')) ch().toggleOrderedList().run();
-  ch().updateAttributes('orderedList', { numStyle: b.dataset.num }).run();
+  applyListAttrs('orderedList', { numStyle: b.dataset.num });
 });
-$('#popNum').onopen = () => { const st = AE().isActive('orderedList') ? (AE().getAttributes('orderedList').numStyle || 'decimal') : null;
-  for (const b of $$('#popNum [data-num]')) b.classList.toggle('on', b.dataset.num === st); };
+$('#numStartOk').addEventListener('click', () => { const v = parseInt($('#numStart').value, 10); if (!(v >= 0)) return; closePops(); applyListAttrs('orderedList', { start: v }); });
+$('#numStart').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#numStartOk').click(); } });
+$('#popNum').onopen = () => { const on = AE().isActive('orderedList'), a = on ? AE().getAttributes('orderedList') : {};
+  const st = on ? (a.numStyle || listDefaults.num) : null;
+  for (const b of $$('#popNum [data-num]')) b.classList.toggle('on', b.dataset.num === st);
+  $('#numStart').value = on ? (a.start ?? 1) : 1; };
 
 /* line spacing (Prezi: list + own value) */
 const LH = [1, 1.15, 1.25, 1.5, 2, 2.5, 3];
@@ -784,14 +851,7 @@ function hfRenderCache() {
 let hfOpen = null;        // {kind, v, i, box, eds}
 const hfEds = [];         // the three cell editors while open
 /** Header/footer lines run across the whole box: under (or above) all three columns. */
-function hfRules(root = pagesEl) {
-  for (const box of root.querySelectorAll('.hf')) {
-    const t = box.querySelector('[data-rt]'), b = box.querySelector('[data-rb]');
-    box.classList.toggle('rt', !!t); box.classList.toggle('rb', !!b);
-    if (t) { const [w, c] = t.getAttribute('data-rt').split(' '); box.style.setProperty('--rtw', (parseFloat(w) || 0.75) + 'pt'); box.style.setProperty('--rtc', c || '#111'); }
-    if (b) { const [w, c] = b.getAttribute('data-rb').split(' '); box.style.setProperty('--rbw', (parseFloat(w) || 0.75) + 'pt'); box.style.setProperty('--rbc', c || '#111'); }
-  }
-}
+function hfRules() { /* lines are set by the template (box) and by the paragraphs (columns) */ }
 /** Open the header / footer of the given variant on the first page that uses it. */
 function editHF(kind, v) {
   if (hfOpen) closeHF();
@@ -806,7 +866,7 @@ function editHF(kind, v) {
   stack.classList.add('hfmode');
   const label = document.createElement('div');
   label.className = 'hf-label';
-  label.textContent = `${kind === 'header' ? 'Élőfej' : 'Élőláb'} – ${{ odd: tpl.oddEven ? 'páratlan oldalak' : 'minden oldal', even: 'páros oldalak', first: 'első oldal' }[v]} · Esc: kész`;
+  label.textContent = `${kind === 'header' ? 'Élőfej' : 'Élőláb'} – ${{ odd: tpl.oddEven ? 'páratlan oldalak' : 'minden oldal', even: 'páros oldalak', first: 'első oldal' }[v]} · befejezés: „Kész” a jobb oldali panelen`;
   box.appendChild(label);
   for (const cellEl of box.querySelectorAll('.hf-text')) {
     const p = cellEl.dataset.cell;
@@ -815,7 +875,6 @@ function editHF(kind, v) {
       element: cellEl, extensions: hfExtensions(), content: tpl[kind][v][p],
       editorProps: { attributes: { class: 'hf-editor', spellcheck: 'true', lang: 'hu' },
         handleKeyDown: (view, e) => {
-          if (e.key === 'Escape') { closeHF(); return true; }
           if (e.key === 'Tab') { const k = hfEds.indexOf(ed), n = hfEds[(k + (e.shiftKey ? 2 : 1)) % 3]; if (n) { n.commands.focus('end'); } return true; }   // next column
           return false;
         } },
@@ -839,11 +898,6 @@ function closeHF() {
   stack.classList.remove('hfmode');
   markDirty(); applyTpl(); renderSheets(pagesEl, pageCount, tpl, docTitle(), true); hfRules(); saveSoon(); updateToolbar(); fillPanel();
 }
-document.addEventListener('pointerdown', e => {
-  if (!hfOpen) return;
-  if (e.target.closest('.hf.editing,.app,.pop,#props,.cfm,.mathdlg')) return;
-  closeHF();
-}, true);
 $('#props').addEventListener('click', e => {
   const ed = e.target.closest('[data-edithf]');
   if (ed) { if (hfOpen && hfOpen.kind === ed.dataset.edithf) closeHF(); else editHF(ed.dataset.edithf, hfVariant); return; }
@@ -1021,12 +1075,13 @@ function hfTabs() {
   $('#hfTabs').innerHTML = tabs.map(([k, l]) => `<button data-v="${k}" class="${k === hfVariant ? 'on' : ''}">${l}</button>`).join('');
   const block = kind => {
     const sl = tpl[kind][hfVariant], base = `${kind}.${hfVariant}`;
-    const picRow = (pos, label) => {
+    const col = (pos, label) => {
       const pic = sl.img[pos];
-      return `<div class="hfpic"><span class="hfpl">${label}</span><div class="imgpick">${pic.src ? `<img src="${esc(pic.src)}" alt="">` : ''}<button class="btn" data-pickimg="${base}.img.${pos}.src">${pic.src ? 'Csere…' : 'Kép…'}</button>${pic.src ? `<button class="btn" data-clearimg="${base}.img.${pos}.src">Eltávolítás</button><label class="mini-l">Magasság <input type="number" min="3" max="80" step="1" data-k="${base}.img.${pos}.h"> mm</label>` : ''}</div></div>`;
+      return `<div class="hfpcol"><span class="hfpl">${label}</span><div class="hfthumb">${pic.src ? `<img src="${esc(pic.src)}" alt="">` : '<i>nincs kép</i>'}</div>
+        <button class="btn mini" data-pickimg="${base}.img.${pos}.src">${pic.src ? 'Csere…' : 'Kép…'}</button>
+        ${pic.src ? `<button class="btn mini" data-clearimg="${base}.img.${pos}.src">Eltávolítás</button><label class="mini-l">Magasság<span class="unitin"><input type="number" min="3" max="80" step="1" data-k="${base}.img.${pos}.h"><i>mm</i></span></label>` : ''}</div>`;
     };
-    return `<h4>${kind === 'header' ? 'Élőfej képei' : 'Élőláb képei'}</h4>
-      ${picRow('l', 'Bal')}${picRow('c', 'Közép')}${picRow('r', 'Jobb')}`;
+    return `<h4>${kind === 'header' ? 'Élőfej képei' : 'Élőláb képei'}</h4><div class="hfpics">${col('l', 'Bal')}${col('c', 'Közép')}${col('r', 'Jobb')}</div>`;
   };
   $('#hfEditor').innerHTML = block('header') + block('footer');
 }
@@ -1047,8 +1102,7 @@ function styleRows() {
           <label class="colbtn btn" title="Betűszín"><input type="color" class="hidecolor" data-k="${b}.color"><i class="dot fill" style="--c:${esc(st.color)}"></i>Szín</label>
           ${['bold', 'italic', 'underline'].map(t => `<button class="tb${st[t] ? ' on' : ''}" data-stt="${t}" data-st="${k}" title="${{ bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott' }[t]}">${{ bold: '<b>B</b>', italic: '<i>I</i>', underline: '<u>U</u>' }[t]}</button>`).join('')}</div>
         <div class="stctl" style="margin-top:6px">${ALIGNS.map(([v, ic, t]) => `<button class="tb${(st.align || 'left') === v ? ' on' : ''}" data-stalign="${v}" data-st="${k}" title="${t}">${svg(ic)}</button>`).join('')}
-          <label class="colbtn btn" title="Sorárnyékolás (a bekezdés sorai mögött)"><input type="color" class="hidecolor" data-k="${b}.shade"><i class="dot fill" style="--c:${esc(st.shade || 'transparent')}"></i>Árnyék</label>
-          ${st.shade ? `<button class="tb" data-noshade="${k}" title="Árnyékolás nélkül">✕</button>` : ''}</div>
+          <label class="colbtn btn" title="Sorárnyék (a bekezdés sorai mögött)" data-none="Nincs sorárnyék"><input type="color" class="hidecolor" data-k="${b}.shade"><i class="dot fill${st.shade ? '' : ' none'}" style="--c:${esc(st.shade || 'transparent')}"></i>Sorárnyék</label></div>
         <div class="fgrid" style="margin-top:8px">
           ${num('line', 'Sorköz', 0.05, 0.8, 4, '')}${num('letter', 'Betűköz', 0.1, -3, 10, 'pt')}
           ${num('spaceBefore', 'Térköz előtte', 1, 0, 72, 'pt')}${num('spaceAfter', 'Térköz utána', 1, 0, 72, 'pt')}
@@ -1115,8 +1169,6 @@ props.addEventListener('click', e => {
   if (tg) { openStyle = openStyle === tg.dataset.sttoggle ? '' : tg.dataset.sttoggle; for (const c of $$('#styleRows .stcard')) c.classList.toggle('open', c.dataset.style === openStyle); return; }
   const al = e.target.closest('[data-stalign]');
   if (al) { tpl.styles[al.dataset.st].align = al.dataset.stalign; for (const x of al.parentElement.querySelectorAll('[data-stalign]')) x.classList.toggle('on', x === al); tplChanged(); return; }
-  const ns = e.target.closest('[data-noshade]');
-  if (ns) { tpl.styles[ns.dataset.noshade].shade = ''; styleRows(); fillPanel(); tplChanged(); return; }
   const b = e.target.closest('[data-stt]'); if (!b) return;
   const st = tpl.styles[b.dataset.st]; st[b.dataset.stt] = !st[b.dataset.stt]; b.classList.toggle('on', st[b.dataset.stt]); tplChanged();
 });
