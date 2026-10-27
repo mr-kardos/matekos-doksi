@@ -165,6 +165,25 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
     const a = loc(r.left, r.top + 0.5);
     L[a.p].bg.unshift({ x: a.x, y: (r.top - stackEl.getBoundingClientRect().top) / scale * PT - a.p * g.P * PT, w: pt(r.width), h: pt(r.height), c });
   }
+  // ---- lines of the header / footer (CSS lines across the whole box) ----
+  for (const box of pagesEl.querySelectorAll('.hf.rt, .hf.rb')) {
+    const hb = box.getBoundingClientRect();
+    for (const side of ['t', 'b']) {
+      if (!box.classList.contains('r' + side)) continue;
+      const ps = getComputedStyle(box, side === 't' ? '::before' : '::after');
+      const wpt = parseFloat(ps.borderTopWidth) * PT || 0.75, col = rgb(ps.borderTopColor) || { r: 17, g: 17, b: 17 };
+      const yy = side === 't' ? hb.top + (parseFloat(ps.top) || 0) * scale : hb.bottom - ((parseFloat(ps.bottom) || 0) + (parseFloat(ps.borderTopWidth) || 1)) * scale;
+      const a1 = loc(hb.left, yy);
+      L[a1.p].line.push({ x1: a1.x, y1: a1.y + wpt / 2, x2: a1.x + pt(hb.width), y2: a1.y + wpt / 2, w: wpt, c: col });
+    }
+  }
+  // ---- tab leaders (dots / line) ----
+  for (const root of [editorDom, pagesEl]) for (const t of root.querySelectorAll('span.tab[data-leader]')) {
+    const r = t.getBoundingClientRect(); if (r.width < 2) continue;
+    const cs = getComputedStyle(t), col = rgb(cs.color) || { r: 0, g: 0, b: 0 }, dot = t.dataset.leader === 'dot';
+    const a1 = loc(r.left, r.bottom), w = dot ? 1.2 : 0.6;
+    L[a1.p].line.push({ x1: a1.x, y1: a1.y, x2: a1.x + pt(r.width), y2: a1.y, w, c: col, dash: dot ? [0.1, 2.4] : null, cap: dot ? 'round' : null });
+  }
   // ---- table borders (resolved like the browser's collapsed-border model) ----
   for (const table of editorDom.querySelectorAll('table')) {
     const cells = Array.from(table.querySelectorAll('td,th')).filter(c => !c.closest('.pg-row')).map(c => {
@@ -349,7 +368,13 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
     }
     for (const b of pg.bg) { if (!fin(b.x, b.y, b.w, b.h)) continue; doc.setFillColor(b.c.r, b.c.g, b.c.b); doc.rect(b.x, b.y, b.w, b.h, 'F'); }
     for (const im of pg.img) { if (!fin(im.x, im.y, im.w, im.h)) continue; try { doc.addImage(im.url, im.fmt, im.x, im.y, im.w, im.h, undefined, 'SLOW'); } catch (e) { /* skip */ } }
-    for (const l of pg.line) { if (!fin(l.x1, l.y1, l.x2, l.y2, l.w)) continue; doc.setDrawColor(l.c.r, l.c.g, l.c.b); doc.setLineWidth(l.w); doc.line(l.x1, l.y1, l.x2, l.y2); }
+    for (const l of pg.line) {
+      if (!fin(l.x1, l.y1, l.x2, l.y2, l.w)) continue;
+      doc.setDrawColor(l.c.r, l.c.g, l.c.b); doc.setLineWidth(l.w);
+      if (l.dash) { doc.setLineDashPattern(l.dash, 0); doc.setLineCap('round'); }
+      doc.line(l.x1, l.y1, l.x2, l.y2);
+      if (l.dash) { doc.setLineDashPattern([], 0); doc.setLineCap('butt'); }
+    }
     for (const t of pg.text) {
       if (!fin(t.x, t.y, t.size) || t.size <= 0) continue;
       doc.setFont('Bonum', t.st); doc.setFontSize(t.size); doc.setTextColor(t.c.r, t.c.g, t.c.b);

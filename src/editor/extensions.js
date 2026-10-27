@@ -5,12 +5,14 @@ import { BulletList, OrderedList } from '@tiptap/extension-list';
 import { Table, TableRow, TableCell, TableHeader, TableView } from '@tiptap/extension-table';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import { renderInto, isReady, mathReady, mathFontFromCSS } from '../math.js';
+import { layoutTabs } from '../tabs.js';
 
 const numOrNull = v => (v === '' || v === null || v === undefined || isNaN(+v)) ? null : +v;
 
 /* ------------------------------------------------------------------ */
 /* Paragraph formatting: spacing, indents, line height, line shading   */
 /* ------------------------------------------------------------------ */
+const ruleVars = (k, v) => { const [w, c] = String(v).split(' '); return `--r${k}w:${parseFloat(w) || 0.75}pt;--r${k}c:${c || '#111111'}`; };
 export const ParaFormat = Extension.create({
   name: 'paraFormat',
   addGlobalAttributes() {
@@ -49,8 +51,8 @@ export const ParaFormat = Extension.create({
           renderHTML: a => a.tabStops ? { 'data-tabs': typeof a.tabStops === 'string' ? a.tabStops : JSON.stringify(a.tabStops) } : {}
         },
         // margin-to-margin line above / below the paragraph: "width color", e.g. "0.75 #111111"
-        ruleTop: { default: null, parseHTML: el => el.getAttribute('data-rt') || null, renderHTML: a => a.ruleTop ? { 'data-rt': a.ruleTop } : {} },
-        ruleBottom: { default: null, parseHTML: el => el.getAttribute('data-rb') || null, renderHTML: a => a.ruleBottom ? { 'data-rb': a.ruleBottom } : {} }
+        ruleTop: { default: null, parseHTML: el => el.getAttribute('data-rt') || null, renderHTML: a => a.ruleTop ? { 'data-rt': a.ruleTop, style: ruleVars('t', a.ruleTop) } : {} },
+        ruleBottom: { default: null, parseHTML: el => el.getAttribute('data-rb') || null, renderHTML: a => a.ruleBottom ? { 'data-rb': a.ruleBottom, style: ruleVars('b', a.ruleBottom) } : {} }
       }
     }];
   },
@@ -773,6 +775,14 @@ export const TabNode = Node.create({
   renderText() { return '\t'; },
   // the width is set by the tab layout; the editor must not treat that as a change of the text
   addNodeView() { return () => { const dom = document.createElement('span'); dom.className = 'tab'; dom.contentEditable = 'false'; return { dom, ignoreMutation: () => true }; }; },
+  addProseMirrorPlugins() {
+    const opts = this.options;
+    return [new Plugin({ view: () => ({ update: (view, prev) => {
+      if (view.state.doc === prev.doc || !view.dom.querySelector('span.tab')) return;
+      layoutTabs(view.dom, opts.getScale ? opts.getScale() : 1);
+    } }) })];
+  },
+  addOptions() { return { getScale: () => 1 }; },
   addKeyboardShortcuts() {
     return {
       // lists and tables keep their own Tab behaviour (they run first); anywhere else Tab inserts a tab

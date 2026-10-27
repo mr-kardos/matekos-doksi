@@ -7,7 +7,7 @@ function stopsOf(block, boxW) {
   const v = block.getAttribute('data-tabs');
   if (v === 'hf') return [{ pos: boxW / 2, align: 'center' }, { pos: boxW, align: 'right' }];
   if (!v) return [];
-  try { return JSON.parse(v).map(s => ({ pos: (+s.pos || 0) * CM, align: s.align || 'left' })).filter(s => s.pos > 0).sort((a, b) => a.pos - b.pos); }
+  try { return JSON.parse(v).map(s => ({ pos: (+s.pos || 0) * CM, align: s.align || 'left', leader: s.leader || '' })).filter(s => s.pos > 0).sort((a, b) => a.pos - b.pos); }
   catch (e) { return []; }
 }
 /** Width of the content after a tab, up to the next tab or the end of its line. */
@@ -45,7 +45,9 @@ export function layoutTabs(root, scale = 1, originOf = null) {
         if (w < 0) w = 0;
       } else if (stop) w = stop.pos - x;
       else { const step = DEFAULT_STEP * CM; w = (Math.floor(x / step + 1e-6) + 1) * step - x; }
-      t.style.width = Math.max(0, w) + 'px';
+      // a hair less than the exact width: rounding must never push the text over the margin
+      t.style.width = Math.max(0, stop && stop.align !== 'left' ? w - 0.5 : w) + 'px';
+      if (stop && stop.leader) t.dataset.leader = stop.leader; else delete t.dataset.leader;
     }
   }
 }

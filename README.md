@@ -96,7 +96,7 @@ tools/                font verification
 - Template editor in the right panel (collapsible sections, text styles for normal text and headings).
 - Page list with live miniatures in the left panel.
 
-## 0.6.0
+## 0.6.1
 - Header and footer are edited on the page (double-click), formatted with the ribbon; tab stops centre/right.
 - Tabulators (Tab key, own tab stops left/centre/right per paragraph; default every 1.25 cm).
 - Margin-to-margin line above / below a paragraph.
@@ -104,3 +104,10 @@ tools/                font verification
   spacing, indents and spacing; default list symbol and numbering. Formulas take the style's font and weight.
 - Paper sizes A4, A5, A6, A3 and custom; ready-made templates menu (Üres; Feladatsor, Kiadvány, Pré coming);
   collapsible page panel.
+
+## 0.6.1
+- Header/footer: three columns (equal sides, adjustable middle), opened from the template panel, own font,
+  lines across the whole box, gutter applied.
+- Tabulators in their own popover, with dotted / line fill; right tab at the right margin never wraps.
+- Formatting marks (eye button), Matekos infinity bullet, document colours in every colour picker.
+- Ready-made templates in a red box at the top of the template panel; the Sablon button opens/closes the panel.

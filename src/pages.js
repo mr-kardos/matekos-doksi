@@ -10,19 +10,18 @@ const fill = (html, i, n, title) => String(html || '').replace(/\{page\}/g, i + 
   .replace(/\{date\}/g, esc(new Date().toLocaleDateString('hu-HU'))).replace(/\{title\}/g, esc(title));
 function hfHTML(kind, v, slot, i, n, tpl, title, g) {
   const im = slot.img || {};
-  const html = (HF[kind] || {})[v] || '';
-  const hasText = /\S/.test(html.replace(/<[^>]+>/g, '')) || /class="tab"/.test(html);
-  const pics = ['l', 'c', 'r'].filter(p => im[p] && im[p].src);
-  const key = kind === 'header' ? 'hdr' : 'ftr';
-  // header / footer: measured from the paper's left and right edges (margins only apply to the main text)
-  const L = (+tpl.hfLeft || 0) * MM, R = (+tpl.hfRight || 0) * MM;
-  const isH = kind === 'header';
-  const line = isH ? tpl.headerLine : tpl.footerLine;
-  const size = isH ? tpl.headerSize : tpl.footerSize, color = isH ? tpl.headerColor : tpl.footerColor;
+  const cells = (HF[kind] || {})[v] || {};
+  const isH = kind === 'header', key = isH ? 'hdr' : 'ftr';
+  // measured from the paper's edges; the gutter is added on the inside edge (as for the main text)
+  const gut = (+tpl.gutter || 0) * MM, insideLeft = !tpl.mirror || i % 2 === 0;
+  const L = (+tpl.hfLeft || 0) * MM + (insideLeft ? gut : 0), R = (+tpl.hfRight || 0) * MM + (insideLeft ? 0 : gut);
+  const size = isH ? tpl.headerSize : tpl.footerSize, color = isH ? tpl.headerColor : tpl.footerColor, fam = isH ? tpl.headerFont : tpl.footerFont;
   const anchor = isH ? `top:${tpl.headerDist * MM}px` : `bottom:${tpl.footerDist * MM}px`;
-  const pic = p => im[p] && im[p].src ? `<span class="hfimg ${p}"><img src="${esc(im[p].src)}" alt="" style="height:${(+im[p].h || 10) * MM}px"></span>` : '';
-  return `<div class="hf ${key}${line ? ' ln' : ''}${hasText || pics.length ? '' : ' empty'}" data-hf="${kind}" data-v="${v}" data-i="${i}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}">`
-    + pic('l') + `<div class="hf-text">${fill(html, i, n, title)}</div>` + pic('r') + pic('c') + '</div>';
+  const mid = Math.max(10, Math.min(80, +tpl.hfMid || 34)), side = (100 - mid) / 2;
+  const pic = p => im[p] && im[p].src ? `<img class="hfimg" src="${esc(im[p].src)}" alt="" style="height:${(+im[p].h || 10) * MM}px">` : '';
+  const cell = (p, w) => `<div class="hfc hfc-${p}" style="width:${w}%">${p === 'r' ? '' : pic(p)}<div class="hf-text" data-cell="${p}">${fill(cells[p], i, n, title)}</div>${p === 'r' ? pic(p) : ''}</div>`;
+  return `<div class="hf ${key}" data-hf="${kind}" data-v="${v}" data-i="${i}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}${fam ? `;font-family:'MP ${esc(fam)}', var(--doc-font)` : ''}">`
+    + cell('l', side) + cell('c', mid) + cell('r', side) + '</div>';
 }
 
 function wmHTML(tpl, g) {

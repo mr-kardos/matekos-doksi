@@ -19,12 +19,14 @@ import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './temp
 import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
 import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, marksAt, TabNode, listDefaults } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP } from './tabs.js';
+import { drawMarks } from './marks.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
 import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave } from './files.js';
 import { SAMPLE_HTML } from './sample.js';
 import { svg } from './icons.js';
 import APP_ICON from '../public/app-icon.png?inline';
+import MATEKOS_BULLET from './matekos-vegtelen.png?inline';
 import { openMathEditor, isMathEditorOpen, applyMathEditor } from './mathEditor.js';
 
 const $ = s => document.querySelector(s);
@@ -33,6 +35,7 @@ const APP_VERSION = __APP_VERSION__;
 const LS_DOC = 'matekosdoksi.v2.doc', LS_TPL = 'matekosdoksi.v2.tpl';
 const OLD_DOC = 'kiadvany.v2.doc', OLD_TPL = 'kiadvany.v2.tpl';   // earlier test versions
 const store = (k, v) => { try { localStorage.setItem(k, v); return true; } catch (e) { return false; } };
+const lsSet = (k, v) => store(k, v);
 const load = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
 
 let tpl = normalizeTpl(DEFAULT_TPL);
@@ -56,7 +59,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, TabNode,
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -120,7 +123,7 @@ const editor = new Editor({
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
   onFocus: () => updateOverlays(),
   onBlur: () => updateOverlays(),
-  onTransaction: () => { updateToolbar(); updateOverlays(); }
+  onTransaction: () => { updateToolbar(); updateOverlays(); marksSoon(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
 
@@ -135,7 +138,7 @@ function applyLayout(n) {
   dom.style.width = g.colW + 'px';
   dom.style.minHeight = Math.max(0, (n - 1) * g.P + g.H - g.mb - g.mt) + 'px';
   renderSheets(pagesEl, n, tpl, $('#docTitle').value);
-  for (const t of pagesEl.querySelectorAll('.hf-text')) layoutTabs(t, scale);
+  hfRules();
   const stackW = Math.max(g.sheetX(0), g.sheetX(1)) + g.W;
   stack.style.width = stackW + 'px';
   stack.style.height = (n * g.P - GAP) + 'px';
@@ -143,6 +146,13 @@ function applyLayout(n) {
   drawShadeBands($('#shadeLayer'), dom, stack, scale, y => Math.floor(y / g.P));
   updateOverlays();
   thumbsSoon();
+  marksSoon();
+}
+/* formatting marks (eye button) */
+let showMarks = load('matekosdoksi.marks') === '1', marksRaf = 0;
+function marksSoon() {
+  if (marksRaf) return;
+  marksRaf = requestAnimationFrame(() => { marksRaf = 0; const l = $('#marksLayer'); if (!showMarks) { l.innerHTML = ''; return; } drawMarks(l, editor.view.dom, stack, scale); });
 }
 function applyZoom() {
   const g = geometry(tpl);
@@ -341,12 +351,13 @@ const COMMANDS = {
   outdent: () => AE().isActive('listItem') ? ch().liftListItem('listItem').run() : ch().shiftIndent(-1).run(),
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
-  math: () => openMath(null, null)
+  math: () => openMath(null, null),
+  marks: () => { showMarks = !showMarks; lsSet('matekosdoksi.marks', showMarks ? '1' : '0'); marksSoon(); updateToolbar(); }
 };
 const STATES = {
   bold: () => AE().isActive('bold'), italic: () => AE().isActive('italic'), underline: () => AE().isActive('underline'),
   strike: () => AE().isActive('strike'), superscript: () => AE().isActive('superscript'), subscript: () => AE().isActive('subscript'),
-  upper: isUpper,
+  upper: isUpper, marks: () => showMarks,
   alignLeft: () => AE().isActive({ textAlign: 'left' }), alignCenter: () => AE().isActive({ textAlign: 'center' }),
   alignRight: () => AE().isActive({ textAlign: 'right' }), alignJustify: () => AE().isActive({ textAlign: 'justify' }),
   bulletList: () => AE().isActive('bulletList'), orderedList: () => AE().isActive('orderedList')
@@ -430,12 +441,41 @@ function closePops() { if (openPop) { openPop.hidden = true; openPop = null; ope
 document.addEventListener('pointerdown', e => { if (openPop && !openPop.contains(e.target) && !(openAnchor && openAnchor.contains(e.target))) closePops(); }, true);
 for (const p of $$('.pop')) p.addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
 
+/* colour pickers (Matekos Prezi): base colours, the document's own saved colours, any colour + eyedropper */
+let docColors = [];                 // saved with the document
+const pickers = [];
 function swatches(box, colors, onPick, noneLabel) {
-  box.innerHTML = colors.map(c => `<button class="sw" data-c="${c}" style="background:${c}" title="${c}" aria-label="${c}"></button>`).join('')
-    + '<label class="sw custom" title="Egyéni szín"><input type="color" aria-label="Egyéni szín"></label>'
-    + (noneLabel ? `<button class="sw none" data-c="none">${noneLabel}</button>` : '');
-  box.addEventListener('click', e => { const b = e.target.closest('button[data-c]'); if (b) { onPick(b.dataset.c); closePops(); } });
-  box.querySelector('input').addEventListener('change', e => { onPick(e.target.value); closePops(); });
+  box.className = 'cpicker';
+  box.innerHTML = `<div class="swg">${colors.map(c => `<button class="sw" data-c="${c}" style="background:${c}" title="${c}" aria-label="${c}"></button>`).join('')}</div>
+    <div class="libwrap" hidden><div class="ptitle">A dokumentum saját színei</div><div class="swg lib"></div></div>
+    <div class="ccust"><button class="tb eyed" title="Pipetta: szín felvétele a képernyőről">${svg('eyedrop')}</button>
+      <label class="sw custom" title="Egyéni szín választása"><input type="color" aria-label="Egyéni szín"></label>
+      <span class="chex">#000000</span><span class="sp"></span>
+      <button class="btn cok" disabled>OK</button><button class="btn csave" disabled title="Hozzáadás a dokumentum saját színeihez">Mentés</button></div>
+    ${noneLabel ? `<button class="sw none" data-c="none">${noneLabel}</button>` : ''}`;
+  const inp = box.querySelector('input[type=color]'), hex = box.querySelector('.chex'), ok = box.querySelector('.cok'), save = box.querySelector('.csave');
+  const pending = c => { inp.value = c; hex.textContent = c; ok.disabled = save.disabled = false; };
+  box.addEventListener('click', e => {
+    const del = e.target.closest('[data-del]');
+    if (del) { docColors = docColors.filter(c => c !== del.dataset.del); refreshPickers(); markDirty(); saveSoon(); e.stopPropagation(); return; }
+    const b = e.target.closest('button[data-c]'); if (b) { onPick(b.dataset.c); closePops(); }
+  });
+  inp.addEventListener('input', () => pending(inp.value));
+  inp.addEventListener('change', () => pending(inp.value));
+  ok.onclick = () => { onPick(inp.value); closePops(); };
+  save.onclick = () => { const c = inp.value.toLowerCase(); docColors = [...new Set([...docColors, c])]; refreshPickers(); markDirty(); saveSoon(); onPick(c); closePops(); };
+  box.querySelector('.eyed').onclick = async () => {
+    if (!window.EyeDropper) { toast('A pipetta ezen a gépen nem érhető el.'); return; }
+    const pop = openPop, anchor = openAnchor;
+    try { const r = await new window.EyeDropper().open(); if (pop && anchor && pop.hidden) showPop(pop.id, anchor); pending(r.sRGBHex); } catch (e) { /* cancelled */ }
+  };
+  pickers.push(box); refreshPickers();
+}
+function refreshPickers() {
+  for (const box of pickers) {
+    box.querySelector('.libwrap').hidden = !docColors.length;
+    box.querySelector('.lib').innerHTML = docColors.map(c => `<span class="libsw"><button class="sw" data-c="${c}" style="background:${c}" title="${c}"></button><button class="del" data-del="${c}" title="Törlés a dokumentum színei közül">×</button></span>`).join('');
+  }
 }
 swatches($('#swText'), ['#111111', '#5d6875', '#ffffff', '#da291c', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98'], c => ch().setColor(c).run());
 swatches($('#swHi'), ['#fff176', '#c5f0a4', '#b3ecf5', '#f8bbd0', '#ffd59e', '#e1bee7', '#e0e0e0'], c => c === 'none' ? ch().unsetHighlight().run() : ch().setHighlight({ color: c }).run(), 'Nincs kiemelés');
@@ -465,12 +505,14 @@ $('#popSpacing').onopen = () => { const ls = AE().getAttributes('textStyle').let
 
 /* bullets, numbering */
 const BUL = ['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'];
-$('#bulGrid').innerHTML = BUL.map(b => `<button data-bul="${b}" aria-label="${b}">${b}</button>`).join('');
+$('#bulGrid').innerHTML = BUL.map(b => `<button data-bul="${b}" aria-label="${b}">${b}</button>`).join('')
+  + `<button data-bulimg="matekos" title="Matekos végtelen jel" aria-label="Matekos végtelen jel"><img src="${MATEKOS_BULLET}" alt="" style="height:.7em"></button>`;
 function setBullet(attrs) {
   if (!AE().isActive('bulletList')) ch().toggleBulletList().run();
   ch().updateAttributes('bulletList', attrs).run();
 }
 $('#popBullet').addEventListener('click', e => {
+  if (e.target.closest('[data-bulimg]')) { closePops(); setBullet({ bulletImage: MATEKOS_BULLET, bulletChar: '', bulletSize: 0.7 }); return; }
   const b = e.target.closest('[data-bul]'); if (!b) return;
   closePops();
   if (b.dataset.bul === 'none') { if (AE().isActive('bulletList')) ch().toggleBulletList().run(); return; }
@@ -510,7 +552,6 @@ $('#popPara').onopen = () => {
     if (inp.type === 'checkbox') inp.checked = !!a[k];
     else inp.value = a[k] ?? '';
   }
-  showTabs();
   const hang = a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
   $('#pfFirstKind').value = hang ? 'hang' : a.firstLine > 0 ? 'first' : 'none';
   $('#pfFirstVal').value = hang || a.firstLine || '';
@@ -534,14 +575,19 @@ function applyFirstLine() {
 $('#pfFirstKind').addEventListener('change', applyFirstLine);
 /* tab stops of the selected paragraphs */
 const curTabs = () => { const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph'); try { return a.tabStops && a.tabStops !== 'hf' ? JSON.parse(a.tabStops) : []; } catch (e) { return []; } };
-const AL = { left: 'balra', center: 'középre', right: 'jobbra' };
+const AL = { left: 'balra', center: 'középre', right: 'jobbra' }, LD = { dot: ', pontozott', line: ', vonallal' };
 function showTabs() {
   const t = curTabs();
-  $('#tabList').innerHTML = t.length ? t.map((x, i) => `<div class="tabrow"><span>${String(x.pos).replace('.', ',')} cm – ${AL[x.align] || 'balra'}</span><button class="tb mini" data-deltab="${i}" title="Tabulátor törlése">✕</button></div>`).join('')
+  $('#tabList').innerHTML = t.length ? t.map((x, i) => `<div class="tabrow"><span>${String(x.pos).replace('.', ',')} cm – ${AL[x.align] || 'balra'}${LD[x.leader] || ''}</span><button class="tb mini" data-deltab="${i}" title="Tabulátor törlése">✕</button></div>`).join('')
     : '<div class="phint" style="margin:2px 0 4px">Nincs saját tabulátor.</div>';
 }
 function setTabs(list) { list.sort((a, b) => a.pos - b.pos); AE().chain().setParaAttrs({ tabStops: list.length ? JSON.stringify(list) : null }).run(); showTabs(); relayout(0); }
-$('#tabAdd').addEventListener('click', () => { const v = parseFloat(String($('#tabPos').value).replace(',', '.')); if (!(v > 0 && v < 60)) return; setTabs([...curTabs().filter(x => x.pos !== v), { pos: v, align: $('#tabAlign').value }]); $('#tabPos').value = ''; });
+$('#tabAdd').addEventListener('click', () => { const v = parseFloat(String($('#tabPos').value).replace(',', '.')); if (!(v > 0 && v < 60)) return; setTabs([...curTabs().filter(x => x.pos !== v), { pos: v, align: $('#tabAlign').value, ...($('#tabLeader').value ? { leader: $('#tabLeader').value } : {}) }]); $('#tabPos').value = ''; });
+$('#popTabs').onopen = showTabs;
+$('#tabRightMargin').addEventListener('click', () => {      // right tab exactly at the right margin (width of the text column)
+  const v = Math.round(editor.view.dom.clientWidth / (96 / 2.54) * 100) / 100;
+  setTabs([...curTabs().filter(x => Math.abs(x.pos - v) > 0.01), { pos: v, align: 'right', ...($('#tabLeader').value ? { leader: $('#tabLeader').value } : {}) }]);
+});
 $('#tabList').addEventListener('click', e => { const b = e.target.closest('[data-deltab]'); if (!b) return; const t = curTabs(); t.splice(+b.dataset.deltab, 1); setTabs(t); });
 /* margin-to-margin line above / below the paragraph */
 let ruleW = 0.75, ruleC = '#111111';
@@ -712,13 +758,14 @@ function pickImage(maxSide, cb) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Header and footer: edited right on the page, like in Word           */
-/* (double-click the header or footer area; the ribbon formats it)     */
+/* Header and footer: three columns (left, centre, right – the side    */
+/* columns are equally wide), edited on the page, opened from the      */
+/* template panel; the ribbon formats the column being edited          */
 /* ------------------------------------------------------------------ */
 const HF_EXT = () => [
   StarterKit.configure({ heading: false, code: false, codeBlock: false, blockquote: false, horizontalRule: false, link: false,
     bulletList: false, orderedList: false, listItem: false, listKeymap: false, dropcursor: false, gapcursor: false, trailingNode: false }),
-  TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, TabNode,
+  TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase,
   Highlight.configure({ multicolor: true }), TextAlign.configure({ types: ['paragraph'] }), Subscript, Superscript, ParaFormat
 ];
 let hfExtCache = null;
@@ -726,72 +773,82 @@ const hfExtensions = () => hfExtCache || (hfExtCache = HF_EXT());
 function hfRenderCache() {
   const map = { header: {}, footer: {} };
   for (const k of ['header', 'footer']) for (const v of ['odd', 'even', 'first']) {
-    const d = tpl[k][v].doc;
-    try { map[k][v] = d ? generateHTML(d, hfExtensions()) : ''; } catch (e) { map[k][v] = ''; }
+    map[k][v] = {};
+    for (const p of ['l', 'c', 'r']) {
+      const d = tpl[k][v][p];
+      try { map[k][v][p] = d ? generateHTML(d, hfExtensions()) : ''; } catch (e) { map[k][v][p] = ''; }
+    }
   }
   setHfHTML(map);
 }
-let hfOpen = null;        // {kind, v, i, box}
-function hfZoneAt(clientX, clientY) {
-  const g = geometry(tpl), sr = stack.getBoundingClientRect();
-  const x = (clientX - sr.left) / scale, y = (clientY - sr.top) / scale;
-  const i = Math.floor(y / g.P); if (i < 0 || i >= pageCount) return null;
-  const sx = g.sheetX(i), yy = y - i * g.P;
-  if (x < sx || x > sx + g.W || yy < 0 || yy > g.H) return null;
-  if (yy < g.mt - 2) return { kind: 'header', i };
-  if (yy > g.H - g.mb + 2) return { kind: 'footer', i };
-  return null;
+let hfOpen = null;        // {kind, v, i, box, eds}
+const hfEds = [];         // the three cell editors while open
+/** Header/footer lines run across the whole box: under (or above) all three columns. */
+function hfRules(root = pagesEl) {
+  for (const box of root.querySelectorAll('.hf')) {
+    const t = box.querySelector('[data-rt]'), b = box.querySelector('[data-rb]');
+    box.classList.toggle('rt', !!t); box.classList.toggle('rb', !!b);
+    if (t) { const [w, c] = t.getAttribute('data-rt').split(' '); box.style.setProperty('--rtw', (parseFloat(w) || 0.75) + 'pt'); box.style.setProperty('--rtc', c || '#111'); }
+    if (b) { const [w, c] = b.getAttribute('data-rb').split(' '); box.style.setProperty('--rbw', (parseFloat(w) || 0.75) + 'pt'); box.style.setProperty('--rbc', c || '#111'); }
+  }
 }
-function openHF(kind, i) {
+/** Open the header / footer of the given variant on the first page that uses it. */
+function editHF(kind, v) {
   if (hfOpen) closeHF();
-  const v = variantFor(tpl, i);
+  let i = 0;
+  for (let k = 0; k < pageCount; k++) if (variantFor(tpl, k) === v) { i = k; break; }
+  if (variantFor(tpl, i) !== v) { toast(v === 'even' ? 'A dokumentumnak még nincs páros oldala.' : 'Ez az oldaltípus nem szerepel a dokumentumban.'); return; }
   const box = pagesEl.querySelector(`.hf[data-hf="${kind}"][data-i="${i}"]`); if (!box) return;
-  const txt = box.querySelector('.hf-text');
-  const sr = stack.getBoundingClientRect(), r = txt.getBoundingClientRect();
-  const host = document.createElement('div');
-  host.className = 'hf-edit';
-  const isH = kind === 'header';
-  Object.assign(host.style, { left: (r.left - sr.left) / scale + 'px', width: r.width / scale + 'px', fontSize: (isH ? tpl.headerSize : tpl.footerSize) + 'pt', color: isH ? tpl.headerColor : tpl.footerColor });
-  if (isH) host.style.top = (r.top - sr.top) / scale + 'px'; else host.style.bottom = (stack.offsetHeight - (r.bottom - sr.top) / scale) + 'px';
-  host.dataset.label = `${isH ? 'Élőfej' : 'Élőláb'} – ${{ odd: tpl.oddEven ? 'páratlan oldalak' : 'minden oldal', even: 'páros oldalak', first: 'első oldal' }[v]} · Esc vagy dupla kattintás a szövegen: kész`;
-  stack.appendChild(host);
-  txt.style.visibility = 'hidden';
+  // show that page
+  const g = geometry(tpl), pageTop = outer.offsetTop + i * g.P * scale;
+  ws.scrollTo({ top: kind === 'header' ? pageTop - 40 : pageTop + g.H * scale - ws.clientHeight + 60 });
+  box.classList.add('editing');
   stack.classList.add('hfmode');
-  hfEd = new Editor({
-    element: host, extensions: hfExtensions(), content: tpl[kind][v].doc || { type: 'doc', content: [{ type: 'paragraph', attrs: { tabStops: 'hf' } }] },
-    editorProps: { attributes: { class: 'hf-editor', spellcheck: 'true', lang: 'hu' },
-      handleKeyDown: (view, e) => { if (e.key === 'Escape') { closeHF(); return true; } return false; } },
-    onTransaction: () => { updateToolbar(); requestAnimationFrame(() => hfEd && layoutTabs(hfEd.view.dom, scale)); },
-    onSelectionUpdate: () => updateToolbar()
-  });
-  hfOpen = { kind, v, i, txt, host };
-  requestAnimationFrame(() => { if (hfEd) { layoutTabs(hfEd.view.dom, scale); hfEd.commands.focus('end'); } });
-  updateToolbar();
+  const label = document.createElement('div');
+  label.className = 'hf-label';
+  label.textContent = `${kind === 'header' ? 'Élőfej' : 'Élőláb'} – ${{ odd: tpl.oddEven ? 'páratlan oldalak' : 'minden oldal', even: 'páros oldalak', first: 'első oldal' }[v]} · Esc: kész`;
+  box.appendChild(label);
+  for (const cellEl of box.querySelectorAll('.hf-text')) {
+    const p = cellEl.dataset.cell;
+    cellEl.innerHTML = '';
+    const ed = new Editor({
+      element: cellEl, extensions: hfExtensions(), content: tpl[kind][v][p],
+      editorProps: { attributes: { class: 'hf-editor', spellcheck: 'true', lang: 'hu' },
+        handleKeyDown: (view, e) => {
+          if (e.key === 'Escape') { closeHF(); return true; }
+          if (e.key === 'Tab') { const k = hfEds.indexOf(ed), n = hfEds[(k + (e.shiftKey ? 2 : 1)) % 3]; if (n) { n.commands.focus('end'); } return true; }   // next column
+          return false;
+        } },
+      onFocus: () => { hfEd = ed; updateToolbar(); },
+      onTransaction: () => { if (hfEd === ed) updateToolbar(); requestAnimationFrame(() => hfRules()); },
+      onSelectionUpdate: () => { if (hfEd === ed) updateToolbar(); }
+    });
+    ed._cell = p;
+    hfEds.push(ed);
+  }
+  hfOpen = { kind, v, i, box };
+  hfEd = hfEds[0];
+  requestAnimationFrame(() => hfEds[0] && hfEds[0].commands.focus('end'));
+  updateToolbar(); fillPanel();
 }
 function closeHF() {
   if (!hfOpen) return;
-  const { kind, v, txt, host } = hfOpen, ed = hfEd;
-  hfOpen = null; hfEd = null;
-  tpl[kind][v].doc = ed.getJSON();
-  ed.destroy(); host.remove(); txt.style.visibility = '';
+  const { kind, v } = hfOpen;
+  for (const ed of hfEds) { tpl[kind][v][ed._cell] = ed.getJSON(); ed.destroy(); }
+  hfEds.length = 0; hfOpen = null; hfEd = null;
   stack.classList.remove('hfmode');
-  markDirty(); applyTpl(); saveSoon(); updateToolbar();
+  markDirty(); applyTpl(); renderSheets(pagesEl, pageCount, tpl, docTitle(), true); hfRules(); saveSoon(); updateToolbar(); fillPanel();
 }
-stack.addEventListener('dblclick', e => {
-  if (e.target.closest('.hf-edit')) return;
-  const z = hfZoneAt(e.clientX, e.clientY);
-  if (z) { e.preventDefault(); openHF(z.kind, z.i); }
-  else if (hfOpen) closeHF();
-}, true);
 document.addEventListener('pointerdown', e => {
   if (!hfOpen) return;
-  if (e.target.closest('.hf-edit,.app,.pop,#props,.cfm,.mathdlg')) return;
-  if (e.target.closest('#stack') && hfZoneAt(e.clientX, e.clientY)) return;
+  if (e.target.closest('.hf.editing,.app,.pop,#props,.cfm,.mathdlg')) return;
   closeHF();
 }, true);
 $('#props').addEventListener('click', e => {
+  const ed = e.target.closest('[data-edithf]');
+  if (ed) { if (hfOpen && hfOpen.kind === ed.dataset.edithf) closeHF(); else editHF(ed.dataset.edithf, hfVariant); return; }
   const b = e.target.closest('[data-field]'); if (!b) return;
-  if (!hfEd) { toast('Kattints duplán egy oldal élőfejére vagy élőlábára, és oda kerül a mező.'); return; }
+  if (!hfEd) { toast('Előbb nyisd meg szerkesztésre az élőfejet vagy az élőlábat.'); return; }
   hfEd.chain().focus().insertContent(b.dataset.field).run();
 });
 
@@ -852,7 +909,7 @@ function showPreview(p) {
 /* ------------------------------------------------------------------ */
 /* Side panels: page list (left), template editor (right)              */
 /* ------------------------------------------------------------------ */
-const lsGet = k => load(k), lsSet = (k, v) => store(k, v);
+const lsGet = k => load(k);
 const LSK = { left: 'matekosdoksi.leftw', right: 'matekosdoksi.rightw', panel: 'matekosdoksi.panel', sections: 'matekosdoksi.sections' };
 const mainEl = $('#main'), plist = $('#plist'), props = $('#props');
 function setLeftWidth(w) { w = Math.max(120, Math.min(420, Math.round(w))); document.body.style.setProperty('--lw', w + 'px'); mainEl.style.setProperty('--lw', w + 'px'); return w; }
@@ -872,16 +929,14 @@ splitter($('#lsplit'), () => $('#pagesNav').getBoundingClientRect().width, setLe
 splitter($('#rsplit'), () => props.getBoundingClientRect().width, setRightWidth, LSK.right, -1);
 function panelVisible(v) {
   mainEl.classList.toggle('noprops', !v); document.body.classList.toggle('noprops-on', !v);
-  lsSet(LSK.panel, v ? '1' : '0'); applyZoom();
+  $('#bTpl').classList.toggle('primary', v); lsSet(LSK.panel, v ? '1' : '0'); applyZoom();
   if (v) fillPanel();
 }
-$('#bTpl').addEventListener('click', e => showPop('popPreset', e.currentTarget));
+$('#bTpl').addEventListener('click', () => panelVisible(mainEl.classList.contains('noprops')));
 /* left panel: collapse / open */
 function pagesVisible(v) { mainEl.classList.toggle('nopages', !v); document.body.classList.toggle('nopages-on', !v); lsSet('matekosdoksi.pages', v ? '1' : '0'); applyZoom(); if (v) thumbsSoon(true); }
 $('#pagesX').addEventListener('click', () => pagesVisible(false));
 $('#pagesOpen').addEventListener('click', () => pagesVisible(true));
-$('#propsX').addEventListener('click', () => panelVisible(false));
-$('#panelOpen').addEventListener('click', () => panelVisible(true));
 let secState = {}; try { secState = JSON.parse(lsGet(LSK.sections) || '{}'); } catch (e) { secState = {}; }
 for (const sec of $$('#props .psec')) sec.classList.toggle('closed', !!secState[sec.dataset.sec]);
 props.addEventListener('click', e => {
@@ -998,7 +1053,8 @@ function styleRows() {
           ${num('line', 'Sorköz', 0.05, 0.8, 4, '')}${num('letter', 'Betűköz', 0.1, -3, 10, 'pt')}
           ${num('spaceBefore', 'Térköz előtte', 1, 0, 72, 'pt')}${num('spaceAfter', 'Térköz utána', 1, 0, 72, 'pt')}
           ${num('indentLeft', 'Bal behúzás', 0.25, 0, 10, 'cm')}${num('indentRight', 'Jobb behúzás', 0.25, 0, 10, 'cm')}
-          ${num('firstLine', 'Első sor (negatív = függő)', 0.25, -5, 5, 'cm')}
+          <label class="fld">Első sor<select data-flkind="${k}"><option value="none"${!+st.firstLine ? ' selected' : ''}>Nincs</option><option value="first"${+st.firstLine > 0 ? ' selected' : ''}>Első sor beljebb</option><option value="hang"${+st.firstLine < 0 ? ' selected' : ''}>Függő</option></select></label>
+          <label class="fld">Mértéke<span class="unitin"><input type="number" step="0.25" min="0" max="5" data-flval="${k}" value="${Math.abs(+st.firstLine || 0) || ''}"><i>cm</i></span></label>
         </div>
         ${k === 'p' ? `<div class="fgrid" style="margin-top:8px">
           <label class="fld">Felsorolásjel<select data-k="lists.bullet">${['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'].map(c => `<option>${c}</option>`).join('')}</select></label>
@@ -1007,6 +1063,8 @@ function styleRows() {
       </div></div>`;
   }).join('');
 }
+{ const fams = allFamilies(), o = list => list.map(([f, l]) => `<option value="${f}">${l}</option>`).join('');
+  for (const sel of $$('.hffont')) sel.innerHTML = `<option value="">Alap betűtípus</option><optgroup label="Képletbarát betűtípusok">${o(fams.math)}</optgroup><optgroup label="Egyéb betűtípusok">${o(fams.other)}</optgroup>`; }
 $('#tplFont').innerHTML = Object.entries(FONT_SETS).map(([k, f]) => `<option value="${k}">${f.label} – ${f.note}</option>`).join('');
 function fillPanel() {
   hfTabs(); styleRows(); presetName();
@@ -1017,6 +1075,7 @@ function fillPanel() {
     else el.value = v ?? '';
   }
   $('#hcDot').style.setProperty('--c', tpl.headerColor); $('#fcDot').style.setProperty('--c', tpl.footerColor);
+  for (const b of $$('[data-edithf]')) { const on = !!hfOpen && hfOpen.kind === b.dataset.edithf; b.classList.toggle('primary', on); b.textContent = on ? 'Kész' : (b.dataset.edithf === 'header' ? 'Élőfej szerkesztése' : 'Élőláb szerkesztése'); }
   $('#wmThumb').src = tpl.wm.img || ''; $('#wmThumb').hidden = !tpl.wm.img;
   $('#wmText').hidden = tpl.wm.type !== 'text';
   $('#wmImage').hidden = tpl.wm.type !== 'image';
@@ -1026,7 +1085,18 @@ function fillPanel() {
 }
 function tplChanged() { markDirty(); applyTpl(); saveSoon(); }
 function onPanelInput(e) {
-  const el = e.target, k = el.dataset && el.dataset.k; if (!k) return;
+  const el = e.target;
+  if (el.dataset && (el.dataset.flkind || el.dataset.flval)) {          // style: first line indent / hanging indent
+    const key = el.dataset.flkind || el.dataset.flval, st = tpl.styles[key], card = el.closest('.stcard');
+    const kind = card.querySelector('[data-flkind]').value, v = Math.max(0, parseFloat(String(card.querySelector('[data-flval]').value).replace(',', '.')) || 0);
+    const oldHang = +st.firstLine < 0 ? -st.firstLine : 0, base = Math.max(0, (+st.indentLeft || 0) - oldHang);
+    if (kind === 'none' || !v) { st.firstLine = 0; st.indentLeft = base; }
+    else if (kind === 'first') { st.firstLine = v; st.indentLeft = base; }
+    else { st.firstLine = -v; st.indentLeft = base + v; }
+    const il = card.querySelector(`[data-k="styles.${key}.indentLeft"]`); if (il) il.value = st.indentLeft;
+    tplChanged(); return;
+  }
+  const k = el.dataset && el.dataset.k; if (!k) return;
   if (el.tagName === 'TEXTAREA') { setPath(tpl, k, el.value); tplChanged(); return; }
   let v = el.type === 'checkbox' ? el.checked : (el.type === 'number' || el.type === 'range') ? parseFloat(el.value) : el.value;
   if (typeof v === 'number' && isNaN(v)) return;
@@ -1034,7 +1104,8 @@ function onPanelInput(e) {
   setPath(tpl, k, v);
   if (el.type === 'color') { const dot = el.parentElement.querySelector('.dot'); if (dot) dot.style.setProperty('--c', v); }
   if (k === 'oddEven' || k === 'firstDiff' || k === 'mirror' || k === 'wm.type' || k === 'page') fillPanel();
-  if (/^styles\.\w+\.font$/.test(k) && v) loadTextFamily(v).then(() => relayout(30));
+  if ((/^styles\.\w+\.font$/.test(k) || /^(header|footer)Font$/.test(k)) && v) loadTextFamily(v).then(() => relayout(30));
+  if (k === 'oddEven' || k === 'firstDiff') { if (hfOpen) closeHF(); }
   tplChanged();
 }
 props.addEventListener('input', onPanelInput);
@@ -1049,7 +1120,7 @@ props.addEventListener('click', e => {
   const b = e.target.closest('[data-stt]'); if (!b) return;
   const st = tpl.styles[b.dataset.st]; st[b.dataset.stt] = !st[b.dataset.stt]; b.classList.toggle('on', st[b.dataset.stt]); tplChanged();
 });
-$('#hfTabs').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) { hfVariant = b.dataset.v; fillPanel(); } });
+$('#hfTabs').addEventListener('click', e => { const b = e.target.closest('[data-v]'); if (b) { const was = hfOpen && hfOpen.kind; hfVariant = b.dataset.v; if (hfOpen) closeHF(); fillPanel(); if (was) editHF(was, hfVariant); } });
 $('#hfEditor').addEventListener('click', e => {
   const p = e.target.closest('[data-pickimg]'), c = e.target.closest('[data-clearimg]');
   if (p) pickImage(1600, url => { setPath(tpl, p.dataset.pickimg, url); fillPanel(); tplChanged(); });
@@ -1059,20 +1130,20 @@ $('#wmPick').addEventListener('click', () => pickImage(2400, url => { tpl.wm.img
 $('#wmClear').addEventListener('click', () => { tpl.wm.img = ''; fillPanel(); tplChanged(); });
 const startTpl = () => normalizeTpl(DEFAULT_TPL);
 
-/* ready-made templates (top bar, like Matekos Prezi); the locked ones come later */
-const PRESETS = [['ures', 'Üres', false], ['feladatsor', 'Feladatsor', true], ['kiadvany', 'Kiadvány', true], ['pre', 'Pré', true]];
+/* ready-made templates: red box at the top of the template panel (like Matekos Prezi); the locked ones come later */
+const PRESETS = [['ures', 'Üres', false, '#ffffff', '#da291c'], ['feladatsor', 'Feladatsor', true, '#f4f6f8', '#1f5f74'], ['kiadvany', 'Kiadvány', true, '#fdf3d7', '#b7950b'], ['pre', 'Pré', true, '#ece6f5', '#7d3c98']];
 const presetLabel = () => (PRESETS.find(p => p[0] === tpl.preset) || PRESETS[0])[1];
-function presetName() { $('#tplName').textContent = presetLabel(); }
-$('#popPreset').onopen = () => {
-  $('#presetList').innerHTML = PRESETS.map(([k, l, locked]) => `<button class="pitem preset${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}"${locked ? ' aria-disabled="true" title="Hamarosan"' : ''}>${locked ? svg('lock') : ''}<span>${l}</span>${locked ? '<span class="phint">hamarosan</span>' : ''}</button>`).join('');
-};
-$('#popPreset').addEventListener('click', async e => {
-  if (e.target.closest('#openTplPanel')) { closePops(); panelVisible(true); return; }
+function presetName() {
+  $('#tplName').textContent = presetLabel();
+  $('#presetBox').innerHTML = `<div class="pbhead"><b>Kész sablonok</b><span>Jelenleg: ${esc(presetLabel())}</span></div><div class="pbgrid">`
+    + PRESETS.map(([k, l, locked, a, b]) => `<button class="pbcard${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}" title="${locked ? 'Hamarosan' : l}"><i style="--a:${a};--b:${b}"></i><span>${locked ? svg('lock') : ''}${l}${k === 'ures' ? ' (új, üres)' : ''}</span>${locked ? '<small>hamarosan</small>' : ''}</button>`).join('') + '</div>';
+}
+$('#presetBox').addEventListener('click', async e => {
   const b = e.target.closest('[data-preset]'); if (!b) return;
   if (b.classList.contains('locked')) { toast('Ez a sablon hamarosan érkezik.'); return; }
-  closePops();
   if (!await confirmBox('Az „Üres” sablon lép a mostani helyére (oldal, élőfej és élőláb, vízjel, szövegstílusok). A dokumentum szövege megmarad. Folytatod?', 'Sablon alkalmazása')) return;
-  tpl = normalizeTpl(DEFAULT_TPL); tpl.preset = b.dataset.preset; fillPanel(); markDirty(); applyTpl(true); saveSoon(); presetName();
+  if (hfOpen) closeHF();
+  tpl = normalizeTpl(DEFAULT_TPL); tpl.preset = b.dataset.preset; fillPanel(); markDirty(); applyTpl(true); saveSoon();
   toast('Sablon: ' + presetLabel());
 });
 
@@ -1100,7 +1171,7 @@ function confirmBox(msg, yes = 'Igen') {
   });
 }
 const docTitle = () => $('#docTitle').value.trim() || 'Névtelen dokumentum';
-function docData() { return { title: docTitle(), tpl, doc: editor.getJSON() }; }
+function docData() { return { title: docTitle(), tpl, doc: editor.getJSON(), colors: docColors }; }
 const autoValue = () => ({ ...docData(), path: getCurrentPath(), dirty });
 function saveSoon() { clearTimeout(autoT); autoT = setTimeout(saveLocal, 900); }
 async function saveLocal() {
@@ -1123,6 +1194,7 @@ $('#docTitle').addEventListener('change', renameFromTitle);
 $('#docTitle').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
 function loadData(d) {
   tpl = normalizeTpl(d.tpl || {});
+  docColors = Array.isArray(d.colors) ? d.colors : []; refreshPickers();
   $('#docTitle').value = d.title || 'Névtelen dokumentum';
   if (d.doc) editor.commands.setContent(d.doc, { emitUpdate: false });
   else if (typeof d.html === 'string') editor.commands.setContent(d.html, { emitUpdate: false });   // documents from the first prototype
@@ -1263,7 +1335,7 @@ function quitBox() {
 (async function init() {
   $('#homeVer').textContent = 'v' + APP_VERSION;
   $('.home-logo-img').src = APP_ICON;
-  if (lsGet(LSK.panel) === '0') { mainEl.classList.add('noprops'); document.body.classList.add('noprops-on'); }
+  if (lsGet(LSK.panel) === '0') { mainEl.classList.add('noprops'); document.body.classList.add('noprops-on'); } else $('#bTpl').classList.add('primary');
   if (lsGet('matekosdoksi.pages') === '0') { mainEl.classList.add('nopages'); document.body.classList.add('nopages-on'); }
   let d = await loadAutosave();
   if (!d) {    // earlier versions kept the autosave in localStorage
@@ -1309,4 +1381,4 @@ function quitBox() {
 })();
 
 // Hooks for automated layout/print tests
-window.mdoksi = { editor, openHF, closeHF, hfZoneAt, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };
+window.mdoksi = { editor, editHF, closeHF, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };

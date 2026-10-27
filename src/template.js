@@ -7,26 +7,24 @@ export const SIZES = { A4: [210, 297], A5: [148, 210], A6: [105, 148], A3: [297,
 export const paperOf = tpl => tpl.page === 'custom' ? [Math.max(30, +tpl.pageW || 210), Math.max(30, +tpl.pageH || 297)] : (SIZES[tpl.page] || SIZES.A4);
 
 const pic = () => ({ src: '', h: 10 });
-const slot = () => ({ doc: null, img: { l: pic(), c: pic(), r: pic() } });
+/** One cell of a header/footer (left, centre or right column): a small document. */
+export const cellDoc = (text = '', align = 'left', marks, rule) => ({ type: 'doc', content: [{ type: 'paragraph', attrs: { textAlign: align, ...(rule || {}) },
+  content: Array.isArray(text) ? (text.length ? text : undefined) : text ? [{ type: 'text', text, ...(marks ? { marks } : {}) }] : undefined }] });
+const ALIGN = { l: 'left', c: 'center', r: 'right' };
+const slot = (l = '', c = '', r = '') => ({ l: cellDoc(l, 'left'), c: cellDoc(c, 'center'), r: cellDoc(r, 'right'), img: { l: pic(), c: pic(), r: pic() } });
 /** A paragraph style (Normál, Főcím, Cím, Alcím). */
 const style = (o = {}) => ({ font: '', size: 12, color: '#111111', bold: false, italic: false, underline: false, shade: '', align: 'left',
   line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 6, ...o });
-/** Header/footer text as a small document: left text, centre tab, right tab (like Word). */
-export const hfDoc = (l = '', c = '', r = '') => {
-  const content = [];
-  const add = t => { if (t) content.push({ type: 'text', text: t }); };
-  add(l); if (c || r) content.push({ type: 'tab' }); add(c); if (r) content.push({ type: 'tab' }); add(r);
-  return { type: 'doc', content: [{ type: 'paragraph', attrs: { tabStops: 'hf' }, content: content.length ? content : undefined }] };
-};
+const LINE = { ruleBottom: '0.75 #000000' }, LINE_TOP = { ruleTop: '0.75 #000000' };
 export const DEFAULT_TPL = {
   preset: 'ures',
   page: 'A4', pageW: 210, pageH: 297,
   margins: { top: 25, bottom: 25, left: 25, right: 25 },
   gutter: 0, mirror: false,
   oddEven: false, firstDiff: false,
-  header: { odd: { ...slot(), doc: hfDoc('{title}', '', '{date}') }, even: { ...slot(), doc: hfDoc('{date}', '', '{title}') }, first: slot() },
-  footer: { odd: { ...slot(), doc: hfDoc('', '– {page} –') }, even: { ...slot(), doc: hfDoc('', '– {page} –') }, first: { ...slot(), doc: hfDoc('', '– {page} –') } },
-  headerDist: 12, footerDist: 12, headerLine: true, footerLine: false,
+  header: { odd: { ...slot('', '', '{date}'), l: cellDoc('{title}', 'left', null, LINE) }, even: { ...slot('', '', '{title}'), l: cellDoc('{date}', 'left', null, LINE) }, first: slot() },
+  footer: { odd: slot('', '– {page} –'), even: slot('', '– {page} –'), first: slot('', '– {page} –') },
+  headerDist: 12, footerDist: 12, hfMid: 34, headerFont: '', footerFont: '',
   hfLeft: 25, hfRight: 25,
   headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
   wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
@@ -69,13 +67,23 @@ export function normalizeTpl(t) {
     const old = out[k][v] || {};
     const fresh = slot();
     const n = { ...fresh, ...old, img: fresh.img };
-    if (!old.doc && ('l' in old || 'c' in old || 'r' in old)) n.doc = hfDoc(old.l, old.c, old.r);   // left/centre/right texts of 0.5
-    delete n.l; delete n.c; delete n.r;
+    for (const p of ['l', 'c', 'r']) if (typeof old[p] === 'string') n[p] = cellDoc(old[p], ALIGN[p]);   // texts of 0.5
+    if (old.doc && old.doc.content) {                                                          // 0.6: one line with tabs
+      const para = old.doc.content[0] || {}, parts = [[], [], []]; let k = 0;
+      for (const node of para.content || []) { if (node.type === 'tab') k = Math.min(2, k + 1); else parts[k].push(node); }
+      if (parts[1].length && !parts[2].length && (para.content || []).filter(x => x.type === 'tab').length >= 2) { parts[2] = parts[1]; parts[1] = []; }
+      ['l', 'c', 'r'].forEach((p, i) => { n[p] = cellDoc(parts[i], ALIGN[p]); });
+    }
+    delete n.doc;
+    // the old "line under the header / above the footer" setting becomes a line of the left cell
+    const lineKey = k === 'header' ? 'headerLine' : 'footerLine';
+    if (t && t[lineKey] && n.l && n.l.content && n.l.content[0]) n.l.content[0].attrs = { ...(n.l.content[0].attrs || {}), ...(k === 'header' ? LINE : LINE_TOP) };
     if (typeof old.img === 'string') { if (old.img) n.img[old.imgPos || 'l'] = { src: old.img, h: +old.imgH || 10 }; }
     else if (old.img && typeof old.img === 'object') for (const p of ['l', 'c', 'r']) n.img[p] = { ...pic(), ...(old.img[p] || {}) };
     delete n.imgPos; delete n.imgH;
     out[k][v] = n;
   }
+  delete out.headerLine; delete out.footerLine;
   return out;
 }
 
