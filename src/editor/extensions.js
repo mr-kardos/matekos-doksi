@@ -796,8 +796,45 @@ export const TabNode = Node.create({
   addOptions() { return { getScale: () => 1 }; },
   addKeyboardShortcuts() {
     return {
-      // lists and tables keep their own Tab behaviour (they run first); anywhere else Tab inserts a tab
-      Tab: () => this.editor.isActive('table') ? false : this.editor.commands.insertContent({ type: 'tab' })
+      // in a list item, right after the symbol: the item moves one level in; anywhere else: a tab
+      Tab: () => {
+        const ed = this.editor;
+        if (ed.isActive('table')) return false;
+        const { $from, empty } = ed.state.selection;
+        if (ed.isActive('listItem') && empty && $from.parentOffset === 0) { ed.commands.sinkListItem('listItem'); return true; }
+        return ed.commands.insertContent({ type: 'tab' });
+      },
+      'Mod-l': () => this.editor.chain().focus().toggleSubscript().run(),
+      'Mod-h': () => this.editor.chain().focus().toggleSuperscript().run()
     };
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Overriding the paragraph style: not bold / not italic / not         */
+/* underlined text inside a style that is (e.g. a bold heading)        */
+/* ------------------------------------------------------------------ */
+export const FontOverrides = Extension.create({
+  name: 'fontOverrides',
+  addGlobalAttributes() {
+    return [{ types: ['textStyle'], attributes: {
+      fontWeight: { default: null, parseHTML: el => el.style.fontWeight || null, renderHTML: a => a.fontWeight ? { style: `font-weight:${a.fontWeight}` } : {} },
+      fontStyle: { default: null, parseHTML: el => el.style.fontStyle || null, renderHTML: a => a.fontStyle ? { style: `font-style:${a.fontStyle}` } : {} },
+      textDecoration: { default: null, parseHTML: el => el.style.textDecorationLine === 'none' ? 'none' : null, renderHTML: a => a.textDecoration ? { style: `text-decoration:${a.textDecoration}` } : {} }
+    } }];
+  },
+  addProseMirrorPlugins() {
+    // a paragraph with its own line shading: its own colour wins over the style's shading (see shading.js)
+    return [new Plugin({ props: { decorations(state) {
+      const decos = [], type = state.schema.marks.lineShade;
+      if (!type) return null;
+      state.doc.descendants((n, pos) => {
+        if (!n.isTextblock) return true;
+        let has = false; n.descendants(c => { if (!has && type.isInSet(c.marks)) has = true; return !has; });
+        if (has) decos.push(Decoration.node(pos, pos + n.nodeSize, { class: 'own-shade' }));
+        return false;
+      });
+      return decos.length ? DecorationSet.create(state.doc, decos) : null;
+    } } })];
   }
 });

@@ -17,6 +17,7 @@ import { FONT_SETS, fontSet, allFamilies, familyCSS, familyFromCSS, familyLabel,
 import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady } from './math.js';
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
+import { FontOverrides } from './editor/extensions.js';
 import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, marksAt, TabNode, listDefaults } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP } from './tabs.js';
 import { drawMarks } from './marks.js';
@@ -43,6 +44,7 @@ let zoomMode = 'auto', scale = 1, pageCount = 1;
 let tblCtx = null;                 // table + selected cells, remembered while a table popover / size field is in use
 let ovRaf = 0, imgMoving = false;  // overlay redraw state
 let hfEd = null;                   // header/footer editor while it is open (the ribbon then formats it)
+let spellOn = load('matekosdoksi.spell') !== '0';
 const AE = () => hfEd || editor;
 const stack = $('#stack'), outer = $('#outer'), ws = $('#ws'), pagesEl = $('#pages');
 
@@ -59,7 +61,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, TabNode.configure({ getScale: () => scale }),
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -75,7 +77,7 @@ const editor = new Editor({
   ],
   content: '<p></p>',
   editorProps: {
-    attributes: { spellcheck: 'true', lang: 'hu', class: 'docbody' },
+    attributes: { spellcheck: load('matekosdoksi.spell') === '0' ? 'false' : 'true', lang: 'hu', class: 'docbody' },
     handleDOMEvents: {
       // Paragraphs with line-breaking formulas: the browser cannot place the cursor or extend a selection
       // across them (they are inline, not boxes) – there the editor places cursor and selection itself.
@@ -137,7 +139,21 @@ function applyLayout(n) {
   dom.style.top = g.mt + 'px';
   dom.style.width = g.colW + 'px';
   dom.style.minHeight = Math.max(0, (n - 1) * g.P + g.H - g.mb - g.mt) + 'px';
+  // the header/footer being edited is kept open (and highlighted) when the pages are drawn again
+  let reopen = null;
+  if (hfOpen) {
+    const { kind, v } = hfOpen;
+    for (const ed of hfEds) tpl[kind][v][ed._cell] = ed.getJSON();
+    hfRenderCache();
+    reopen = { kind, v, cell: hfEd && hfEd._cell, focus: hfEds.some(e => e.isFocused) };
+  }
+  const before = pagesEl.firstChild;
   renderSheets(pagesEl, n, tpl, $('#docTitle').value);
+  if (reopen && (pagesEl.firstChild !== before || !hfOpen.box.isConnected)) {
+    for (const ed of hfEds) ed.destroy();
+    hfEds.length = 0; hfOpen = null; hfEd = null;
+    editHF(reopen.kind, reopen.v, reopen);
+  }
   hfRules();
   const stackW = Math.max(g.sheetX(0), g.sheetX(1)) + g.W;
   stack.style.width = stackW + 'px';
@@ -170,11 +186,12 @@ function applyZoom() {
 function styleCSS() {
   const fam = f => f ? `${familyCSS(f)}, var(--doc-font)` : 'var(--doc-font)';
   const type = s => `font-family:${fam(s.font)};font-size:${+s.size}pt;color:${s.color};font-weight:${s.bold ? 700 : 400};font-style:${s.italic ? 'italic' : 'normal'};text-decoration:${s.underline ? 'underline' : 'none'};letter-spacing:${+s.letter ? s.letter + 'pt' : 'normal'};`;
-  const para = s => `text-align:${s.align || 'left'};line-height:${+s.line || 1.25};--sb:${+s.spaceBefore || 0}pt;--sa:${+s.spaceAfter || 0}pt;`
+  const para = s => `${s.shade ? `--style-shade:${s.shade};` : ''}text-align:${s.align || 'left'};line-height:${+s.line || 1.25};--sb:${+s.spaceBefore || 0}pt;--sa:${+s.spaceAfter || 0}pt;`
     + `margin-left:${+s.indentLeft || 0}cm;margin-right:${+s.indentRight || 0}cm;text-indent:${+s.firstLine || 0}cm;${s.shade ? `background-color:${s.shade};` : ''}`;
   const st = tpl.styles;
   let css = `.docbody p{${type(st.p)}}\n.docbody > p{${para(st.p)}}\n.docbody li > p{text-align:${st.p.align || 'left'};line-height:${+st.p.line || 1.25};}\n`;
   for (const k of ['h1', 'h2', 'h3']) css += `.docbody ${k}{${type(st[k])}${para(st[k])}}\n`;
+  css += `.docbody .own-shade{background-color:transparent !important}\n`;   // its own line shading is drawn instead
   return css;
 }
 /** Redraw formulas whose look (font, bold – from marks or the paragraph style) changed; all of them when forced. */
@@ -329,13 +346,28 @@ $('#tblHandles').addEventListener('mousedown', e => {
 for (const b of $$('[data-icon]')) b.insertAdjacentHTML('afterbegin', svg(b.dataset.icon));
 for (const c of $$('.psec-h .chev')) c.innerHTML = svg('chev');
 const ch = () => AE().chain().focus();
+/** The computed look at the cursor (style + marks). */
+function lookAt(test) {
+  const ed = AE(); let el = null;
+  const sel = ed.state.selection, at = sel.empty ? sel.from : Math.min(sel.from + 1, sel.to);
+  try { const d = ed.view.domAtPos(at); el = d.node.nodeType === 1 ? (d.node.childNodes[d.offset] && d.node.childNodes[d.offset].nodeType === 1 ? d.node.childNodes[d.offset] : d.node) : d.node.parentElement; } catch (e) { return false; }
+  return !!el && test(getComputedStyle(el));
+}
+/** B / I / U: a mark normally; inside a style that already has it (e.g. a bold heading) it switches it off. */
+function toggleLook(mark, prop, offValue, test) {
+  const ed = AE(), ts = ed.getAttributes('textStyle');
+  if (ed.isActive(mark)) return ch().unsetMark(mark).run();
+  if (ts[prop] === offValue) return ch().setMark('textStyle', { [prop]: null }).removeEmptyTextStyle().run();
+  if (lookAt(test)) return ch().setMark('textStyle', { [prop]: offValue }).run();
+  return ch().setMark(mark).run();
+}
 const isUpper = () => AE().getAttributes('textStyle').textTransform === 'uppercase';
 const COMMANDS = {
   undo: () => ch().undo().run(),
   redo: () => ch().redo().run(),
-  bold: () => ch().toggleBold().run(),
-  italic: () => ch().toggleItalic().run(),
-  underline: () => ch().toggleUnderline().run(),
+  bold: () => toggleLook('bold', 'fontWeight', '400', cs => (parseInt(cs.fontWeight, 10) || 400) >= 600),
+  italic: () => toggleLook('italic', 'fontStyle', 'normal', cs => cs.fontStyle === 'italic'),
+  underline: () => toggleLook('underline', 'textDecoration', 'none', cs => /underline/.test(cs.textDecorationLine)),
   strike: () => ch().toggleStrike().run(),
   superscript: () => ch().toggleSuperscript().run(),
   subscript: () => ch().toggleSubscript().run(),
@@ -352,10 +384,18 @@ const COMMANDS = {
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
   math: () => openMath(null, null),
+  spell: () => {
+    spellOn = !spellOn; lsSet('matekosdoksi.spell', spellOn ? '1' : '0');
+    for (const ed of [editor, ...hfEds]) { ed.view.dom.setAttribute('spellcheck', spellOn ? 'true' : 'false'); ed.setOptions({ editorProps: { ...ed.options.editorProps, attributes: { ...(ed.options.editorProps.attributes || {}), spellcheck: spellOn ? 'true' : 'false' } } }); }
+    // the browser re-checks the text only when it is touched: refresh the marks
+    const d = editor.view.dom; d.blur(); requestAnimationFrame(() => { d.focus({ preventScroll: true }); });
+    toast(spellOn ? 'Helyesírás-ellenőrzés: bekapcsolva (magyar)' : 'Helyesírás-ellenőrzés: kikapcsolva'); updateToolbar();
+  },
   marks: () => { showMarks = !showMarks; lsSet('matekosdoksi.marks', showMarks ? '1' : '0'); marksSoon(); updateToolbar(); }
 };
 const STATES = {
-  bold: () => AE().isActive('bold'), italic: () => AE().isActive('italic'), underline: () => AE().isActive('underline'),
+  bold: () => lookAt(cs => (parseInt(cs.fontWeight, 10) || 400) >= 600), italic: () => lookAt(cs => cs.fontStyle === 'italic'),
+  underline: () => lookAt(cs => /underline/.test(cs.textDecorationLine)), spell: () => spellOn,
   strike: () => AE().isActive('strike'), superscript: () => AE().isActive('superscript'), subscript: () => AE().isActive('subscript'),
   upper: isUpper, marks: () => showMarks,
   alignLeft: () => AE().isActive({ textAlign: 'left' }), alignCenter: () => AE().isActive({ textAlign: 'center' }),
@@ -400,6 +440,44 @@ $('#styleSel').addEventListener('change', e => {
   const v = e.target.value;
   if (v === 'p') ch().setParagraph().run(); else ch().setHeading({ level: +v[1] }).run();
 });
+/* find and replace (as in Matekos Prezi) – in the document text */
+function findRegex() { const q = $('#findIn').value; if (!q) return null; return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $('#findCase').checked ? 'g' : 'gi'); }
+/** All matches as document ranges (inside one text node each). */
+function findMatches(re) {
+  const out = [];
+  editor.state.doc.descendants((n, pos) => {
+    if (!n.isText) return;
+    re.lastIndex = 0; let m;
+    while ((m = re.exec(n.text))) { if (!m[0]) { re.lastIndex++; continue; } out.push({ from: pos + m.index, to: pos + m.index + m[0].length }); }
+  });
+  return out;
+}
+function findNext() {
+  const re = findRegex(); if (!re) return;
+  const all = findMatches(re);
+  if (!all.length) { $('#findInfo').textContent = 'Nincs találat.'; return; }
+  const at = editor.state.selection.to, m = all.find(x => x.from >= at) || all[0];
+  editor.chain().setTextSelection(m).scrollIntoView().run();
+  $('#findInfo').textContent = `${all.indexOf(m) + 1}. / ${all.length} találat`;
+}
+function replaceOne() {
+  const re = findRegex(); if (!re) return;
+  const { from, to } = editor.state.selection, sel = editor.state.doc.textBetween(from, to);
+  re.lastIndex = 0;
+  if (from !== to && re.test(sel) && sel.match(re)[0] === sel) editor.chain().insertContentAt({ from, to }, $('#replIn').value).run();
+  findNext();
+}
+function replaceAll() {
+  const re = findRegex(); if (!re) return;
+  const all = findMatches(re), tr = editor.state.tr, rep = $('#replIn').value;
+  for (const m of all.reverse()) { const marks = editor.state.doc.resolve(m.from + 1).marks(); if (rep) tr.replaceWith(m.from, m.to, editor.state.schema.text(rep, marks)); else tr.delete(m.from, m.to); }
+  if (all.length) editor.view.dispatch(tr);
+  $('#findInfo').textContent = all.length ? `${all.length} csere` : 'Nincs találat.';
+}
+$('#findNext').onclick = findNext; $('#findRepl').onclick = replaceOne; $('#findAll').onclick = replaceAll;
+$('#findIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); findNext(); } });
+$('#popFind').onopen = () => { const { from, to } = editor.state.selection; if (from !== to) $('#findIn').value = editor.state.doc.textBetween(from, to).slice(0, 80); $('#findInfo').textContent = ''; setTimeout(() => { $('#findIn').focus(); $('#findIn').select(); }); };
+
 /* fonts (Matekos Prezi): the template's font set, or any family on the selected text */
 registerAllFamilies();
 { const fams = allFamilies(), item = ([f, l]) => `<button class="pitem fitem" data-fam="${f}" style="font-family:${familyCSS(f)}">${l}</button>`;
@@ -625,7 +703,12 @@ $('#popPara').onopen = () => {
 };
 function applyFirstLine() {
   const kind = $('#pfFirstKind').value, v = Math.max(0, parseFloat(String($('#pfFirstVal').value).replace(',', '.')) || 0);
-  const { state } = editor, tr = state.tr, { from, to } = state.selection;
+  const { state } = editor, tr = state.tr;
+  let { from, to } = state.selection;
+  if (kind === 'hang') {             // in a list: every level of the whole list gets the same hanging indent
+    const $f = state.doc.resolve(from);
+    for (let d = 1; d <= $f.depth; d++) if (/List$/.test($f.node(d).type.name)) { from = $f.before(d); to = from + $f.node(d).nodeSize; break; }
+  }
   state.doc.nodesBetween(from, to, (n, pos) => {
     if (n.type.name !== 'paragraph' && n.type.name !== 'heading') return;
     const inList = state.doc.resolve(pos).parent.type.name === 'listItem', a = n.attrs;
@@ -832,7 +915,7 @@ function pickImage(maxSide, cb) {
 const HF_EXT = () => [
   StarterKit.configure({ heading: false, code: false, codeBlock: false, blockquote: false, horizontalRule: false, link: false,
     bulletList: false, orderedList: false, listItem: false, listKeymap: false, dropcursor: false, gapcursor: false, trailingNode: false }),
-  TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase,
+  TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, FontOverrides,
   Highlight.configure({ multicolor: true }), TextAlign.configure({ types: ['paragraph'] }), Subscript, Superscript, ParaFormat
 ];
 let hfExtCache = null;
@@ -853,7 +936,7 @@ const hfEds = [];         // the three cell editors while open
 /** Header/footer lines run across the whole box: under (or above) all three columns. */
 function hfRules() { /* lines are set by the template (box) and by the paragraphs (columns) */ }
 /** Open the header / footer of the given variant on the first page that uses it. */
-function editHF(kind, v) {
+function editHF(kind, v, keep) {
   if (hfOpen) closeHF();
   let i = 0;
   for (let k = 0; k < pageCount; k++) if (variantFor(tpl, k) === v) { i = k; break; }
@@ -861,7 +944,7 @@ function editHF(kind, v) {
   const box = pagesEl.querySelector(`.hf[data-hf="${kind}"][data-i="${i}"]`); if (!box) return;
   // show that page
   const g = geometry(tpl), pageTop = outer.offsetTop + i * g.P * scale;
-  ws.scrollTo({ top: kind === 'header' ? pageTop - 40 : pageTop + g.H * scale - ws.clientHeight + 60 });
+  if (!keep) ws.scrollTo({ top: kind === 'header' ? pageTop - 40 : pageTop + g.H * scale - ws.clientHeight + 60 });
   box.classList.add('editing');
   stack.classList.add('hfmode');
   const label = document.createElement('div');
@@ -873,7 +956,7 @@ function editHF(kind, v) {
     cellEl.innerHTML = '';
     const ed = new Editor({
       element: cellEl, extensions: hfExtensions(), content: tpl[kind][v][p],
-      editorProps: { attributes: { class: 'hf-editor', spellcheck: 'true', lang: 'hu' },
+      editorProps: { attributes: { class: 'hf-editor', spellcheck: spellOn ? 'true' : 'false', lang: 'hu' },
         handleKeyDown: (view, e) => {
           if (e.key === 'Tab') { const k = hfEds.indexOf(ed), n = hfEds[(k + (e.shiftKey ? 2 : 1)) % 3]; if (n) { n.commands.focus('end'); } return true; }   // next column
           return false;
@@ -886,8 +969,9 @@ function editHF(kind, v) {
     hfEds.push(ed);
   }
   hfOpen = { kind, v, i, box };
-  hfEd = hfEds[0];
-  requestAnimationFrame(() => hfEds[0] && hfEds[0].commands.focus('end'));
+  const fc = keep && keep.cell ? hfEds.find(e => e._cell === keep.cell) : hfEds[0];
+  hfEd = fc || hfEds[0];
+  if (!keep || keep.focus) requestAnimationFrame(() => hfEd && hfEd.commands.focus('end'));
   updateToolbar(); fillPanel();
 }
 function closeHF() {
@@ -1232,10 +1316,12 @@ async function saveLocal() {
 }
 /** The title box always shows the document's file name (after Save as, opening, renaming). */
 function titleFromFile() { const f = currentFileName(); if (f) $('#docTitle').value = titleOfFile(f); }
+let titleEnter = false;
 async function renameFromTitle() {
   const t = docTitle(); $('#docTitle').value = t;
-  renderSheets(pagesEl, pageCount, tpl, t, true); thumbsSoon();
-  if (!currentFileName()) { saveSoon(); return; }
+  const enter = titleEnter; titleEnter = false;
+  applyLayout(pageCount); thumbsSoon();
+  if (!currentFileName()) { saveSoon(); if (enter) doSave(false); return; }
   try {
     const n = await renameCurrentFile(t);
     if (n) { $('#docTitle').value = titleOfFile(n); toast('Átnevezve: ' + n); }
@@ -1243,7 +1329,16 @@ async function renameFromTitle() {
   } catch (e) { toast('Az átnevezés nem sikerült: ' + (e && e.message || e)); titleFromFile(); }
 }
 $('#docTitle').addEventListener('change', renameFromTitle);
-$('#docTitle').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
+let titleAtFocus = '';
+$('#docTitle').addEventListener('focus', e => { titleAtFocus = e.target.value; });
+$('#docTitle').addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  e.preventDefault();
+  const changed = e.target.value !== titleAtFocus;
+  if (!currentFileName()) titleEnter = true;          // not saved yet: Enter saves it (asks for the folder)
+  e.target.blur();                                      // a changed name fires "change" -> renameFromTitle
+  if (!changed && titleEnter) { titleEnter = false; doSave(false); }
+});
 function loadData(d) {
   tpl = normalizeTpl(d.tpl || {});
   docColors = Array.isArray(d.colors) ? d.colors : []; refreshPickers();
@@ -1365,6 +1460,7 @@ document.addEventListener('keydown', e => {
   if (!mod) return;
   const k = e.key.toLowerCase();
   if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
+  else if (k === 'f') { e.preventDefault(); showPop('popFind', $('[data-pop="popFind"]')); }
   else if (k === 'o') { e.preventDefault(); doOpen(); }
   else if (k === 'p') { e.preventDefault(); doPrint(); }
 });

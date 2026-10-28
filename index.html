@@ -40,6 +40,7 @@
       <button class="tb cbtn" data-pop="popColor" data-icon="colorA" title="Betűszín"><i class="cbar" id="colorBar"></i></button>
       <button class="tb cbtn" data-pop="popHi" data-icon="marker" title="Kijelölt szöveg kiemelése"><i class="cbar" style="background:#fff176"></i></button>
       <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyék: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#dbe9ee"></i></button>
+      <button class="tb" data-pop="popRule" data-icon="ruleLine" title="Elválasztó vonal a bekezdés fölött vagy alatt – margótól margóig"></button>
       <button class="tb" data-cmd="upper" data-state="upper" title="Csupa nagybetű / ahogy begépelted (a betűk nem változnak, csak a megjelenésük)"><span class="aa">Aa</span></button>
       <button class="tb" data-cmd="clearFormat" data-icon="clear" title="Formázás törlése"></button>
     </div>
@@ -63,7 +64,6 @@
       <button class="tb" data-pop="popPara" data-icon="para" title="Bekezdés: behúzások és bekezdésköz"></button>
       <button class="tb" data-pop="popSpacing" data-icon="spacing" title="Betűköz"></button>
       <button class="tb" data-pop="popTabs" data-icon="tabstop" title="Tabulátorok"></button>
-      <button class="tb" data-pop="popRule" data-icon="ruleLine" title="Elválasztó vonal a bekezdés fölött vagy alatt – margótól margóig"></button>
     </div>
     <div class="grp">
       <button class="tb" data-cmd="math" data-icon="sigma" title="Képlet (Ctrl/⌘+M) – vagy írd $…$ közé a szövegben"><span class="lbl">Képlet</span></button>
@@ -72,7 +72,9 @@
       <button class="tb" data-cmd="pageBreak" data-icon="pbreak" title="Oldaltörés (Ctrl/⌘+Enter)"></button>
     </div>
     <div class="grp">
-      <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Rejtett formázás mutatása: szóközök, bekezdés- és sorvégek, tabulátorok, behúzások (zöld jelek)"></button>
+      <button class="tb" data-pop="popFind" data-icon="search" title="Keresés és csere (Ctrl/⌘+F)"></button>
+      <button class="tb" data-cmd="spell" data-state="spell" data-icon="spell" title="Helyesírás-ellenőrzés (magyar) be / ki"></button>
+      <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Rejtett formázás mutatása"></button>
     </div>
   </div>
   <div class="ctxbar" id="tableBar" hidden>
@@ -229,6 +231,14 @@
   <div class="ptitle">Képletbarát betűtípusok<span class="phint">a képletek is ezzel a betűtípussal készülnek</span></div><div id="fontMath"></div>
   <div class="psep"></div>
   <div class="ptitle">Egyéb betűtípusok<span class="phint">a képletek a sablon képletbetűjével készülnek</span></div><div id="fontOther"></div>
+</div>
+<div class="pop" id="popFind" hidden>
+  <div class="ptitle">Keresés és csere</div>
+  <div class="frow"><input id="findIn" type="text" placeholder="Keresett szöveg" spellcheck="false"></div>
+  <div class="frow"><input id="replIn" type="text" placeholder="Csere erre" spellcheck="false"></div>
+  <label class="chk"><input type="checkbox" id="findCase"> Kis- és nagybetű számít</label>
+  <div class="frow fbtns"><button class="btn" id="findNext">Következő</button><button class="btn" id="findRepl">Csere</button><button class="btn primary" id="findAll">Mindet</button></div>
+  <div class="phint" id="findInfo"></div>
 </div>
 <div class="pop" id="popSize" hidden><div class="ptitle">Betűméret (pt)</div><div class="sizegrid" id="sizeGrid"></div></div>
 <div class="pop" id="popSpacing" hidden>

@@ -58,6 +58,9 @@ export function drawShadeBands(layer, editorDom, stackEl, scale, pageOf) {
     const left = toX(br.left), right = toX(br.right);
     const cTop = toY(br.top) + (parseFloat(cs.paddingTop) || 0), cBot = toY(br.bottom) - (parseFloat(cs.paddingBottom) || 0);
     const lines = lineBoxes(block, toY, LH);
+    // the paragraph style's shading still covers the lines without their own colour
+    const styleShade = block.classList.contains('own-shade') ? cs.getPropertyValue('--style-shade').trim() : '';
+    if (styleShade) for (const L of lines) if (!L.color) L.color = styleShade;
     if (!lines.length) { cur = null; prevBlock = block; continue; }
     // make neighbouring line boxes touch exactly (they do in the real layout)
     if (lines[0].top - cTop < LH * 0.6) lines[0].top = Math.min(lines[0].top, cTop);

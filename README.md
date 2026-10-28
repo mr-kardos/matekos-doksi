@@ -119,3 +119,10 @@ tools/                font verification
 - Formatting marks: bigger, tab and indent sizes, differences from the paragraph styles.
 - Colour settings of the template panel use the palette; Sorárnyék with „Nincs” option.
 - Fixes: tabs with line shading and formulas; TeX pasted with invisible characters.
+
+## 0.6.3
+- New app icon. Find and replace (Ctrl/⌘+F), Hungarian spell check on/off, Ctrl+H / Ctrl+L for superscript / subscript.
+- Your own formatting wins over the paragraph style (e.g. B switches off the bold of a heading; own line shading).
+- Lists: Tab at the start of an item moves it in, elsewhere it inserts a tab; hanging indent applies to all levels.
+- Eye mode: hidden table borders, line breaks, right indent, tab end positions; labels in the margins.
+- The header/footer editor stays open while its settings change; Enter in the name box saves a new document.

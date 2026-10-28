@@ -22,17 +22,31 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
       put(c === ' ' ? 'sp' : 'nb', X(r.left + r.width / 2), Y(r.top + r.height / 2), c === ' ' ? '·' : '°');
     }
   }
-  // tabs
+  // tabs: "tab" and where they end (cm from the left margin)
+  const col = editorDom.getBoundingClientRect();
   for (const t of editorDom.querySelectorAll('span.tab')) {
     const r = t.getBoundingClientRect(), h = parseFloat(getComputedStyle(t.parentElement).fontSize) || 16;
-    put('tab', X(r.left), Y(r.bottom) - h * 0.45, `→<b>${cm(r.width / scale)}</b>`, `width:${Math.max(10, r.width / scale)}px`);
+    put('tab', X(r.left), Y(r.bottom) - h * 0.45, `<s>tab</s>→<b>${cm((r.right - col.left) / scale)}</b>`, `width:${Math.max(18, r.width / scale)}px`);
+  }
+  // table cells with hidden borders: dashed lines
+  for (const c of editorDom.querySelectorAll('td,th')) {
+    if (c.closest('.pg-row')) continue;
+    const cs = getComputedStyle(c), r = c.getBoundingClientRect();
+    const hid = side => cs['border' + side + 'Style'] === 'hidden' || cs['border' + side + 'Style'] === 'none' || !parseFloat(cs['border' + side + 'Width']);
+    const x0 = X(r.left), y0 = Y(r.top), w = r.width / scale, h = r.height / scale;
+    if (hid('Top')) out.push(`<span class="mk-cb h" style="left:${x0}px;top:${y0}px;width:${w}px"></span>`);
+    if (hid('Bottom')) out.push(`<span class="mk-cb h" style="left:${x0}px;top:${y0 + h}px;width:${w}px"></span>`);
+    if (hid('Left')) out.push(`<span class="mk-cb v" style="left:${x0}px;top:${y0}px;height:${h}px"></span>`);
+    if (hid('Right')) out.push(`<span class="mk-cb v" style="left:${x0 + w}px;top:${y0}px;height:${h}px"></span>`);
   }
   // line breaks (Shift+Enter) and paragraph ends (Enter)
   for (const br of editorDom.querySelectorAll('br:not(.ProseMirror-trailingBreak)')) {
     if (br.closest(SKIP)) continue;
-    range.setStartBefore(br); range.setEndBefore(br);
-    const r = range.getBoundingClientRect(); if (!r.height) continue;
-    put('br', X(r.right) + 1, Y(r.top + r.height / 2), '↵');
+    let r = null;
+    const prev = br.previousSibling;
+    if (prev && prev.nodeType === 3 && prev.data.length) { range.setStart(prev, prev.data.length - 1); range.setEnd(prev, prev.data.length); const q = range.getClientRects(); r = q[q.length - 1]; if (r) r = { left: r.right, top: r.top, height: r.height }; }
+    if (!r) { const q = br.getClientRects()[0] || br.getBoundingClientRect(); r = { left: q.left, top: q.top, height: q.height || 16 }; }
+    put('br', X(r.left) + 1, Y(r.top + r.height / 2), '↵');
   }
   for (const b of editorDom.querySelectorAll('p,h1,h2,h3')) {
     if (b.closest('.hf')) continue;
@@ -43,13 +57,15 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
     if (last && b.textContent.length) { x = X(last.right) + 1; y = Y(last.top + last.height / 2); }
     else { x = X(br.left + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.textIndent) || 0)); y = Y(br.top + (parseFloat(cs.paddingTop) || 0)) + (parseFloat(cs.lineHeight) || 20) / 2; }
     put('par', x, y, '¶');
-    // indentation: from the margin to where the text starts, with its size
-    const ml = parseFloat(cs.marginLeft) || 0, ti = parseFloat(cs.textIndent) || 0, hang = parseFloat(b.getAttribute('data-hang')) || 0;
+    // indentation: from the margin to where the text starts, at the height of the text; labels in the margins
+    const ml = parseFloat(cs.marginLeft) || 0, mr = parseFloat(cs.marginRight) || 0, ti = parseFloat(cs.textIndent) || 0, hang = parseFloat(b.getAttribute('data-hang')) || 0;
     const pl = parseFloat(cs.paddingLeft) || 0;
-    const top = Y(br.top + (parseFloat(cs.paddingTop) || 0)) + 2;
-    if (ml > 0.5) out.push(`<span class="mk-ind" style="left:${X(br.left) - ml}px;top:${top}px;width:${ml}px"><i>behúzás ${cm(ml)}</i></span>`);
-    if (Math.abs(ti) > 0.5) out.push(`<span class="mk-ind fl" style="left:${X(br.left) + pl + Math.min(0, ti)}px;top:${top + 12}px;width:${Math.abs(ti)}px"><i>${ti < 0 ? 'függő ' : 'első sor '}${cm(Math.abs(ti))}</i></span>`);
-    if (hang > 0) out.push(`<span class="mk-ind fl" style="left:${X(br.left)}px;top:${top + 12}px;width:${pl}px"><i>függő ${cm(pl)}</i></span>`);
+    const first = rects[0], mid = first ? Y(first.top + first.height / 2) : Y(br.top + (parseFloat(cs.paddingTop) || 0)) + (parseFloat(cs.lineHeight) || 20) / 2;
+    const second = rects.find(q => first && q.top > first.bottom - 1), mid2 = second ? Y(second.top + second.height / 2) : mid;
+    if (ml > 0.5) out.push(`<span class="mk-ind lft" style="left:${X(br.left) - ml}px;top:${(ti < -0.5 || hang) ? mid2 : mid}px;width:${ml}px"><i>behúzás ${cm(ml)}</i></span>`);
+    if (mr > 0.5) out.push(`<span class="mk-ind rgt" style="left:${X(br.right)}px;top:${mid}px;width:${mr}px"><i>jobb behúzás ${cm(mr)}</i></span>`);
+    if (Math.abs(ti) > 0.5) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left) + pl + Math.min(0, ti)}px;top:${mid}px;width:${Math.abs(ti)}px"><i>${ti < 0 ? 'függő ' : 'első sor '}${cm(Math.abs(ti))}</i></span>`);
+    if (hang > 0) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left)}px;top:${mid2}px;width:${pl}px"><i>függő ${cm(pl)}</i></span>`);
     // differences from the template's paragraph style
     if (styles && !b.closest('td,th')) {
       const st = styles[b.tagName === 'P' ? 'p' : b.tagName.toLowerCase()];
