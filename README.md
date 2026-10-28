@@ -126,3 +126,18 @@ tools/                font verification
 - Lists: Tab at the start of an item moves it in, elsewhere it inserts a tab; hanging indent applies to all levels.
 - Eye mode: hidden table borders, line breaks, right indent, tab end positions; labels in the margins.
 - The header/footer editor stays open while its settings change; Enter in the name box saves a new document.
+
+## 0.7.0 – Word import
+- Fájl → Word-dokumentum importálása (.docx): text and formatting, headings, lists (also nested), tables (merged
+  cells, fills, borderless tables), pictures (PNG/JPG/GIF), page breaks, paper size and margins, base font and size.
+- MathType / Equation Editor 3.0 objects become TeX formulas (`src/mtef.js`, the converter of Matekos Prezi);
+  Word's own equations (OMML) too (`src/importDocx.js`). Anything not converted is listed in the import report.
+
+## 0.7.1
+- Spell check of its own: Hunspell (hunspell-wasm) + Magyar Ispell 1.9 (public/spell, MPLv2 / LGPLv3+),
+  right-click for suggestions, add to dictionary, ignore. Works the same on every computer.
+- Find: every match highlighted, the current one scrolled into view.
+- The view no longer jumps while page breaks are recalculated.
+- Lists: hanging indent of the whole list with equal gaps on every level.
+- Styles: keep with next (titles by default); no space between paragraphs of the same style; lists without
+  spacing between items by default.

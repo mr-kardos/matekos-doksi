@@ -303,3 +303,8 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 /* same-line nested lists ("1. a) …"): the outer marker sits in the first line of the inner list */
 .ProseMirror p.lm-collapsed{ height:0; padding:0 !important; margin:0 !important; overflow:hidden; }
 .lm.lm-up{ transform:translateX(calc(-100% - .45em - var(--up) * 1.8em)); }
+
+/* a list with its own hanging indent (all levels): symbol-to-text gap = --gap; inner symbols under the outer text */
+.ProseMirror ul[data-gap],.ProseMirror ol[data-gap],.ProseMirror [data-gap] ul,.ProseMirror [data-gap] ol{ padding-left:var(--gap); }
+.ProseMirror [data-gap] .lm{ transform:translateX(calc(-1 * var(--gap))); }
+.ProseMirror [data-gap] .lm.lm-up{ transform:translateX(calc(-1 * var(--gap) * (var(--up) + 1))); }

@@ -122,3 +122,19 @@ export async function loadAutosave() {
     db.close(); return v || null;
   } catch (e) { return null; }
 }
+
+/** Pick a Word document; returns {buf, name} or null. */
+export async function pickDocx() {
+  if (isTauri()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const { readFile } = await import('@tauri-apps/plugin-fs');
+    const path = await open({ multiple: false, filters: [{ name: 'Word-dokumentum', extensions: ['docx'] }] });
+    if (!path) return null;
+    return { buf: await readFile(path), name: baseName(path) };
+  }
+  return new Promise(resolve => {
+    const inp = document.getElementById('docxIn');
+    inp.onchange = async () => { const f = inp.files[0]; inp.value = ''; resolve(f ? { buf: new Uint8Array(await f.arrayBuffer()), name: f.name } : null); };
+    inp.click();
+  });
+}

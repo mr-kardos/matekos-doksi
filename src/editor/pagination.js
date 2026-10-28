@@ -167,7 +167,8 @@ function measure(view, tpl, scale) {
     }
     const bottom = Y(br.bottom) + shift;
     maxBottom = Math.max(maxBottom, bottom, lines[lines.length - 1].bottom + shift);
-    const keep = node.type.name === 'heading' || !!node.attrs.keepNext;
+    const sty = (tpl.styles || {})[node.type.name === 'heading' ? 'h' + node.attrs.level : 'p'];
+    const keep = node.attrs.keepNext === true || (node.attrs.keepNext !== false && (sty ? !!sty.keepNext : node.type.name === 'heading'));
     last = { pos: target, top: targetTop, shiftAt: shift, page: pageOf(targetTop + shift), keep, atTop: Math.abs(targetTop + shift - g.contentTop(pageOf(targetTop + shift))) < 1 };
   };
 
@@ -232,6 +233,7 @@ export const Pagination = Extension.create({
     const run = view => {
       if (running || !view.dom.isConnected || !opts.getTpl) return;
       running = true;
+      opts.beforeRun && opts.beforeRun();          // the app keeps the view where it is while the layout is redone
       try {
         view.dispatch(view.state.tr.setMeta(pgKey, DecorationSet.empty).setMeta('addToHistory', false));
         layoutTabs(view.dom, opts.getScale() || 1);
@@ -239,7 +241,7 @@ export const Pagination = Extension.create({
         view.dispatch(view.state.tr.setMeta(pgKey, DecorationSet.create(view.state.doc, res.decos)).setMeta('addToHistory', false));
         storage.pages = res.pages;
         opts.onLayout && opts.onLayout(res.pages);
-      } finally { running = false; }
+      } finally { running = false; opts.afterRun && opts.afterRun(); }
     };
     return [new Plugin({
       key: pgKey,

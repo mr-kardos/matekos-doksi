@@ -14,7 +14,7 @@ const ALIGN = { l: 'left', c: 'center', r: 'right' };
 const slot = (l = '', c = '', r = '') => ({ l: cellDoc(l, 'left'), c: cellDoc(c, 'center'), r: cellDoc(r, 'right'), img: { l: pic(), c: pic(), r: pic() } });
 /** A paragraph style (Normál, Főcím, Cím, Alcím). */
 const style = (o = {}) => ({ font: '', size: 12, color: '#111111', bold: false, italic: false, underline: false, shade: '', align: 'left',
-  line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 6, ...o });
+  line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 6, keepNext: false, contextual: false, ...o });
 const LINE = { ruleBottom: '0.75 #000000' }, LINE_TOP = { ruleTop: '0.75 #000000' };
 export const DEFAULT_TPL = {
   preset: 'ures',
@@ -32,11 +32,11 @@ export const DEFAULT_TPL = {
   imgGap: 4,
   styles: {
     p: style(),
-    h1: style({ size: 21, bold: true, line: 1.2, spaceAfter: 7 }),
-    h2: style({ size: 16, bold: true, line: 1.25, spaceBefore: 8, spaceAfter: 5 }),
-    h3: style({ size: 13.5, bold: true, line: 1.3, spaceBefore: 6, spaceAfter: 4 })
+    h1: style({ size: 21, bold: true, line: 1.2, spaceAfter: 7, keepNext: true }),
+    h2: style({ size: 16, bold: true, line: 1.25, spaceBefore: 8, spaceAfter: 5, keepNext: true }),
+    h3: style({ size: 13.5, bold: true, line: 1.3, spaceBefore: 6, spaceAfter: 4, keepNext: true })
   },
-  lists: { bullet: '•', num: 'decimal' },
+  lists: { bullet: '•', num: 'decimal', contextual: true },
   hunTrig: true, decComma: true, displayInline: true
 };
 

@@ -8,7 +8,8 @@ import Highlight from '@tiptap/extension-highlight';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { ListItem } from '@tiptap/extension-list';
-import { NodeSelection, TextSelection } from '@tiptap/pm/state';
+import { NodeSelection, TextSelection, Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import { drawShadeBands } from './shading.js';
 
@@ -21,9 +22,11 @@ import { FontOverrides } from './editor/extensions.js';
 import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, marksAt, TabNode, listDefaults } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP } from './tabs.js';
 import { drawMarks } from './marks.js';
+import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
-import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave } from './files.js';
+import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx } from './files.js';
+import { importDocx } from './importDocx.js';
 import { SAMPLE_HTML } from './sample.js';
 import { svg } from './icons.js';
 import APP_ICON from '../public/app-icon.png?inline';
@@ -44,6 +47,7 @@ let zoomMode = 'auto', scale = 1, pageCount = 1;
 let tblCtx = null;                 // table + selected cells, remembered while a table popover / size field is in use
 let ovRaf = 0, imgMoving = false;  // overlay redraw state
 let hfEd = null;                   // header/footer editor while it is open (the ribbon then formats it)
+let keepScroll = null;
 let spellOn = load('matekosdoksi.spell') !== '0';
 const AE = () => hfEd || editor;
 const stack = $('#stack'), outer = $('#outer'), ws = $('#ws'), pagesEl = $('#pages');
@@ -73,11 +77,14 @@ const editor = new Editor({
       onPreview: p => showPreview(p)
     }),
     KvImage.configure({ getScale: () => scale, onChange: m => updateOverlays(m) }),
-    Pagination.configure({ getTpl: () => tpl, getScale: () => scale, onLayout: n => applyLayout(n) })
+    Pagination.configure({ getTpl: () => tpl, getScale: () => scale, onLayout: n => applyLayout(n),
+      // while the page breaks are recalculated the document is briefly shorter: keep the scroll position
+      beforeRun: () => { keepScroll = ws.scrollTop; outer.style.minHeight = outer.offsetHeight + 'px'; },
+      afterRun: () => { outer.style.minHeight = ''; if (keepScroll != null && Math.abs(ws.scrollTop - keepScroll) > 0.5) ws.scrollTop = keepScroll; keepScroll = null; } })
   ],
   content: '<p></p>',
   editorProps: {
-    attributes: { spellcheck: load('matekosdoksi.spell') === '0' ? 'false' : 'true', lang: 'hu', class: 'docbody' },
+    attributes: { spellcheck: 'false', lang: 'hu', class: 'docbody' },
     handleDOMEvents: {
       // Paragraphs with line-breaking formulas: the browser cannot place the cursor or extend a selection
       // across them (they are inline, not boxes) – there the editor places cursor and selection itself.
@@ -192,6 +199,10 @@ function styleCSS() {
   let css = `.docbody p{${type(st.p)}}\n.docbody > p{${para(st.p)}}\n.docbody li > p{text-align:${st.p.align || 'left'};line-height:${+st.p.line || 1.25};}\n`;
   for (const k of ['h1', 'h2', 'h3']) css += `.docbody ${k}{${type(st[k])}${para(st[k])}}\n`;
   css += `.docbody .own-shade{background-color:transparent !important}\n`;   // its own line shading is drawn instead
+  // "no space between paragraphs of the same style" – stronger than the spacing set on a paragraph
+  for (const [k, tag] of [['p', 'p'], ['h1', 'h1'], ['h2', 'h2'], ['h3', 'h3']]) if (st[k].contextual)
+    css += `.docbody > ${tag} + ${tag}{--sb:0pt !important}\n.docbody > ${tag}:has(+ ${tag}){--sa:0pt !important}\n`;
+  if (tpl.lists.contextual) css += `.docbody li > p{--sb:0pt !important;--sa:0pt !important}\n.docbody > :is(ul,ol) > li:last-child > p:last-child{--sa:var(--after,6pt) !important}\n`;
   return css;
 }
 /** Redraw formulas whose look (font, bold – from marks or the paragraph style) changed; all of them when forced. */
@@ -386,9 +397,7 @@ const COMMANDS = {
   math: () => openMath(null, null),
   spell: () => {
     spellOn = !spellOn; lsSet('matekosdoksi.spell', spellOn ? '1' : '0');
-    for (const ed of [editor, ...hfEds]) { ed.view.dom.setAttribute('spellcheck', spellOn ? 'true' : 'false'); ed.setOptions({ editorProps: { ...ed.options.editorProps, attributes: { ...(ed.options.editorProps.attributes || {}), spellcheck: spellOn ? 'true' : 'false' } } }); }
-    // the browser re-checks the text only when it is touched: refresh the marks
-    const d = editor.view.dom; d.blur(); requestAnimationFrame(() => { d.focus({ preventScroll: true }); });
+    setSpellEnabled(editor.view, spellOn);
     toast(spellOn ? 'Helyesírás-ellenőrzés: bekapcsolva (magyar)' : 'Helyesírás-ellenőrzés: kikapcsolva'); updateToolbar();
   },
   marks: () => { showMarks = !showMarks; lsSet('matekosdoksi.marks', showMarks ? '1' : '0'); marksSoon(); updateToolbar(); }
@@ -452,19 +461,69 @@ function findMatches(re) {
   });
   return out;
 }
+/* spell checking (Hunspell + Magyar Ispell, the same on every computer) */
+queueMicrotask(() => { editor.registerPlugin(spellPlugin()); setSpellEnabled(editor.view, spellOn); });   // after the whole module is set up
+let spellTarget = null;
+editor.view.dom.addEventListener('contextmenu', e => {
+  const el = e.target.closest && e.target.closest('.spell-err'); if (!el || !spellOn) return;
+  e.preventDefault();
+  const word = el.dataset.word || el.textContent;
+  let from; try { from = editor.view.posAtDOM(el, 0); } catch (err) { return; }
+  spellTarget = { word, from, to: from + word.length };
+  const sg = suggestions(word);
+  $('#spellList').innerHTML = (sg.length ? sg.map(w => `<button class="pitem" data-sug="${esc(w)}"><b>${esc(w)}</b></button>`).join('') : '<div class="phint">Nincs javaslat.</div>');
+  $('#spellWord').textContent = `„${word}”`;
+  closePops();
+  const p = $('#popSpell'); p.hidden = false;
+  p.style.left = Math.min(e.clientX, innerWidth - p.offsetWidth - 8) + 'px'; p.style.top = Math.min(e.clientY + 6, innerHeight - p.offsetHeight - 8) + 'px';
+  openPop = p; openAnchor = el;
+});
+$('#popSpell').addEventListener('click', e => {
+  const t = spellTarget; if (!t) return;
+  const sug = e.target.closest('[data-sug]');
+  if (sug) { const tr = editor.state.tr, marks = editor.state.doc.resolve(t.from + 1).marks(); tr.replaceWith(t.from, t.to, editor.state.schema.text(sug.dataset.sug, marks)); editor.view.dispatch(tr); }
+  else if (e.target.closest('#spellAdd')) addToDictionary(t.word, editor.view);
+  else if (e.target.closest('#spellIgnore')) ignoreWord(t.word, editor.view);
+  else return;
+  closePops(); editor.view.focus();
+});
+
+/* all matches are highlighted; the current one is shown and scrolled into the middle of the view */
+const findKey = new PluginKey('find');
+queueMicrotask(() => editor.registerPlugin(new Plugin({
+  key: findKey,
+  state: { init: () => DecorationSet.empty,
+    apply(tr, old) { const m = tr.getMeta(findKey); if (m) return m.clear ? DecorationSet.empty : DecorationSet.create(tr.doc, m.all.map((x, i) => Decoration.inline(x.from, x.to, { class: i === m.cur ? 'find-hit cur' : 'find-hit' }))); return tr.docChanged ? DecorationSet.empty : old; } },
+  props: { decorations(st) { return findKey.getState(st); } }
+})));
+function showFind(all, cur) {
+  editor.view.dispatch(editor.state.tr.setMeta(findKey, { all, cur }).setMeta('addToHistory', false));
+  const m = all[cur]; if (!m) return;
+  requestAnimationFrame(() => {
+    try {
+      const c = editor.view.coordsAtPos(m.from), wr = ws.getBoundingClientRect();
+      ws.scrollTo({ top: ws.scrollTop + (c.top - wr.top) - ws.clientHeight / 2, behavior: 'smooth' });
+    } catch (e) { /* ignore */ }
+  });
+}
+function clearFind() { const f = findKey.getState(editor.state); if (f && f !== DecorationSet.empty) editor.view.dispatch(editor.state.tr.setMeta(findKey, { clear: true })); }
+let findAt = -1;
 function findNext() {
-  const re = findRegex(); if (!re) return;
+  const re = findRegex(); if (!re) { clearFind(); return; }
   const all = findMatches(re);
-  if (!all.length) { $('#findInfo').textContent = 'Nincs találat.'; return; }
-  const at = editor.state.selection.to, m = all.find(x => x.from >= at) || all[0];
-  editor.chain().setTextSelection(m).scrollIntoView().run();
-  $('#findInfo').textContent = `${all.indexOf(m) + 1}. / ${all.length} találat`;
+  if (!all.length) { clearFind(); $('#findInfo').textContent = 'Nincs találat.'; return; }
+  const from = findAt >= 0 ? findAt : editor.state.selection.from;
+  let i = all.findIndex(x => x.from > from); if (i < 0) i = 0;
+  findAt = all[i].from;
+  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, all[i].from, all[i].to)));
+  showFind(all, i);
+  $('#findInfo').textContent = `${i + 1}. / ${all.length} találat`;
 }
 function replaceOne() {
   const re = findRegex(); if (!re) return;
   const { from, to } = editor.state.selection, sel = editor.state.doc.textBetween(from, to);
   re.lastIndex = 0;
-  if (from !== to && re.test(sel) && sel.match(re)[0] === sel) editor.chain().insertContentAt({ from, to }, $('#replIn').value).run();
+  if (from !== to && re.test(sel) && sel.match(re)[0] === sel) { editor.chain().insertContentAt({ from, to }, $('#replIn').value).run(); findAt = from - 1 + $('#replIn').value.length; }
   findNext();
 }
 function replaceAll() {
@@ -476,6 +535,13 @@ function replaceAll() {
 }
 $('#findNext').onclick = findNext; $('#findRepl').onclick = replaceOne; $('#findAll').onclick = replaceAll;
 $('#findIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); findNext(); } });
+$('#findIn').addEventListener('input', () => {        // live highlighting while typing
+  findAt = -1; const re = findRegex(); if (!re) { clearFind(); $('#findInfo').textContent = ''; return; }
+  const all = findMatches(re); if (!all.length) { clearFind(); $('#findInfo').textContent = 'Nincs találat.'; return; }
+  editor.view.dispatch(editor.state.tr.setMeta(findKey, { all, cur: -1 })); $('#findInfo').textContent = `${all.length} találat`;
+});
+$('#findCase').addEventListener('change', () => $('#findIn').dispatchEvent(new Event('input')));
+$('#popFind').onclose = () => { clearFind(); findAt = -1; };
 $('#popFind').onopen = () => { const { from, to } = editor.state.selection; if (from !== to) $('#findIn').value = editor.state.doc.textBetween(from, to).slice(0, 80); $('#findInfo').textContent = ''; setTimeout(() => { $('#findIn').focus(); $('#findIn').select(); }); };
 
 /* fonts (Matekos Prezi): the template's font set, or any family on the selected text */
@@ -515,7 +581,7 @@ function showPop(id, anchor) {
   p.style.top = top + 'px';
   openPop = p; openAnchor = anchor;
 }
-function closePops() { if (openPop) { openPop.hidden = true; openPop = null; openAnchor = null; } }
+function closePops() { if (openPop) { const p = openPop; p.hidden = true; openPop = null; openAnchor = null; if (p.onclose) p.onclose(); } }
 document.addEventListener('pointerdown', e => { if (openPop && !openPop.contains(e.target) && !(openAnchor && openAnchor.contains(e.target))) closePops(); }, true);
 for (const p of $$('.pop')) p.addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
 
@@ -692,18 +758,34 @@ $('#lhIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.prevent
 /* paragraph: indents, first line / hanging, spacing (Prezi) */
 $('#popPara').onopen = () => {
   const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph');
+  const sk = AE().isActive('heading') ? 'h' + AE().getAttributes('heading').level : 'p';
   for (const inp of $$('#popPara [data-pf]')) {
     const k = inp.dataset.pf;
-    if (inp.type === 'checkbox') inp.checked = !!a[k];
+    if (k === 'keepNext') inp.checked = a.keepNext ?? !!(tpl.styles[sk] && tpl.styles[sk].keepNext);
+    else if (inp.type === 'checkbox') inp.checked = !!a[k];
     else inp.value = a[k] ?? '';
   }
-  const hang = a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
+  const lst = listAroundAny(AE().state);
+  const hang = (lst && lst.node.attrs.gap) || a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
   $('#pfFirstKind').value = hang ? 'hang' : a.firstLine > 0 ? 'first' : 'none';
   $('#pfFirstVal').value = hang || a.firstLine || '';
 };
+/** The outermost list around the cursor. */
+function listAroundAny(state) {
+  const $f = state.selection.$from;
+  for (let d = 1; d <= $f.depth; d++) if (/List$/.test($f.node(d).type.name)) return { node: $f.node(d), pos: $f.before(d) };
+  return null;
+}
 function applyFirstLine() {
   const kind = $('#pfFirstKind').value, v = Math.max(0, parseFloat(String($('#pfFirstVal').value).replace(',', '.')) || 0);
   const { state } = editor, tr = state.tr;
+  const outer = listAroundAny(state);
+  if (outer && (kind === 'hang' || (outer.node.attrs.gap && kind === 'none'))) {
+    // a list: the same symbol-to-text gap on every level; the inner symbols stand where the outer text starts
+    tr.setNodeMarkup(outer.pos, undefined, { ...outer.node.attrs, gap: kind === 'hang' && v ? v : null });
+    outer.node.descendants((n, rel) => { if (n.type.name === 'paragraph' && (n.attrs.hang || n.attrs.firstLine)) tr.setNodeMarkup(outer.pos + 1 + rel, undefined, { ...n.attrs, hang: null, firstLine: null }); });
+    editor.view.dispatch(tr); return;
+  }
   let { from, to } = state.selection;
   if (kind === 'hang') {             // in a list: every level of the whole list gets the same hanging indent
     const $f = state.doc.resolve(from);
@@ -956,7 +1038,7 @@ function editHF(kind, v, keep) {
     cellEl.innerHTML = '';
     const ed = new Editor({
       element: cellEl, extensions: hfExtensions(), content: tpl[kind][v][p],
-      editorProps: { attributes: { class: 'hf-editor', spellcheck: spellOn ? 'true' : 'false', lang: 'hu' },
+      editorProps: { attributes: { class: 'hf-editor', spellcheck: 'false', lang: 'hu' },
         handleKeyDown: (view, e) => {
           if (e.key === 'Tab') { const k = hfEds.indexOf(ed), n = hfEds[(k + (e.shiftKey ? 2 : 1)) % 3]; if (n) { n.commands.focus('end'); } return true; }   // next column
           return false;
@@ -1194,6 +1276,9 @@ function styleRows() {
           <label class="fld">Első sor<select data-flkind="${k}"><option value="none"${!+st.firstLine ? ' selected' : ''}>Nincs</option><option value="first"${+st.firstLine > 0 ? ' selected' : ''}>Első sor beljebb</option><option value="hang"${+st.firstLine < 0 ? ' selected' : ''}>Függő</option></select></label>
           <label class="fld">Mértéke<span class="unitin"><input type="number" step="0.25" min="0" max="5" data-flval="${k}" value="${Math.abs(+st.firstLine || 0) || ''}"><i>cm</i></span></label>
         </div>
+        <label class="chk" style="margin-top:8px"><input type="checkbox" data-k="${b}.keepNext"> Együtt a következő bekezdéssel</label>
+        <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="${b}.contextual"> Nincs térköz az azonos stílusú bekezdések között</label>
+        ${k === 'p' ? `<label class="chk" style="margin-top:4px"><input type="checkbox" data-k="lists.contextual"> Nincs térköz a listaelemek között</label>` : ''}
         ${k === 'p' ? `<div class="fgrid" style="margin-top:8px">
           <label class="fld">Felsorolásjel<select data-k="lists.bullet">${['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'].map(c => `<option>${c}</option>`).join('')}</select></label>
           <label class="fld">Számozás<select data-k="lists.num"><option value="decimal">1. 2. 3.</option><option value="decimal-paren">1) 2) 3)</option><option value="lower-alpha">a) b) c)</option><option value="upper-alpha">A. B. C.</option><option value="lower-roman">i. ii. iii.</option><option value="upper-roman">I. II. III.</option></select></label>
@@ -1358,6 +1443,7 @@ async function ready() {
 }
 async function makePdf() {
   const sel = editor.state.selection;
+  hideSpell(editor.view); clearFind();          // red underlines and find highlights are not part of the document
   editor.commands.blur();
   editor.commands.setTextSelection(0 < editor.state.doc.content.size ? 1 : 0);
   await ready();
@@ -1365,6 +1451,7 @@ async function makePdf() {
     return await buildPDF({ editorDom: editor.view.dom, pagesEl, stackEl: stack, scale, tpl, pages: pageCount, title: docTitle() });
   } finally {
     try { editor.view.dispatch(editor.state.tr.setSelection(sel.map(editor.state.doc, editor.state.tr.mapping))); } catch (e) { /* ignore */ }
+    showSpell(editor.view);
   }
 }
 async function doSave(saveAs) {
@@ -1418,11 +1505,50 @@ async function newDocument() {
   showHome(false); editor.commands.focus();
   return true;
 }
+/** Word (.docx) import: a new, unsaved document; MathType and Word equations become TeX formulas. */
+async function doImportDocx() {
+  closePops();
+  if (dirty && $('#home').hidden && !await confirmBox('A nem mentett módosítások elvesznek. Importálsz egy Word-dokumentumot?', 'Importálás')) return;
+  let picked;
+  try { picked = await pickDocx(); } catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); return; }
+  if (!picked) return;
+  busy('Word-dokumentum importálása…');
+  try {
+    const r = await importDocx(picked.buf);
+    tpl = startTpl();
+    if (r.page) { Object.assign(tpl, { page: r.page.page, pageW: r.page.pageW, pageH: r.page.pageH }); if (r.page.margins) tpl.margins = { ...tpl.margins, ...r.page.margins }; }
+    if (r.font) { if (r.font.set) tpl.font = r.font.set; else if (r.font.family) tpl.styles.p.font = r.font.family; }
+    if (r.size) tpl.styles.p.size = r.size;
+    setCurrentPath(null);
+    $('#docTitle').value = picked.name.replace(/\.docx$/i, '');
+    editor.commands.setContent(r.doc, { emitUpdate: false });
+    fillPanel(); applyTpl(true);
+    dirty = true; sessionOpen = true; setStatus(); saveSoon(); showHome(false);
+    busy('');
+    const rp = r.report, lines = [`${rp.paragraphs} bekezdés`];
+    if (rp.mathtype) lines.push(`${rp.mathtype} MathType-képlet TeX-ként`);
+    if (rp.omml) lines.push(`${rp.omml} Word-képlet TeX-ként`);
+    if (rp.tables) lines.push(`${rp.tables} táblázat`);
+    if (rp.images) lines.push(`${rp.images} kép`);
+    let msg = 'Importálva: ' + lines.join(', ') + '.';
+    if (rp.mathtypeFailed) msg += ` ${rp.mathtypeFailed} képletet nem sikerült beolvasni – ezek helyén piros „[képlet]” jelzés áll.`;
+    if (rp.imagesSkipped) msg += ` ${rp.imagesSkipped} régi formátumú (WMF/EMF) kép kimaradt.`;
+    if (rp.skipped.length) msg += ' Kimaradt: ' + rp.skipped.join(', ') + '.';
+    await infoBox(msg + ' A dokumentum még nincs elmentve.');
+  } catch (e) { busy(''); toast('Az importálás nem sikerült: ' + (e && e.message || e)); }
+}
+function infoBox(msg) {
+  return new Promise(res => {
+    const box = $('#cfm'); $('#cfmMsg').textContent = msg; $('#cfmYes').textContent = 'Rendben'; $('#cfmNo').hidden = true; box.hidden = false; $('#cfmYes').focus();
+    $('#cfmYes').onclick = () => { box.hidden = true; $('#cfmNo').hidden = false; $('#cfmYes').onclick = null; res(); };
+  });
+}
 /* top bar menus */
 $('#bSave').addEventListener('click', () => doSave(false));
 $('#fSaveAs').addEventListener('click', () => doSave(true));
 $('#fNew').addEventListener('click', newDocument);
 $('#fOpen').addEventListener('click', doOpen);
+$('#fImport').addEventListener('click', doImportDocx);
 $('#fHome').addEventListener('click', () => { closePops(); sessionOpen = true; clearTimeout(autoT); saveLocal(); showHome(true); });
 $('#expPdf').addEventListener('click', doPdf);
 $('#expPrint').addEventListener('click', doPrint);
@@ -1465,7 +1591,7 @@ document.addEventListener('keydown', e => {
   else if (k === 'p') { e.preventDefault(); doPrint(); }
 });
 addEventListener('resize', () => { applyZoom(); closePops(); thumbsSoon(); });
-ws.addEventListener('scroll', () => { closePops(); }, { passive: true });
+ws.addEventListener('scroll', () => { if (openPop && openPop.id === 'popFind') return; closePops(); }, { passive: true });   // find stays open while it scrolls to the matches
 function quitBox() {
   return new Promise(res => {
     const box = $('#cfm'), extra = document.createElement('button');

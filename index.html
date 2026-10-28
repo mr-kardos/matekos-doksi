@@ -212,6 +212,7 @@
 <div class="pop" id="popFile" hidden>
   <button class="pitem" id="fNew">Új dokumentum</button>
   <button class="pitem" id="fOpen">Megnyitás… <span class="phint">Ctrl/⌘+O</span></button>
+  <button class="pitem" id="fImport">Word-dokumentum importálása (.docx)…</button>
   <div class="psep"></div>
   <button class="pitem" id="fHome">Kezdőképernyő</button>
 </div>
@@ -232,6 +233,7 @@
   <div class="psep"></div>
   <div class="ptitle">Egyéb betűtípusok<span class="phint">a képletek a sablon képletbetűjével készülnek</span></div><div id="fontOther"></div>
 </div>
+<div class="pop" id="popSpell" hidden><div class="ptitle">Helyesírás: <span id="spellWord"></span></div><div id="spellList"></div><div class="psep"></div><button class="pitem" id="spellAdd">Hozzáadás a szótárhoz</button><button class="pitem" id="spellIgnore">Kihagyás ebben a dokumentumban</button></div>
 <div class="pop" id="popFind" hidden>
   <div class="ptitle">Keresés és csere</div>
   <div class="frow"><input id="findIn" type="text" placeholder="Keresett szöveg" spellcheck="false"></div>
@@ -346,6 +348,7 @@
 
 <input type="file" id="fileIn" accept="image/*" multiple hidden>
 <input type="file" id="pickIn" accept="image/*" hidden>
+<input type="file" id="docxIn" accept=".docx" hidden>
 
 <script type="module" src="/src/main.js"></script>
 </body>

@@ -39,10 +39,11 @@ export const ParaFormat = Extension.create({
           parseHTML: el => el.getAttribute('data-shade') || null,
           renderHTML: a => a.shade ? { class: 'shaded', style: `--shade:${a.shade}`, 'data-shade': a.shade } : {}
         },
+        // null = as the paragraph style says (titles: kept with the next paragraph); true / false = set here
         keepNext: {
-          default: false,
-          parseHTML: el => el.getAttribute('data-kn') === '1',
-          renderHTML: a => a.keepNext ? { 'data-kn': '1' } : {}
+          default: null,
+          parseHTML: el => el.getAttribute('data-kn') === '1' ? true : el.getAttribute('data-kn') === '0' ? false : null,
+          renderHTML: a => a.keepNext === true ? { 'data-kn': '1' } : a.keepNext === false ? { 'data-kn': '0' } : {}
         },
         // tab stops: "hf" (centre + right of a header/footer) or JSON [{pos: cm, align: left|center|right}]
         tabStops: {
@@ -95,6 +96,9 @@ export const KvBulletList = BulletList.extend({
       ...this.parent?.(),
       bulletChar: { default: '', parseHTML: el => el.getAttribute('data-bullet') || legacyBullet(el) || '', renderHTML: a => a.bulletChar ? { 'data-bullet': a.bulletChar } : {} },
       bulletImage: { default: '', parseHTML: el => el.getAttribute('data-bullet-img') || '', renderHTML: a => a.bulletImage ? { 'data-bullet-img': a.bulletImage } : {} },
+      // hanging indent of the whole list (all levels): the text starts this far from its symbol, and an inner
+      // list's symbol stands where the outer text starts – so the gaps are equal on every level
+      gap: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-gap')), renderHTML: a => a.gap ? { 'data-gap': a.gap, style: `--gap:${a.gap}cm` } : {} },
       bulletSize: { default: 0.9, parseHTML: el => numOrNull(el.getAttribute('data-bullet-size')) ?? 0.9, renderHTML: a => a.bulletImage ? { 'data-bullet-size': a.bulletSize } : {} }
     };
   }
@@ -103,6 +107,9 @@ export const KvOrderedList = OrderedList.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      // hanging indent of the whole list (all levels): the text starts this far from its symbol, and an inner
+      // list's symbol stands where the outer text starts – so the gaps are equal on every level
+      gap: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-gap')), renderHTML: a => a.gap ? { 'data-gap': a.gap, style: `--gap:${a.gap}cm` } : {} },
       numStyle: { default: null, parseHTML: el => el.getAttribute('data-num') || null, renderHTML: a => a.numStyle ? { 'data-num': a.numStyle } : {} }
     };
   }
