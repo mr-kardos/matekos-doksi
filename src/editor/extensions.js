@@ -68,16 +68,14 @@ export const ParaFormat = Extension.create({
   addCommands() {
     return {
       setParaAttrs: attrs => ({ tr, state, dispatch }) => {
-        const { from, to } = state.selection;
-        state.doc.nodesBetween(from, to, (node, pos) => {
+        for (const r of state.selection.ranges) state.doc.nodesBetween(r.$from.pos, r.$to.pos, (node, pos) => {
           if (node.type.name === 'paragraph' || node.type.name === 'heading') tr.setNodeMarkup(pos, undefined, { ...node.attrs, ...attrs });
         });
         if (dispatch) dispatch(tr);
         return true;
       },
       shiftIndent: delta => ({ tr, state, dispatch }) => {
-        const { from, to } = state.selection;
-        state.doc.nodesBetween(from, to, (node, pos) => {
+        for (const r of state.selection.ranges) state.doc.nodesBetween(r.$from.pos, r.$to.pos, (node, pos) => {
           if (node.type.name === 'paragraph' || node.type.name === 'heading') {
             const v = Math.max(0, Math.round(((node.attrs.indentLeft || 0) + delta) * 100) / 100);
             tr.setNodeMarkup(pos, undefined, { ...node.attrs, indentLeft: v || null });
@@ -168,7 +166,7 @@ export const ListMarkers = Extension.create({
               };
               const here = idx === 0 && carry ? carry : [];
               // an item that starts with an empty line and a list: the nested list's first item shares the line
-              const sameLine = first && first.isTextblock && !first.content.size && item.childCount > 1 && /List$/.test(item.child(1).type.name);
+              const sameLine = !!item.attrs.sameLine && first && first.isTextblock && !first.content.size && item.childCount > 1 && /List$/.test(item.child(1).type.name);
               if (sameLine) {
                 decos.push(Decoration.node(ipos + 1, ipos + 1 + first.nodeSize, { class: 'lm-collapsed' }));
                 walk(item, ipos, depth + 1, [...here.map(m => ({ ...m, up: m.up + 1 })), { ...mk, up: 1 }]);
@@ -260,6 +258,9 @@ class KvTableView extends TableView {
     const w = node.attrs.width;
     if (w && (!this.table.style.width || this.table.style.width.endsWith('%'))) this.table.style.width = w + '%';
     else if (!w && this.table.style.width.endsWith('%')) this.table.style.width = '';
+    // cell margins of the whole table (mm): inner space between the cell borders and the text
+    if (node.attrs.padV != null) this.table.style.setProperty('--cpv', node.attrs.padV + 'mm'); else this.table.style.removeProperty('--cpv');
+    if (node.attrs.padH != null) this.table.style.setProperty('--cph', node.attrs.padH + 'mm'); else this.table.style.removeProperty('--cph');
     const al = node.attrs.align || 'left';
     this.table.style.marginLeft = al === 'left' ? '0' : 'auto';
     this.table.style.marginRight = al === 'right' ? '0' : 'auto';
@@ -270,6 +271,8 @@ export const KvTable = Table.extend({
     return {
       ...this.parent?.(),
       width: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-width')), renderHTML: a => a.width ? { 'data-width': a.width, style: `width:${a.width}%` } : {} },
+      padV: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-padv')), renderHTML: a => a.padV != null ? { 'data-padv': a.padV, style: `--cpv:${a.padV}mm` } : {} },
+      padH: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-padh')), renderHTML: a => a.padH != null ? { 'data-padh': a.padH, style: `--cph:${a.padH}mm` } : {} },
       align: {
         default: 'left',
         parseHTML: el => el.getAttribute('data-align') || 'left',
@@ -822,24 +825,26 @@ export const TabNode = Node.create({
         if (ed.isActive('table')) return false;
         const { $from, empty } = ed.state.selection;
         // in a list: right after the symbol, on a selected formula or with several items selected -> one level in
-        if (ed.isActive('listItem') && (!empty || $from.parentOffset === 0)) { ed.commands.sinkListItem('listItem'); return true; }
+        if (ed.isActive('listItem') && (!empty || $from.parentOffset === 0)) { changeListLevel(ed.view, 1); return true; }
         return ed.commands.insertContent({ type: 'tab' });
       },
+      'Shift-Tab': () => { const ed = this.editor; if (ed.isActive('table') || !ed.isActive('listItem')) return false; changeListLevel(ed.view, -1); return true; },
       Backspace: () => {
+        if (deleteEmptyListItem(this.editor.view)) return true;
         const st = this.editor.state, sel = st.selection;
         if (!sel.empty) return false;
         const $f = sel.$from, d = $f.depth - 1;
         if ($f.parentOffset !== 0 || d < 3) return false;
         if ($f.node(d).type.name !== 'listItem' || $f.index(d) !== 0) return false;
         const L2 = $f.node(d - 1); if (!/List$/.test(L2.type.name) || $f.index(d - 1) !== 0) return false;
-        const LI1 = $f.node(d - 2); if (LI1.type.name !== 'listItem' || $f.index(d - 2) !== 1) return false;
+        const LI1 = $f.node(d - 2); if (LI1.type.name !== 'listItem' || $f.index(d - 2) !== 1 || !LI1.attrs.sameLine) return false;
         const first = LI1.firstChild; if (!first || !first.isTextblock || first.content.size) return false;
         const inner = L2.firstChild, kids = [];
         inner.forEach(c => kids.push(c));
         if (L2.childCount > 1) { const rest = []; L2.forEach((c, o, i) => { if (i) rest.push(c); }); kids.push(L2.copy(Fragment.from(rest))); }
         LI1.forEach((c, o, i) => { if (i > 1) kids.push(c); });
         const liPos = $f.before(d - 2);
-        const tr = st.tr.replaceWith(liPos, liPos + LI1.nodeSize, LI1.type.create(LI1.attrs, kids));
+        const tr = st.tr.replaceWith(liPos, liPos + LI1.nodeSize, LI1.type.create({ ...LI1.attrs, sameLine: false }, kids));
         tr.setSelection(TextSelection.create(tr.doc, liPos + 2));
         this.editor.view.dispatch(tr.scrollIntoView());
         return true;
@@ -878,3 +883,118 @@ export const FontOverrides = Extension.create({
     } } })];
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Lists: changing the level of exactly the selected items (as Word)   */
+/* The list is flattened to (level, item) pairs, the levels of the     */
+/* selected items change, and the list is built again: other items –   */
+/* also the ones nested under a selected item – keep their level, and  */
+/* every item keeps its own symbol / numbering format.                 */
+/* ------------------------------------------------------------------ */
+export const ListItemAttrs = Extension.create({
+  name: 'listItemAttrs',
+  addGlobalAttributes() {
+    return [{ types: ['listItem'], attributes: {
+      sameLine: { default: false, parseHTML: el => el.getAttribute('data-same') === '1', renderHTML: a => a.sameLine ? { 'data-same': '1' } : {} }
+    } }];
+  }
+});
+const isList = n => n && (n.type.name === 'bulletList' || n.type.name === 'orderedList');
+function flatten(list, level, out, pos) {
+  list.forEach((li, off) => {
+    const liPos = pos + 1 + off, content = [], subs = [];
+    let cOff = 0, contentStart = liPos + 1;
+    li.forEach((c, o) => { if (isList(c)) subs.push([c, liPos + 1 + o]); else content.push(c); });
+    out.push({ level, type: list.type, attrs: list.attrs, itemAttrs: li.attrs, content, from: liPos, start: contentStart,
+      end: subs.length ? subs[0][1] : liPos + li.nodeSize - 1 });
+    void cOff;
+    for (const [sub, sp] of subs) flatten(sub, level + 1, out, sp);
+  });
+}
+const sameAttrs = (a, b) => ['bulletChar', 'bulletImage', 'bulletSize', 'numStyle', 'gap'].every(k => (a[k] ?? null) === (b[k] ?? null));
+function rebuild(items, schema) {
+  let i = 0;
+  const build = level => {
+    const lists = []; let cur = null;
+    while (i < items.length && items[i].level >= level) {
+      const it = items[i];
+      if (it.level === level) {
+        if (!cur || cur.type !== it.type || !sameAttrs(cur.attrs, it.attrs)) {
+          const attrs = { ...it.attrs };
+          if (cur && it.type.name === 'orderedList' && lists.some(l => l.type === it.type && sameAttrs(l.attrs, it.attrs))) { attrs.cont = true; }
+          cur = { type: it.type, attrs, items: [] }; lists.push(cur);
+        }
+        cur.items.push({ attrs: it.itemAttrs, content: [...it.content], src: it });
+        i++;
+      } else {
+        if (!cur) { cur = { type: it.type, attrs: { ...it.attrs }, items: [{ attrs: null, content: [schema.nodes.paragraph.create()] }] }; lists.push(cur); }
+        const subs = build(level + 1);
+        cur.items[cur.items.length - 1].content.push(...subs);
+      }
+    }
+    return lists.map(l => l.type.create(l.attrs, l.items.map(x => { const n = schema.nodes.listItem.create(x.attrs, x.content.length ? x.content : [schema.nodes.paragraph.create()]); n._src = x.src; return n; })));
+  };
+  return build(items.length ? items[0].level : 0);
+}
+/** Change the level of the selected list items by delta (+1 / -1). Returns false when not in a list. */
+export function changeListLevel(view, delta) {
+  const st = view.state, { $from, $to, from, to } = st.selection;
+  let d = 1; while (d <= $from.depth && !isList($from.node(d))) d++;
+  if (d > $from.depth) return false;
+  const outer = $from.node(d), outerPos = $from.before(d);
+  if (to > outerPos + outer.nodeSize) return false;
+  const items = []; flatten(outer, 0, items, outerPos);
+  // the selected items: their own content (not their nested items) touches the selection
+  const sel = items.filter(it => it.end >= from && it.start <= to);
+  if (!sel.length) return false;
+  for (const it of items) it.newLevel = it.level;
+  for (const it of sel) it.newLevel = Math.max(0, it.level + delta);
+  // a list cannot skip a level: an item is at most one level deeper than the one before it
+  for (let k = 0; k < items.length; k++) {
+    const max = k === 0 ? 0 : items[k - 1].newLevel + 1;
+    if (items[k].newLevel > max) items[k].newLevel = sel.includes(items[k]) ? Math.min(items[k].level, max) : max;
+  }
+  if (items.every(it => it.newLevel === it.level)) return true;
+  // an item moving to a level gets the format of its new neighbours there only if it has none of its own
+  for (const it of items) it.level = it.newLevel;
+  const nodes = rebuild(items, st.schema);
+  // selection: same offset inside the same item
+  const offA = (() => { const it = items.find(x => x.start <= st.selection.anchor && st.selection.anchor <= x.end); return it ? [items.indexOf(it), st.selection.anchor - it.start] : null; })();
+  const offH = (() => { const it = items.find(x => x.start <= st.selection.head && st.selection.head <= x.end); return it ? [items.indexOf(it), st.selection.head - it.start] : null; })();
+  const tr = st.tr.replaceWith(outerPos, outerPos + outer.nodeSize, nodes);
+  const starts = []; const walk = (n, p) => n.forEach((c, o) => { const cp = p + 1 + o; if (c.type.name === 'listItem') { starts.push(cp + 1); c.forEach((g, go) => { if (isList(g)) walk(g, cp + 1 + go); }); } });
+  let p = outerPos; for (const n of nodes) { walk(n, p); p += n.nodeSize; }
+  try {
+    const A = offA && starts[offA[0]] != null ? starts[offA[0]] + offA[1] : null, H = offH && starts[offH[0]] != null ? starts[offH[0]] + offH[1] : null;
+    if (A != null && H != null) tr.setSelection(TextSelection.create(tr.doc, A, H));
+  } catch (e) { /* keep the mapped selection */ }
+  view.dispatch(tr.scrollIntoView());
+  return true;
+}
+
+/** Backspace in an empty item of an inner list: the item goes, everything else keeps its level (renumbered). */
+export function deleteEmptyListItem(view) {
+  const st = view.state, sel = st.selection;
+  if (!sel.empty) return false;
+  const $f = sel.$from;
+  if ($f.parent.content.size || $f.depth < 4) return false;
+  const li = $f.node($f.depth - 1);
+  if (li.type.name !== 'listItem' || li.childCount !== 1) return false;
+  let d = 1; while (d <= $f.depth && !isList($f.node(d))) d++;
+  const outer = $f.node(d), outerPos = $f.before(d);
+  const items = []; flatten(outer, 0, items, outerPos);
+  const k = items.findIndex(it => it.start <= sel.from && sel.from <= it.end);
+  if (k < 0 || items[k].level === 0) return false;
+  const prev = k - 1;
+  items.splice(k, 1);
+  for (let j = 0; j < items.length; j++) { const max = j === 0 ? 0 : items[j - 1].level + 1; if (items[j].level > max) items[j].level = max; }
+  const nodes = rebuild(items, st.schema);
+  const tr = st.tr.replaceWith(outerPos, outerPos + outer.nodeSize, nodes);
+  // cursor: end of the previous item's text
+  const starts = []; const walk = (n, p) => n.forEach((c, o) => { const cp = p + 1 + o; if (c.type.name === 'listItem') { starts.push([cp, c]); c.forEach((g, go) => { if (isList(g)) walk(g, cp + 1 + go); }); } });
+  let p = outerPos; for (const n of nodes) { walk(n, p); p += n.nodeSize; }
+  const t = starts[Math.max(0, prev)];
+  if (t) { let endPos = t[0] + 1; t[1].forEach((c, o) => { if (!isList(c)) endPos = t[0] + 1 + o + c.nodeSize - 1; }); try { tr.setSelection(TextSelection.create(tr.doc, endPos)); } catch (e) { /* mapped */ } }
+  view.dispatch(tr.scrollIntoView());
+  return true;
+}

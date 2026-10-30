@@ -150,3 +150,13 @@ tools/                font verification
 - Paragraph popover: no space between same-style paragraphs (and list items).
 - Formula selected: the size box shows the size of the text around it. Eye mode: tab labels show the stop.
 - Light / dark mode in the Fájl menu (dark by default on every computer); buttons and scroll bars follow it.
+
+## 0.7.3
+- Lists: Tab / Shift+Tab / indent buttons change exactly the selected items (nested items and items after them keep
+  their level, every item keeps its symbol / numbering format); deleting an inner item keeps the next one's level;
+  same-line nested lists only from the ribbon button; list symbols sit on the line's baseline (fraction line at the
+  number's middle).
+- Word import: numbering as in Word (continues across other paragraphs), levels from list styles, no empty items or
+  stray line breaks, justified text kept, columns divided properly (a list can continue in the next column).
+- Table toolbar: cell margins. Paragraph settings work in all selected cells. Formula selection as high as the
+  formula. Selected text cannot be dragged.

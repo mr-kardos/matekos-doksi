@@ -99,12 +99,14 @@ button,input,select,textarea{ font-family:inherit; }
 .ProseMirror li > p{ --sa:2pt; }
 .ProseMirror li:last-child > p:last-child{ --sa:var(--after,6pt); }
 .ProseMirror li li:last-child > p:last-child{ --sa:2pt; }
-.lm{ position:absolute; left:auto; transform:translateX(calc(-100% - .45em)); white-space:nowrap; user-select:none; pointer-events:none; text-indent:0; font-style:normal; font-weight:normal; text-decoration:none; }
+/* list symbol: in the line itself (so it sits on the line's baseline – a fraction's line meets the number's middle),
+   0 wide, its text running to the left of where the item's text starts */
+.lm{ display:inline-flex; justify-content:flex-end; width:0; vertical-align:baseline; transform:translateX(-.45em); white-space:nowrap; user-select:none; pointer-events:none; text-indent:0; font-style:normal; font-weight:normal; text-decoration:none; }
 .lm img{ vertical-align:-0.1em; }
 mark{ color:inherit; padding:0; }
 .ProseMirror .tableWrapper{ padding:0 0 var(--after,6pt); overflow-x:auto; }
 .ProseMirror table{ width:100%; border-collapse:collapse; table-layout:fixed; margin:0; }
-.ProseMirror td,.ProseMirror th{ border:.75pt solid #7d8590; padding:3pt 5pt; vertical-align:top; position:relative; min-width:2em; }
+.ProseMirror td,.ProseMirror th{ border:.75pt solid #7d8590; padding:var(--cpv,3pt) var(--cph,5pt); vertical-align:top; position:relative; min-width:2em; }
 .ProseMirror td > p:last-of-type,.ProseMirror th > p:last-of-type{ --sa:0px; }
 .ProseMirror th{ font-weight:700; text-align:left; }
 .ProseMirror .selectedCell::after{ content:''; position:absolute; inset:0; background:var(--selbg); pointer-events:none; z-index:2; }
@@ -304,9 +306,9 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 .md-foot .sp{ flex:1; }
 /* same-line nested lists ("1. a) …"): the outer marker sits in the first line of the inner list */
 .ProseMirror p.lm-collapsed{ height:0; padding:0 !important; margin:0 !important; overflow:hidden; }
-.lm.lm-up{ transform:translateX(calc(-100% - .45em - var(--up) * 1.8em)); }
+.lm.lm-up{ transform:translateX(calc(-.45em - var(--up) * 1.8em)); }
 
 /* a list with its own hanging indent (all levels): symbol-to-text gap = --gap; inner symbols under the outer text */
 .ProseMirror ul[data-gap],.ProseMirror ol[data-gap],.ProseMirror [data-gap] ul,.ProseMirror [data-gap] ol{ padding-left:var(--gap); }
-.ProseMirror [data-gap] .lm{ transform:translateX(calc(-1 * var(--gap))); }
+.ProseMirror [data-gap] .lm{ justify-content:flex-start; transform:translateX(calc(-1 * var(--gap))); }
 .ProseMirror [data-gap] .lm.lm-up{ transform:translateX(calc(-1 * var(--gap) * (var(--up) + 1))); }

@@ -3,6 +3,8 @@ export const ICONS = {
   tabstop: '<path d="M4 12h12M12 8l4 4-4 4M20 6v12"/>',
   panelL: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
   spell: '<path d="M4 15 7.5 5 11 15M5.3 11.5h4.4"/><path d="m13 15 2.5 3L21 11"/>',
+  cellPad: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M8 8h8M8 16h8" stroke-dasharray="2 2"/><path d="M12 4v3M12 17v3"/>',
+  cellPadH: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M8 8v8M16 8v8" stroke-dasharray="2 2"/><path d="M4 12h3M17 12h3"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   alignL: '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>',

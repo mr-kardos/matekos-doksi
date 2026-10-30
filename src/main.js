@@ -19,7 +19,7 @@ import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady }
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, marksAt, TabNode, listDefaults } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP } from './tabs.js';
 import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
@@ -65,7 +65,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, TabNode.configure({ getScale: () => scale }),
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -108,7 +108,7 @@ const editor = new Editor({
         return true;
       },
       // no dragging of cell contents inside tables
-      dragstart: (view, e) => { if (e.target && e.target.closest && (e.target.closest('td,th') || (e.target.parentElement && e.target.parentElement.closest('td,th')))) { e.preventDefault(); return true; } return false; },
+      dragstart: (view, e) => { e.preventDefault(); return true; },          // selected text is never dragged away
       drop: (view, e) => { const t = e.target && (e.target.nodeType === 1 ? e.target : e.target.parentElement); if (t && t.closest('td,th') && !(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) { e.preventDefault(); return true; } return false; }
     },
     handlePaste(view, event) {
@@ -393,8 +393,8 @@ const COMMANDS = {
   alignJustify: () => ch().setTextAlign('justify').run(),
   bulletList: () => ch().toggleBulletList().run(),
   orderedList: () => ch().toggleOrderedList().run(),
-  indent: () => AE().isActive('listItem') ? ch().sinkListItem('listItem').run() : ch().shiftIndent(1).run(),
-  outdent: () => AE().isActive('listItem') ? ch().liftListItem('listItem').run() : ch().shiftIndent(-1).run(),
+  indent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, 1), AE().view.focus()) : ch().shiftIndent(1).run(),
+  outdent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, -1), AE().view.focus()) : ch().shiftIndent(-1).run(),
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
   math: () => openMath(null, null),
@@ -718,7 +718,7 @@ function nestSameLine(numStyle) {
   const kids = []; li.forEach(c => kids.push(c));
   const inner = S.orderedList.create({ numStyle, start: 1 }, [S.listItem.create(null, kids.slice(i))]);
   const content = i === 0 ? [S.paragraph.create(), inner] : [...kids.slice(0, i), inner];
-  const tr = st.tr.replaceWith(liPos, liPos + li.nodeSize, S.listItem.create(li.attrs, content));
+  const tr = st.tr.replaceWith(liPos, liPos + li.nodeSize, S.listItem.create({ ...li.attrs, sameLine: i === 0 }, content));
   // cursor: same place, now inside the inner list
   const off = $from.pos - $from.start(d + 1);
   let target = liPos + 1 + (i === 0 ? 2 : kids.slice(0, i).reduce((x, n) => x + n.nodeSize, 0)) + 1 + 1 + 1 + off;
@@ -915,9 +915,15 @@ function fillTableFields() {
   if (act !== $('#tpRowH')) $('#tpRowH').value = row.attrs.height || '';
   const cell = c.table.nodeAt(c.map.map[c.rect.top * c.map.width + c.rect.left]);
   if (act !== $('#tpColW')) $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? Math.round(cell.attrs.colwidth[0] / MM * 10) / 10 : '';
+  if (act !== $('#tpPadV')) $('#tpPadV').value = c.table.attrs.padV ?? '';
+  if (act !== $('#tpPadH')) $('#tpPadH').value = c.table.attrs.padH ?? '';
   for (const b of $$('#tableBar [data-talign]')) b.classList.toggle('on', (c.table.attrs.align || 'left') === b.dataset.talign);
 }
-for (const id of ['#tpWidth', '#tpRowH', '#tpColW']) {
+for (const [id, k] of [['#tpPadV', 'padV'], ['#tpPadH', 'padH']]) $(id).addEventListener('change', e => {
+  const v = e.target.value === '' ? null : Math.max(0, Math.min(20, parseFloat(String(e.target.value).replace(',', '.')) || 0));
+  setTableAttrs({ [k]: v });
+});
+for (const id of ['#tpWidth', '#tpRowH', '#tpColW', '#tpPadV', '#tpPadH']) {
   $(id).addEventListener('focus', rememberTable);
   $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.dispatchEvent(new Event('change')); } });
 }

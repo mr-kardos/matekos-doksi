@@ -129,7 +129,9 @@ function readStyles(x) {
     const m = /^(heading|címsor)\s*(\d)$/.exec(name); if (m) level = +m[2];
     const ol = kid(pPr, 'w:outlineLvl'); if (level == null && ol && +val(ol) < 3) level = +val(ol) + 1;
     if (name === 'title' || name === 'cím') level = 1;
+    const snp = kid(pPr, 'w:numPr');
     st[id] = { level, basedOn: val(kid(s, 'w:basedOn')), name, type: s.getAttribute('w:type'), isDefault: s.getAttribute('w:default') === '1',
+      jc: val(kid(pPr, 'w:jc')), numId: snp ? val(kid(snp, 'w:numId')) : null, ilvl: snp && kid(snp, 'w:ilvl') ? +val(kid(snp, 'w:ilvl')) : null,
       size: kid(rPr, 'w:sz') ? +val(kid(rPr, 'w:sz')) / 2 : null, font: kid(rPr, 'w:rFonts') ? kid(rPr, 'w:rFonts').getAttribute('w:ascii') : null };
   }
   for (const s of Object.values(st)) if (s.type === 'paragraph' && s.isDefault) { if (s.size) def.size = s.size; if (s.font) def.font = s.font; }
@@ -177,6 +179,8 @@ export async function importDocx(buf) {
     return media[p];
   };
   const styleLevel = id => { let s = styles[id], n = 0; while (s && n++ < 10) { if (s.level) return s.level; s = styles[s.basedOn]; } return null; };
+  const styleProp = (id, k) => { let s = styles[id], n = 0; while (s && n++ < 10) { if (s[k] != null) return s[k]; s = styles[s.basedOn]; } return null; };
+  const defStyle = Object.keys(styles).find(k => styles[k].isDefault && styles[k].type === 'paragraph');
 
   /* run formatting -> marks */
   const marksOf = (rPr, pStyleSize) => {
@@ -263,12 +267,17 @@ export async function importDocx(buf) {
     const pPr = kid(p, 'w:pPr'), styleId = val(kid(pPr, 'w:pStyle')), level = styleId ? styleLevel(styleId) : null;
     const sty = styleId ? styles[styleId] : null;
     const attrs = {};
-    const jc = val(kid(pPr, 'w:jc')); if (jc) attrs.textAlign = { both: 'justify', distribute: 'justify', center: 'center', right: 'right', end: 'right' }[jc] || 'left';
+    // alignment: the paragraph's own, or its style's (justified text stays justified)
+    const jc = val(kid(pPr, 'w:jc')) || styleProp(styleId || defStyle, 'jc'); if (jc) attrs.textAlign = { both: 'justify', distribute: 'justify', center: 'center', right: 'right', end: 'right' }[jc] || 'left';
     // indents, spacing and line height: as the template's paragraph styles say
     const content = await inlines(p, sty && sty.size);
+    while (content.length && content[0].type === 'hardBreak') content.shift();
+    while (content.length && content[content.length - 1].type === 'hardBreak') content.pop();
+    for (const n of content) if (n.type === 'text') n.text = n.text.replace(/\u00a0+$/, '');
     report.paragraphs++;
     const numPr = kid(pPr, 'w:numPr');
-    const list = numPr ? { numId: val(kid(numPr, 'w:numId')), ilvl: +(val(kid(numPr, 'w:ilvl')) ?? 0) } : null;
+    let list = numPr ? { numId: val(kid(numPr, 'w:numId')) ?? styleProp(styleId, 'numId'), ilvl: +(val(kid(numPr, 'w:ilvl')) ?? styleProp(styleId, 'ilvl') ?? 0) } : null;
+    if (!list && styleId && styleProp(styleId, 'numId')) list = { numId: styleProp(styleId, 'numId'), ilvl: styleProp(styleId, 'ilvl') ?? 0 };   // numbering from the style
     if (list && list.numId === '0') list.numId = null;
     // page breaks inside the paragraph split it
     const parts = [[]], kinds = [];
@@ -282,6 +291,7 @@ export async function importDocx(buf) {
   }
 
   /* blocks with list grouping */
+  const counters = {};                                         // numId -> [number of the last item per level] (as Word counts)
   async function blocks(parent) {
     const out = [];
     let stack = [];                                            // [{level, numId, node}]
@@ -291,26 +301,35 @@ export async function importDocx(buf) {
         const { nodes, list } = await paragraph(el);
         if (!list) { closeLists(); out.push(...nodes); continue; }
         const info = numbering.level(list.numId, String(list.ilvl)) || { fmt: 'bullet', text: '•', start: 1 };
+        const empty = nodes.every(n => n.type === 'pageBreak' || n.type === '__colbreak' || !(n.content && n.content.length));
+        if (empty) continue;                                   // an empty numbered paragraph: no empty list item
+        const cnt = counters[list.numId] || (counters[list.numId] = []);
+        cnt[list.ilvl] = (cnt[list.ilvl] ?? ((info.start ?? 1) - 1)) + 1;
+        cnt.length = list.ilvl + 1;                            // deeper levels start again
         const ordered = info.fmt !== 'bullet' && info.fmt !== 'none';
         while (stack.length && stack[stack.length - 1].level > list.ilvl) stack.pop();
         let top = stack[stack.length - 1];
         if (top && top.level === list.ilvl && (top.numId !== list.numId || top.ordered !== ordered)) { stack.pop(); top = stack[stack.length - 1]; }
         if (!top || top.level < list.ilvl) {
           const node = ordered
-            ? { type: 'orderedList', attrs: { start: info.start ?? 1, numStyle: NUMFMT[info.fmt] === 'decimal' && /\)\s*$/.test(info.text) ? 'decimal-paren' : (NUMFMT[info.fmt] || 'decimal') }, content: [] }
+            ? { type: 'orderedList', attrs: { start: cnt[list.ilvl], numStyle: NUMFMT[info.fmt] === 'decimal' && /\)\s*$/.test(info.text) ? 'decimal-paren' : (NUMFMT[info.fmt] || 'decimal') }, content: [] }
             : { type: 'bulletList', attrs: { bulletChar: bulletOf(info.text) }, content: [] };
           if (top) { const li = top.node.content[top.node.content.length - 1]; if (li) li.content.push(node); else out.push(node); }
           else out.push(node);
           stack.push({ level: list.ilvl, numId: list.numId, ordered, node });
           top = stack[stack.length - 1];
         }
+        if (nodes.some(n => n.type === '__colbreak')) top.node.content.__colbreakAfter = top.node.content.length;   // the column ends after this item
         top.node.content.push({ type: 'listItem', content: nodes.filter(n => n.type !== 'pageBreak' && n.type !== '__colbreak').map(n => n.type === 'heading' ? { ...n, type: 'paragraph', attrs: { ...n.attrs, level: undefined } } : n) });
       } else if (el.tagName === 'w:tbl') { closeLists(); out.push(await table(el)); }
       else if (el.tagName === 'w:sdt') { closeLists(); out.push(...await blocks(kid(el, 'w:sdtContent') || el)); }
       else if (el.tagName === 'w:sectPr' || el.tagName === 'w:bookmarkStart' || el.tagName === 'w:bookmarkEnd') continue;
       else if (el.tagName === 'w:customXml') out.push(...await blocks(el));
     }
-    return out;
+    // empty paragraphs used as spacing: at most one in a row, none right before / after a list
+    const isEmpty = n => (n.type === 'paragraph' || n.type === 'heading') && !(n.content && n.content.length);
+    const isListN = n => n && (n.type === 'orderedList' || n.type === 'bulletList');
+    return out.filter((n, i) => !(isEmpty(n) && (isEmpty(out[i - 1] || {}) || isListN(out[i - 1]) || isListN(out[i + 1]))));
   }
 
   async function table(tbl) {
@@ -352,17 +371,37 @@ export async function importDocx(buf) {
     const sz = sec.sect && kid(sec.sect, 'w:pgSz');
     const landscape = !!sz && (sz.getAttribute('w:orient') === 'landscape' || +sz.getAttribute('w:w') > +sz.getAttribute('w:h'));
     if (cols < 2 || landscape) { content.push(...blk.filter(n => n.type !== '__colbreak')); continue; }   // landscape: one after the other
-    // portrait page in columns: a table with one row, one cell per column, no borders
-    let groups = [[]];
-    for (const n of blk) { if (n.type === '__colbreak') groups.push([]); else groups[groups.length - 1].push(n); }
-    if (groups.length === 1) {                // no column breaks: split by the amount of text
-      const len = n => JSON.stringify(n).length, total = blk.reduce((a, n) => a + len(n), 0);
-      const g = Array.from({ length: cols }, () => []); let acc = 0;
-      for (const n of blk) { g[Math.min(cols - 1, Math.floor(acc / total * cols))].push(n); acc += len(n); }
-      groups = g;
+    // portrait page in columns: a table with one row, one cell per column, no borders.
+    // The content is cut into units (a block, or one item of a top-level list) and divided between the columns:
+    // at the column breaks of the Word file, otherwise into equal amounts of text.
+    const units = [];
+    for (const n of blk) {
+      if (n.type === '__colbreak') { units.push({ brk: true }); continue; }
+      if ((n.type === 'orderedList' || n.type === 'bulletList') && n.content.length > 1) {
+        n.content.forEach((it, k) => { units.push({ list: n, item: it, k }); if (n.content.__colbreakAfter === k) units.push({ brk: true }); });
+      } else units.push({ node: n });
     }
-    while (groups.length < cols) groups.push([]);
-    const cells = groups.slice(0, cols - 1).concat([groups.slice(cols - 1).flat()]);
+    const size = u => u.brk ? 0 : JSON.stringify(u.node || u.item).length;
+    let parts;
+    if (units.some(u => u.brk)) { parts = [[]]; for (const u of units) { if (u.brk) parts.push([]); else parts[parts.length - 1].push(u); } }
+    else {
+      const total = units.reduce((a, u) => a + size(u), 0) || 1; parts = Array.from({ length: cols }, () => []); let acc = 0;
+      for (const u of units) { const mid = acc + size(u) / 2; parts[Math.min(cols - 1, Math.floor(mid / total * cols))].push(u); acc += size(u); }
+    }
+    while (parts.length < cols) parts.push([]);
+    parts = parts.slice(0, cols - 1).concat([parts.slice(cols - 1).flat()]);
+    // units back into blocks; a list cut in two keeps counting in the next column
+    const toBlocks = us => {
+      const outB = [];
+      for (const u of us) {
+        if (u.node) { outB.push(u.node); continue; }
+        const last = outB[outB.length - 1];
+        if (last && last.__src === u.list) last.content.push(u.item);
+        else { const l = { type: u.list.type, attrs: { ...u.list.attrs, ...(u.list.type === 'orderedList' ? { start: (u.list.attrs.start ?? 1) + u.k } : {}) }, content: [u.item] }; Object.defineProperty(l, '__src', { value: u.list }); outB.push(l); }
+      }
+      return outB;
+    };
+    const cells = parts.map(toBlocks);
     content.push({ type: 'table', content: [{ type: 'tableRow', content: cells.map(c => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, borderWidth: 0, vAlign: 'top' }, content: c.length ? c : [{ type: 'paragraph' }] })) }] });
     report.columns++;
   }
