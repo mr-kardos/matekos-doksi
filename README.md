@@ -141,3 +141,12 @@ tools/                font verification
 - Lists: hanging indent of the whole list with equal gaps on every level.
 - Styles: keep with next (titles by default); no space between paragraphs of the same style; lists without
   spacing between items by default.
+
+## 0.7.2
+- Word import: only text with formatting, formulas and tables, in the selected template's styling; columns of
+  a portrait section become a borderless table with one column per text column (landscape: one after the other).
+- Lists: numbering continues after split lists; Tab on a selected formula or several items moves them in;
+  Backspace removes the inner symbol of a same-line nested list.
+- Paragraph popover: no space between same-style paragraphs (and list items).
+- Formula selected: the size box shows the size of the text around it. Eye mode: tab labels show the stop.
+- Light / dark mode in the Fájl menu (dark by default on every computer); buttons and scroll bars follow it.

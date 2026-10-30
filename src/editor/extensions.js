@@ -1,4 +1,5 @@
 import { Extension, Node, Mark, mergeAttributes } from '@tiptap/core';
+import { Fragment } from '@tiptap/pm/model';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { BulletList, OrderedList } from '@tiptap/extension-list';
@@ -38,6 +39,13 @@ export const ParaFormat = Extension.create({
           default: null,
           parseHTML: el => el.getAttribute('data-shade') || null,
           renderHTML: a => a.shade ? { class: 'shaded', style: `--shade:${a.shade}`, 'data-shade': a.shade } : {}
+        },
+        // no space between this paragraph and its neighbours of the same style (and between list items):
+        // null = as the style says, true / false = set on this paragraph
+        ctx: {
+          default: null,
+          parseHTML: el => el.getAttribute('data-ctx') === '1' ? true : el.getAttribute('data-ctx') === '0' ? false : null,
+          renderHTML: a => a.ctx === true ? { 'data-ctx': '1' } : a.ctx === false ? { 'data-ctx': '0' } : {}
         },
         // null = as the paragraph style says (titles: kept with the next paragraph); true / false = set here
         keepNext: {
@@ -110,7 +118,8 @@ export const KvOrderedList = OrderedList.extend({
       // hanging indent of the whole list (all levels): the text starts this far from its symbol, and an inner
       // list's symbol stands where the outer text starts – so the gaps are equal on every level
       gap: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-gap')), renderHTML: a => a.gap ? { 'data-gap': a.gap, style: `--gap:${a.gap}cm` } : {} },
-      numStyle: { default: null, parseHTML: el => el.getAttribute('data-num') || null, renderHTML: a => a.numStyle ? { 'data-num': a.numStyle } : {} }
+      numStyle: { default: null, parseHTML: el => el.getAttribute('data-num') || null, renderHTML: a => a.numStyle ? { 'data-num': a.numStyle } : {} },
+      cont: { default: false, parseHTML: el => el.getAttribute('data-cont') === '1', renderHTML: a => a.cont ? { 'data-cont': '1' } : {} }
     };
   }
 });
@@ -139,11 +148,14 @@ export const ListMarkers = Extension.create({
       const decos = [];
       /** carry: markers of outer items whose first line is the first line of a nested list (same-line nesting) */
       const walk = (node, pos, depth, carry) => {
+        const ends = {};                              // last number of the lists on this level, per numbering style
         node.forEach((child, off) => {
           const cpos = pos + off + 1;
           if (child.type.name === 'bulletList' || child.type.name === 'orderedList') {
             const ordered = child.type.name === 'orderedList';
-            const start = ordered ? (child.attrs.start ?? 1) : 1;
+            const sty = child.attrs.numStyle || listDefaults.num;
+            const start = ordered ? (child.attrs.cont ? (ends[sty] ?? 0) + 1 : (child.attrs.start ?? 1)) : 1;
+            if (ordered) ends[sty] = start + child.childCount - 1;
             child.forEach((item, ioff, idx) => {
               const ipos = cpos + 1 + ioff;          // position of listItem
               const first = item.firstChild;
@@ -784,6 +796,7 @@ export const TextCase = Extension.create({
 /* ------------------------------------------------------------------ */
 export const TabNode = Node.create({
   name: 'tab',
+  priority: 1000,                 // its Tab / Backspace rules come before the general list keys
   group: 'inline',
   inline: true,
   atom: true,
@@ -808,8 +821,28 @@ export const TabNode = Node.create({
         const ed = this.editor;
         if (ed.isActive('table')) return false;
         const { $from, empty } = ed.state.selection;
-        if (ed.isActive('listItem') && empty && $from.parentOffset === 0) { ed.commands.sinkListItem('listItem'); return true; }
+        // in a list: right after the symbol, on a selected formula or with several items selected -> one level in
+        if (ed.isActive('listItem') && (!empty || $from.parentOffset === 0)) { ed.commands.sinkListItem('listItem'); return true; }
         return ed.commands.insertContent({ type: 'tab' });
+      },
+      Backspace: () => {
+        const st = this.editor.state, sel = st.selection;
+        if (!sel.empty) return false;
+        const $f = sel.$from, d = $f.depth - 1;
+        if ($f.parentOffset !== 0 || d < 3) return false;
+        if ($f.node(d).type.name !== 'listItem' || $f.index(d) !== 0) return false;
+        const L2 = $f.node(d - 1); if (!/List$/.test(L2.type.name) || $f.index(d - 1) !== 0) return false;
+        const LI1 = $f.node(d - 2); if (LI1.type.name !== 'listItem' || $f.index(d - 2) !== 1) return false;
+        const first = LI1.firstChild; if (!first || !first.isTextblock || first.content.size) return false;
+        const inner = L2.firstChild, kids = [];
+        inner.forEach(c => kids.push(c));
+        if (L2.childCount > 1) { const rest = []; L2.forEach((c, o, i) => { if (i) rest.push(c); }); kids.push(L2.copy(Fragment.from(rest))); }
+        LI1.forEach((c, o, i) => { if (i > 1) kids.push(c); });
+        const liPos = $f.before(d - 2);
+        const tr = st.tr.replaceWith(liPos, liPos + LI1.nodeSize, LI1.type.create(LI1.attrs, kids));
+        tr.setSelection(TextSelection.create(tr.doc, liPos + 2));
+        this.editor.view.dispatch(tr.scrollIntoView());
+        return true;
       },
       'Mod-l': () => this.editor.chain().focus().toggleSubscript().run(),
       'Mod-h': () => this.editor.chain().focus().toggleSuperscript().run()

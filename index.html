@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Matekos Doksi</title>
+<script>/* light / dark mode before anything is drawn (dark by default) */ try { document.documentElement.dataset.theme = localStorage.getItem("matekosdoksi.theme") === "light" ? "light" : "dark"; } catch (e) { document.documentElement.dataset.theme = "dark"; }</script>
 </head>
 <body>
 <header class="app" id="app">
@@ -214,6 +215,7 @@
   <button class="pitem" id="fOpen">Megnyitás… <span class="phint">Ctrl/⌘+O</span></button>
   <button class="pitem" id="fImport">Word-dokumentum importálása (.docx)…</button>
   <div class="psep"></div>
+  <button class="pitem" id="fTheme"></button>
   <button class="pitem" id="fHome">Kezdőképernyő</button>
 </div>
 <div class="pop" id="popExport" hidden>
@@ -301,6 +303,7 @@
     <label>Térköz utána (pt)<input type="number" step="1" min="0" data-pf="spaceAfter"></label>
   </div>
   <label class="chk" style="margin-top:8px"><input type="checkbox" data-pf="keepNext"> Együtt a következő bekezdéssel</label>
+  <label class="chk" style="margin-top:4px"><input type="checkbox" data-pf="ctx"> Nincs térköz az azonos stílusú bekezdések (és a listaelemek) között</label>
 </div>
 <div class="pop" id="popTabs" hidden>
   <div class="ptitle">Tabulátorok a kijelölt bekezdésekben</div>

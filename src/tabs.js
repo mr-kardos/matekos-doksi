@@ -46,6 +46,8 @@ export function layoutTabs(root, scale = 1, originOf = null) {
         if (w < 0) w = 0;
       } else if (stop) w = stop.pos - x;
       else { const step = DEFAULT_STEP * CM; w = (Math.floor(x / step + 1e-6) + 1) * step - x; }
+      // where the tab ends (cm from the margin): the tab stop itself – shown by the formatting marks
+      t.dataset.stop = String(Math.round((stop ? stop.pos : (Math.floor(x / (DEFAULT_STEP * CM) + 1e-6) + 1) * DEFAULT_STEP * CM) / CM * 100) / 100);
       // a hair less than the exact width: rounding must never push the text over the margin
       t.style.width = Math.max(0, stop && stop.align !== 'left' ? w - 0.5 : w) + 'px';
       if (stop && stop.leader) t.dataset.leader = stop.leader; else delete t.dataset.leader;

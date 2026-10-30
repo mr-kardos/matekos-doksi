@@ -26,7 +26,8 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
   const col = editorDom.getBoundingClientRect();
   for (const t of editorDom.querySelectorAll('span.tab')) {
     const r = t.getBoundingClientRect(), h = parseFloat(getComputedStyle(t.parentElement).fontSize) || 16;
-    put('tab', X(r.left), Y(r.bottom) - h * 0.45, `<s>tab</s>→<b>${cm((r.right - col.left) / scale)}</b>`, `width:${Math.max(18, r.width / scale)}px`);
+    const end = t.dataset.stop ? String(+t.dataset.stop).replace('.', ',') : cm((r.right - col.left) / scale);
+    put('tab', X(r.left), Y(r.bottom) - h * 0.45, `<s>tab</s><b>${end}</b>`, `width:${Math.max(18, r.width / scale)}px`);
   }
   // table cells with hidden borders: dashed lines
   for (const c of editorDom.querySelectorAll('td,th')) {

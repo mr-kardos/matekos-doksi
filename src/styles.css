@@ -8,11 +8,13 @@
   --sel:#2f6fdb; --selbg:rgba(47,111,219,.28);
   --doc-font:'TeX Gyre Bonum', Georgia, serif;
 }
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    --desk:#15191e; --chrome:#20252c; --chrome-2:#2a3038; --line:#38404a; --ink:#e6eaef; --ink-2:#9ea8b4;
-    --accent:#7fc1d6; --accent-soft:#23404a; --on-accent:#0e1a1f; --hover:#313841;
-  }
+/* light / dark mode: chosen in the app (Fájl menu), dark by default – the same on every computer */
+:root[data-theme="light"]{ color-scheme:light; --sb-track:#e4e8ed; --sb-thumb:#b4bdc8; --sb-thumb-h:#8e98a5; }
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --desk:#15191e; --chrome:#20252c; --chrome-2:#2a3038; --line:#38404a; --ink:#e6eaef; --ink-2:#9ea8b4;
+  --accent:#7fc1d6; --accent-soft:#23404a; --on-accent:#0e1a1f; --hover:#313841;
+  --sb-track:#2a3038; --sb-thumb:#59626e; --sb-thumb-h:#7a8491;
 }
 :root{ padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
 html{ height:100%; scroll-padding-top:env(safe-area-inset-top,0px); }
@@ -246,7 +248,7 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 .ProseMirror .imgw::selection,.ProseMirror .imgw *::selection{ background:transparent; }
 /* table row / column selector buttons */
 #tblHandles{ --inv:1; position:absolute; left:0; top:0; z-index:5; }
-.th-btn{ position:absolute; width:calc(16px*var(--inv)); height:calc(14px*var(--inv)); padding:0; border:1px solid var(--line); border-radius:3px; background:#fff; color:#5d6875; cursor:pointer; display:grid; place-items:center; font-size:calc(9px*var(--inv)); line-height:1; box-shadow:0 1px 2px rgba(0,0,0,.08); }
+.th-btn{ position:absolute; width:calc(16px*var(--inv)); height:calc(14px*var(--inv)); padding:0; border:1px solid var(--line); border-radius:3px; background:var(--chrome-2); color:var(--ink-2); cursor:pointer; display:grid; place-items:center; font-size:calc(9px*var(--inv)); line-height:1; box-shadow:0 1px 2px rgba(0,0,0,.08); }
 .th-btn:hover{ background:var(--accent-soft); color:var(--accent); border-color:var(--accent); }
 .th-btn.on{ background:var(--sel); color:#fff; border-color:var(--sel); }
 .th-btn.row{ width:calc(14px*var(--inv)); height:calc(16px*var(--inv)); }

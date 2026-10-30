@@ -165,7 +165,7 @@ export async function importDocx(buf) {
   const rels = await relsOf(zip, 'word/_rels/document.xml.rels');
   const { st: styles, def } = readStyles(await readXML(zip, 'word/styles.xml'));
   const numbering = readNumbering(await readXML(zip, 'word/numbering.xml'));
-  const report = { paragraphs: 0, mathtype: 0, mathtypeFailed: 0, omml: 0, images: 0, imagesSkipped: 0, tables: 0, skipped: new Set() };
+  const report = { paragraphs: 0, mathtype: 0, mathtypeFailed: 0, omml: 0, objects: 0, tables: 0, columns: 0, skipped: new Set() };
   const media = {};
   const dataURL = async rid => {
     const r = rels[rid]; if (!r || r.mode === 'External') return null;
@@ -190,9 +190,7 @@ export async function importDocx(buf) {
     const hl = val(kid(rPr, 'w:highlight')); if (hl && HL[hl]) m.push({ type: 'highlight', attrs: { color: HL[hl] } });
     const ts = {};
     const c = val(kid(rPr, 'w:color')); if (c && c !== 'auto' && c.toUpperCase() !== '000000') ts.color = '#' + c.toLowerCase();
-    const sz = kid(rPr, 'w:sz'); if (sz) { const v = +val(sz) / 2; if (v && v !== (pStyleSize || def.size)) ts.fontSize = v + 'pt'; }
     if (on(kid(rPr, 'w:caps'))) ts.textTransform = 'uppercase';
-    const sp = kid(rPr, 'w:spacing'); if (sp && +val(sp)) ts.letterSpacing = round2(+val(sp) / 20) + 'pt';
     if (Object.keys(ts).length) m.push({ type: 'textStyle', attrs: ts });
     return m;
   };
@@ -223,7 +221,7 @@ export async function importDocx(buf) {
     async function runChild(x, marks) {
       if (x.tagName === 'w:t') text(x.textContent, marks);
       else if (x.tagName === 'w:tab') out.push({ type: 'tab' });
-      else if (x.tagName === 'w:br' || x.tagName === 'w:cr') out.push({ type: val(x, 'w:type') === 'page' ? '__pagebreak' : 'hardBreak' });
+      else if (x.tagName === 'w:br' || x.tagName === 'w:cr') { const ty = val(x, 'w:type'); out.push({ type: ty === 'page' ? '__pagebreak' : ty === 'column' ? '__colbreak' : 'hardBreak' }); }
       else if (x.tagName === 'w:noBreakHyphen') text('-', marks);
       else if (x.tagName === 'w:sym') { const ch = parseInt(x.getAttribute('w:char') || '0', 16); text(String.fromCodePoint(ch >= 0xf000 ? ch - 0xf000 : ch), marks); }
       else if (x.tagName === 'w:object') await object(x, marks);
@@ -252,26 +250,10 @@ export async function importDocx(buf) {
         }
         return;
       }
-      report.skipped.add(prog ? `beágyazott objektum (${prog})` : 'beágyazott objektum');
-      const im = x.getElementsByTagName('v:imagedata')[0];
-      if (im) await image(im.getAttribute('r:id'), null, false);
+      report.objects++;                         // pictures, charts and other objects are not imported
     }
-    async function drawing(x) {
-      const blip = x.getElementsByTagName('a:blip')[0];
-      if (!blip) { report.skipped.add('alakzat / szövegdoboz'); return; }
-      const ext = x.getElementsByTagName('wp:extent')[0], cx = ext ? +ext.getAttribute('cx') : 0;
-      await image(blip.getAttribute('r:embed'), cx ? Math.round(cx / 9525) : null, !!x.getElementsByTagName('wp:anchor')[0]);
-    }
-    async function pict(x) {
-      const im = x.getElementsByTagName('v:imagedata')[0];
-      if (im) await image(im.getAttribute('r:id'), null, false); else report.skipped.add('VML-rajz');
-    }
-    async function image(rid, w, floating) {
-      const src = await dataURL(rid);
-      if (!src) { report.imagesSkipped++; return; }
-      out.push({ type: 'image', attrs: { src, width: w, wrap: floating ? 'wl' : 'inl' } });
-      report.images++;
-    }
+    async function drawing() { report.objects++; }
+    async function pict() { report.objects++; }
     await walk(p);
     return out;
   }
@@ -282,32 +264,19 @@ export async function importDocx(buf) {
     const sty = styleId ? styles[styleId] : null;
     const attrs = {};
     const jc = val(kid(pPr, 'w:jc')); if (jc) attrs.textAlign = { both: 'justify', distribute: 'justify', center: 'center', right: 'right', end: 'right' }[jc] || 'left';
-    const ind = kid(pPr, 'w:ind');
-    if (ind) {
-      const L = +(ind.getAttribute('w:left') ?? ind.getAttribute('w:start') ?? 0), R = +(ind.getAttribute('w:right') ?? ind.getAttribute('w:end') ?? 0);
-      const first = +(ind.getAttribute('w:firstLine') ?? 0), hang = +(ind.getAttribute('w:hanging') ?? 0);
-      if (L) attrs.indentLeft = round2(L * CM_PER_TWIP); if (R) attrs.indentRight = round2(R * CM_PER_TWIP);
-      if (first) attrs.firstLine = round2(first * CM_PER_TWIP); if (hang) attrs.firstLine = -round2(hang * CM_PER_TWIP);
-    }
-    const sp = kid(pPr, 'w:spacing');
-    if (sp) {
-      if (sp.getAttribute('w:before') != null) attrs.spaceBefore = round2(+sp.getAttribute('w:before') / 20);
-      if (sp.getAttribute('w:after') != null) attrs.spaceAfter = round2(+sp.getAttribute('w:after') / 20);
-      const line = sp.getAttribute('w:line'), rule = sp.getAttribute('w:lineRule');
-      if (line && (!rule || rule === 'auto')) { const v = round2(+line / 240 * 1.15); if (Math.abs(v - 1.15) > 0.01) attrs.lineHeight = v; }
-    }
+    // indents, spacing and line height: as the template's paragraph styles say
     const content = await inlines(p, sty && sty.size);
     report.paragraphs++;
     const numPr = kid(pPr, 'w:numPr');
     const list = numPr ? { numId: val(kid(numPr, 'w:numId')), ilvl: +(val(kid(numPr, 'w:ilvl')) ?? 0) } : null;
     if (list && list.numId === '0') list.numId = null;
     // page breaks inside the paragraph split it
-    const parts = [[]];
-    for (const n of content) { if (n.type === '__pagebreak') parts.push([]); else parts[parts.length - 1].push(n); }
+    const parts = [[]], kinds = [];
+    for (const n of content) { if (n.type === '__pagebreak' || n.type === '__colbreak') { parts.push([]); kinds.push(n.type); } else parts[parts.length - 1].push(n); }
     const mk = c => level ? { type: 'heading', attrs: { level: Math.min(3, level), ...attrs }, ...(c.length ? { content: c } : {}) }
       : { type: 'paragraph', attrs, ...(c.length ? { content: c } : {}) };
     const nodes = [];
-    parts.forEach((c, i) => { if (i) nodes.push({ type: 'pageBreak' }); if (c.length || i === 0 || i === parts.length - 1) nodes.push(mk(c)); });
+    parts.forEach((c, i) => { if (i) nodes.push({ type: kinds[i - 1] === '__colbreak' ? '__colbreak' : 'pageBreak' }); if (c.length || i === 0 || i === parts.length - 1) nodes.push(mk(c)); });
     if (list && list.numId) { for (const n of nodes) if (n.attrs) { delete n.attrs.indentLeft; delete n.attrs.firstLine; } }
     return { nodes, list: list && list.numId ? list : null };
   }
@@ -335,7 +304,7 @@ export async function importDocx(buf) {
           stack.push({ level: list.ilvl, numId: list.numId, ordered, node });
           top = stack[stack.length - 1];
         }
-        top.node.content.push({ type: 'listItem', content: nodes.filter(n => n.type !== 'pageBreak').map(n => n.type === 'heading' ? { ...n, type: 'paragraph', attrs: { ...n.attrs, level: undefined } } : n) });
+        top.node.content.push({ type: 'listItem', content: nodes.filter(n => n.type !== 'pageBreak' && n.type !== '__colbreak').map(n => n.type === 'heading' ? { ...n, type: 'paragraph', attrs: { ...n.attrs, level: undefined } } : n) });
       } else if (el.tagName === 'w:tbl') { closeLists(); out.push(await table(el)); }
       else if (el.tagName === 'w:sdt') { closeLists(); out.push(...await blocks(kid(el, 'w:sdtContent') || el)); }
       else if (el.tagName === 'w:sectPr' || el.tagName === 'w:bookmarkStart' || el.tagName === 'w:bookmarkEnd') continue;
@@ -367,7 +336,36 @@ export async function importDocx(buf) {
   }
 
   const body = docX.getElementsByTagName('w:body')[0];
-  const content = await blocks(body);
+  // sections: a paragraph with a section break ends a section; the last one is described by the body's sectPr
+  const sections = []; let cur = [];
+  for (const el of body.children) {
+    if (el.tagName === 'w:sectPr') continue;
+    cur.push(el);
+    const sp = el.tagName === 'w:p' ? kid(kid(el, 'w:pPr'), 'w:sectPr') : null;
+    if (sp) { sections.push({ els: cur, sect: sp }); cur = []; }
+  }
+  sections.push({ els: cur, sect: kid(body, 'w:sectPr') });
+  const content = [];
+  for (const sec of sections) {
+    const blk = await blocks({ children: sec.els });
+    const cols = sec.sect ? +(kid(sec.sect, 'w:cols') && kid(sec.sect, 'w:cols').getAttribute('w:num')) || 1 : 1;
+    const sz = sec.sect && kid(sec.sect, 'w:pgSz');
+    const landscape = !!sz && (sz.getAttribute('w:orient') === 'landscape' || +sz.getAttribute('w:w') > +sz.getAttribute('w:h'));
+    if (cols < 2 || landscape) { content.push(...blk.filter(n => n.type !== '__colbreak')); continue; }   // landscape: one after the other
+    // portrait page in columns: a table with one row, one cell per column, no borders
+    let groups = [[]];
+    for (const n of blk) { if (n.type === '__colbreak') groups.push([]); else groups[groups.length - 1].push(n); }
+    if (groups.length === 1) {                // no column breaks: split by the amount of text
+      const len = n => JSON.stringify(n).length, total = blk.reduce((a, n) => a + len(n), 0);
+      const g = Array.from({ length: cols }, () => []); let acc = 0;
+      for (const n of blk) { g[Math.min(cols - 1, Math.floor(acc / total * cols))].push(n); acc += len(n); }
+      groups = g;
+    }
+    while (groups.length < cols) groups.push([]);
+    const cells = groups.slice(0, cols - 1).concat([groups.slice(cols - 1).flat()]);
+    content.push({ type: 'table', content: [{ type: 'tableRow', content: cells.map(c => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, borderWidth: 0, vAlign: 'top' }, content: c.length ? c : [{ type: 'paragraph' }] })) }] });
+    report.columns++;
+  }
   // page setup (last section)
   const sect = [...body.children].filter(c => c.tagName === 'w:sectPr').pop() || body.getElementsByTagName('w:sectPr')[0];
   let page = null;
@@ -380,5 +378,5 @@ export async function importDocx(buf) {
     if (kid(sect, 'w:headerReference') || kid(sect, 'w:footerReference')) report.skipped.add('élőfej / élőláb (a sablonban állítható be)');
   }
   if (!content.length) content.push({ type: 'paragraph' });
-  return { doc: { type: 'doc', content }, page, font: mapFont(def.font), size: def.size, report: { ...report, skipped: [...report.skipped] } };
+  return { doc: { type: 'doc', content }, page, report: { ...report, skipped: [...report.skipped] } };
 }

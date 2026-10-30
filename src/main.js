@@ -200,9 +200,12 @@ function styleCSS() {
   for (const k of ['h1', 'h2', 'h3']) css += `.docbody ${k}{${type(st[k])}${para(st[k])}}\n`;
   css += `.docbody .own-shade{background-color:transparent !important}\n`;   // its own line shading is drawn instead
   // "no space between paragraphs of the same style" – stronger than the spacing set on a paragraph
-  for (const [k, tag] of [['p', 'p'], ['h1', 'h1'], ['h2', 'h2'], ['h3', 'h3']]) if (st[k].contextual)
-    css += `.docbody > ${tag} + ${tag}{--sb:0pt !important}\n.docbody > ${tag}:has(+ ${tag}){--sa:0pt !important}\n`;
-  if (tpl.lists.contextual) css += `.docbody li > p{--sb:0pt !important;--sa:0pt !important}\n.docbody > :is(ul,ol) > li:last-child > p:last-child{--sa:var(--after,6pt) !important}\n`;
+  for (const tag of ['p', 'h1', 'h2', 'h3']) {
+    const on = st[tag].contextual ? ':not([data-ctx="0"])' : '[data-ctx="1"]';      // style setting, or set on the paragraph
+    css += `.docbody > ${tag} + ${tag}${on}{--sb:0pt !important}\n.docbody > ${tag}${on}:has(+ ${tag}){--sa:0pt !important}\n`;
+  }
+  const lon = tpl.lists.contextual ? ':not([data-ctx="0"])' : '[data-ctx="1"]';
+  css += `.docbody li > p${lon}{--sb:0pt !important;--sa:0pt !important}\n.docbody > :is(ul,ol) > li:last-child > p:last-child{--sa:var(--after,6pt) !important}\n`;
   return css;
 }
 /** Redraw formulas whose look (font, bold – from marks or the paragraph style) changed; all of them when forced. */
@@ -420,6 +423,9 @@ function updateToolbar() {
     const { from } = AE().state.selection;
     let el = null;
     try { const d = AE().view.domAtPos(from); el = d.node.nodeType === 1 ? d.node : d.node.parentElement; } catch (e) { /* ignore */ }
+    // a formula: its size is the size of the text around it
+    if (el && el.closest && el.closest('.math')) el = el.closest('.math').parentElement;
+    if (el && el.nodeType === 1 && AE().state.selection instanceof NodeSelection) { const d = AE().view.nodeDOM(from); if (d && d.parentElement) el = d.parentElement; }
     if (el && AE().view.dom.contains(el)) {
       const cs = getComputedStyle(el);
       if (document.activeElement !== $('#sizeIn')) $('#sizeIn').value = String(Math.round(parseFloat(cs.fontSize) * 0.75 * 2) / 2).replace('.', ',');
@@ -691,13 +697,14 @@ function applyListAttrs(typeName, attrs) {
   const st = ed.state, r = listAround(st, typeName);
   if (!r) return;
   const { node, pos, a, b } = r, ordered = typeName === 'orderedList';
-  if (a === 0 && b === node.childCount - 1) { ed.chain().focus().updateAttributes(typeName, attrs).run(); return; }
+  const own = ordered && 'start' in attrs ? { cont: false } : {};        // a start number set here: numbering starts again
+  if (a === 0 && b === node.childCount - 1) { ed.chain().focus().updateAttributes(typeName, { ...attrs, ...own }).run(); return; }
   const items = []; node.forEach(c => items.push(c));
-  const start = ordered ? (node.attrs.start ?? 1) : null;
   const parts = [];
   if (a > 0) parts.push(node.type.create(node.attrs, items.slice(0, a)));
-  parts.push(node.type.create({ ...node.attrs, ...(ordered ? { start: 1 } : {}), ...attrs }, items.slice(a, b + 1)));
-  if (b < items.length - 1) parts.push(node.type.create({ ...node.attrs, ...(ordered ? { start: start + b + 1 } : {}) }, items.slice(b + 1)));
+  parts.push(node.type.create({ ...node.attrs, ...(ordered ? { start: 1, cont: false } : {}), ...attrs }, items.slice(a, b + 1)));
+  // the items after it keep counting on (from the last list of their own numbering style on this level)
+  if (b < items.length - 1) parts.push(node.type.create({ ...node.attrs, ...(ordered ? { cont: true } : {}) }, items.slice(b + 1)));
   const tr = st.tr.replaceWith(pos, pos + node.nodeSize, parts);
   ed.view.dispatch(tr.scrollIntoView()); ed.view.focus();
 }
@@ -762,6 +769,7 @@ $('#popPara').onopen = () => {
   for (const inp of $$('#popPara [data-pf]')) {
     const k = inp.dataset.pf;
     if (k === 'keepNext') inp.checked = a.keepNext ?? !!(tpl.styles[sk] && tpl.styles[sk].keepNext);
+    else if (k === 'ctx') inp.checked = a.ctx ?? (AE().isActive('listItem') ? !!tpl.lists.contextual : !!(tpl.styles[sk] && tpl.styles[sk].contextual));
     else if (inp.type === 'checkbox') inp.checked = !!a[k];
     else inp.value = a[k] ?? '';
   }
@@ -1515,10 +1523,7 @@ async function doImportDocx() {
   busy('Word-dokumentum importálása…');
   try {
     const r = await importDocx(picked.buf);
-    tpl = startTpl();
-    if (r.page) { Object.assign(tpl, { page: r.page.page, pageW: r.page.pageW, pageH: r.page.pageH }); if (r.page.margins) tpl.margins = { ...tpl.margins, ...r.page.margins }; }
-    if (r.font) { if (r.font.set) tpl.font = r.font.set; else if (r.font.family) tpl.styles.p.font = r.font.family; }
-    if (r.size) tpl.styles.p.size = r.size;
+    // the document gets the selected template: its page, fonts, sizes and paragraph styles
     setCurrentPath(null);
     $('#docTitle').value = picked.name.replace(/\.docx$/i, '');
     editor.commands.setContent(r.doc, { emitUpdate: false });
@@ -1529,10 +1534,10 @@ async function doImportDocx() {
     if (rp.mathtype) lines.push(`${rp.mathtype} MathType-képlet TeX-ként`);
     if (rp.omml) lines.push(`${rp.omml} Word-képlet TeX-ként`);
     if (rp.tables) lines.push(`${rp.tables} táblázat`);
-    if (rp.images) lines.push(`${rp.images} kép`);
+    if (rp.columns) lines.push(`${rp.columns} hasábos rész (keret nélküli táblázatként)`);
     let msg = 'Importálva: ' + lines.join(', ') + '.';
     if (rp.mathtypeFailed) msg += ` ${rp.mathtypeFailed} képletet nem sikerült beolvasni – ezek helyén piros „[képlet]” jelzés áll.`;
-    if (rp.imagesSkipped) msg += ` ${rp.imagesSkipped} régi formátumú (WMF/EMF) kép kimaradt.`;
+    if (rp.objects) msg += ` ${rp.objects} kép, ábra vagy más objektum nem került át (csak a szöveg, a képletek és a táblázatok).`;
     if (rp.skipped.length) msg += ' Kimaradt: ' + rp.skipped.join(', ') + '.';
     await infoBox(msg + ' A dokumentum még nincs elmentve.');
   } catch (e) { busy(''); toast('Az importálás nem sikerült: ' + (e && e.message || e)); }
@@ -1549,6 +1554,13 @@ $('#fSaveAs').addEventListener('click', () => doSave(true));
 $('#fNew').addEventListener('click', newDocument);
 $('#fOpen').addEventListener('click', doOpen);
 $('#fImport').addEventListener('click', doImportDocx);
+/* light / dark mode (Fájl menu); dark is the default */
+function themeLabel() { const dark = document.documentElement.dataset.theme !== 'light'; $('#fTheme').textContent = dark ? '☀  Világos mód' : '☾  Sötét mód'; }
+$('#fTheme').addEventListener('click', () => {
+  const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t; lsSet('matekosdoksi.theme', t); themeLabel(); closePops();
+});
+themeLabel();
 $('#fHome').addEventListener('click', () => { closePops(); sessionOpen = true; clearTimeout(autoT); saveLocal(); showHome(true); });
 $('#expPdf').addEventListener('click', doPdf);
 $('#expPrint').addEventListener('click', doPrint);
@@ -1655,4 +1667,4 @@ function quitBox() {
 })();
 
 // Hooks for automated layout/print tests
-window.mdoksi = { editor, editHF, closeHF, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };
+window.mdoksi = { editor, editHF, closeHF, importDocx, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };
