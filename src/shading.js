@@ -48,19 +48,24 @@ export function drawShadeBands(layer, editorDom, stackEl, scale, pageOf) {
   const sr = stackEl.getBoundingClientRect();
   const toY = cy => (cy - sr.top) / scale, toX = cx => (cx - sr.left) / scale;
   const bands = [];
+  const col = editorDom.getBoundingClientRect(), colL = toX(col.left), colR = toX(col.right);
   let cur = null, prevBlock = null;
   for (const block of editorDom.querySelectorAll('p,h1,h2,h3')) {
-    if (!block.querySelector('span[data-lshade]')) { cur = null; prevBlock = null; continue; }
     const cs = getComputedStyle(block);
+    // shading of the whole paragraph: its own (paragraph setting) or its style's
+    const blockShade = block.classList.contains('shaded') ? cs.getPropertyValue('--shade').trim() : cs.getPropertyValue('--style-shade').trim();
+    if (!blockShade && !block.querySelector('span[data-lshade]')) { cur = null; prevBlock = null; continue; }
     const fs = parseFloat(cs.fontSize) || 16;
     const LH = cs.lineHeight === 'normal' ? fs * 1.2 : parseFloat(cs.lineHeight);
     const br = block.getBoundingClientRect();
-    const left = toX(br.left), right = toX(br.right);
+    // from margin to margin, whatever the indents (inside a table: the cell)
+    const cellEl = block.closest('td,th'), cb = cellEl ? cellEl.getBoundingClientRect() : null;
+    const left = cb ? toX(cb.left) : colL, right = cb ? toX(cb.right) : colR;
     const cTop = toY(br.top) + (parseFloat(cs.paddingTop) || 0), cBot = toY(br.bottom) - (parseFloat(cs.paddingBottom) || 0);
     const lines = lineBoxes(block, toY, LH);
-    // the paragraph style's shading still covers the lines without their own colour
-    const styleShade = block.classList.contains('own-shade') ? cs.getPropertyValue('--style-shade').trim() : '';
-    if (styleShade) for (const L of lines) if (!L.color) L.color = styleShade;
+    if (!lines.length && blockShade) lines.push({ top: cTop, bottom: Math.max(cBot, cTop + LH), color: null });   // an empty shaded paragraph
+    // the paragraph's / style's shading covers the lines without their own colour
+    if (blockShade) for (const L of lines) if (!L.color) L.color = blockShade;
     if (!lines.length) { cur = null; prevBlock = block; continue; }
     // make neighbouring line boxes touch exactly (they do in the real layout)
     if (lines[0].top - cTop < LH * 0.6) lines[0].top = Math.min(lines[0].top, cTop);

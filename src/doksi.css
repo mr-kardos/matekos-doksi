@@ -75,7 +75,7 @@ input[type=checkbox], input[type=radio]{ accent-color:var(--accent); }
 .sprow input[type=range]{ width:115px; accent-color:var(--accent); }
 .sprow input[type=number]{ width:58px; height:28px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 6px; }
 /* hanging indent inside lists: the symbol stays, the text moves right */
-.ProseMirror p[data-hang] > .lm{ transform:translateX(calc(-.45em - var(--hang))); }
+.ProseMirror p[data-hang] > .lm{ transform:translateX(calc(-1 * var(--gap,1.8em) - var(--hang))); }
 
 /* ---------- layout: pages panel | workspace | template panel ---------- */
 body{ --lw:176px; --rw:320px; }
@@ -428,3 +428,8 @@ span.tab[data-leader="line"]{ border-bottom:.8px solid currentColor; }
 /* selection behind formulas: as high as the formula itself (also tall ones such as fractions) */
 .ProseMirror .math.in-sel, .ProseMirror .math.ProseMirror-selectednode{ background:none !important; }
 .ProseMirror .math.in-sel mjx-container > svg, .ProseMirror .math.ProseMirror-selectednode mjx-container > svg{ background:var(--selbg, rgba(47,111,219,.28)); border-radius:2px; }
+
+/* template file buttons under the presets */
+.pbfile{ display:flex; gap:6px; margin-top:10px; }
+.pbfile .btn{ flex:1; font-size:12px; padding:0 6px; height:30px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pbcard.custom i{ background:linear-gradient(90deg, var(--b) 0 18%, #e8eef5 18%); }

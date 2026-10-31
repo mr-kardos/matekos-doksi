@@ -182,7 +182,8 @@ function build() {
     if (mod && !e.altKey && k === 'l') { stop(); mf.executeCommand('moveToSubscript'); return; }
     // the character the keyboard really produced (MathLive may guess the layout wrongly: on a Hungarian
     // keyboard Shift+7 is "=", which it took for "/" and turned into a fraction)
-    if (e.key.length === 1 && (altGr || (!mod && !e.altKey)) && !/[\p{L}\p{N}\s]/u.test(e.key)) {
+    // digits too: on a Mac with a Hungarian layout the 0 key (left of 1) was not understood by MathLive
+    if (e.key.length === 1 && (altGr || (!mod && !e.altKey)) && !/[\p{L}\s]/u.test(e.key)) {
       stop();
       if (e.key === '/') mf.executeCommand(['insert', '\\frac{#@}{#?}']);
       else if (e.key === '*') mf.executeCommand(['insert', '\\cdot']);
@@ -193,6 +194,12 @@ function build() {
   }, true);
   // the live field: drag its corner to make it (and its letters) bigger
   const fw = dlg.querySelector('#mdFwrap'), grip = dlg.querySelector('#mdFgrip');
+  // a click anywhere in the live field always gets back into it (also right after typing in the TeX box)
+  fw.addEventListener('pointerdown', e => {
+    if (e.target === grip) return;
+    if (document.activeElement === texBox) texBox.blur();
+    setTimeout(() => { if (!mf.hasFocus || !mf.hasFocus()) mf.focus(); }, 0);
+  });
   const setFH = h => { h = Math.max(56, Math.min(360, h)); fw.style.height = h + 'px'; fitField(); return h; };
   setFH(+localStorage.getItem('matekosdoksi.mdField') || 84);
   grip.addEventListener('pointerdown', e => {

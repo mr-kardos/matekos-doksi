@@ -402,7 +402,7 @@ export async function importDocx(buf) {
       return outB;
     };
     const cells = parts.map(toBlocks);
-    content.push({ type: 'table', content: [{ type: 'tableRow', content: cells.map(c => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, borderWidth: 0, vAlign: 'top' }, content: c.length ? c : [{ type: 'paragraph' }] })) }] });
+    content.push({ type: 'table', attrs: { padV: 0, padH: 0 }, content: [{ type: 'tableRow', content: cells.map(c => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, borderWidth: 0, vAlign: 'top' }, content: c.length ? c : [{ type: 'paragraph' }] })) }] });
     report.columns++;
   }
   // page setup (last section)

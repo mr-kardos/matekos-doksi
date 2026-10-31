@@ -160,3 +160,15 @@ tools/                font verification
   stray line breaks, justified text kept, columns divided properly (a list can continue in the next column).
 - Table toolbar: cell margins. Paragraph settings work in all selected cells. Formula selection as high as the
   formula. Selected text cannot be dragged.
+
+## 0.7.4
+- The window's title bar follows the light / dark mode (dark from the start).
+- Lists: an item's text starts where the next level's symbols stand; the first item of a list can move in / out too.
+- „Két hasáb” button next to justify: a 1×2 table with invisible borders and no cell margins (also for imported columns).
+- Line shading always from margin to margin (paragraph, style and line shading); simpler icon.
+
+## 0.7.5
+- Template files (.mdsab – Matekos Doksi SABlon): save every setting of the template panel (headers and footers too)
+  and use one per document; switch freely between it and the ready-made templates. New documents start without one.
+- Formula editor: the 0 key on a Mac with a Hungarian layout; a click always gets back into the live field.
+- Watermark off by default. Eye mode: no font / size / line-spacing differences in documents without a template.

@@ -25,7 +25,7 @@ import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
-import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx } from './files.js';
+import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx, saveTemplateFile, openTemplateFile } from './files.js';
 import { importDocx } from './importDocx.js';
 import { SAMPLE_HTML } from './sample.js';
 import { svg } from './icons.js';
@@ -175,7 +175,7 @@ function applyLayout(n) {
 let showMarks = load('matekosdoksi.marks') === '1', marksRaf = 0;
 function marksSoon() {
   if (marksRaf) return;
-  marksRaf = requestAnimationFrame(() => { marksRaf = 0; const l = $('#marksLayer'); if (!showMarks) { l.innerHTML = ''; return; } drawMarks(l, editor.view.dom, stack, scale, tpl.styles, css => { const f = familyFromCSS(css); return f ? familyLabel(f).replace(/ \(.*\)$/, '') : css.split(',')[0].replace(/['"]/g, ''); }); });
+  marksRaf = requestAnimationFrame(() => { marksRaf = 0; const l = $('#marksLayer'); if (!showMarks) { l.innerHTML = ''; return; } drawMarks(l, editor.view.dom, stack, scale, tpl.styles, (css => { const f = familyFromCSS(css); return f ? familyLabel(f).replace(/ \(.*\)$/, '') : css.split(',')[0].replace(/['"]/g, ''); }), tpl.preset === 'ures'); });
 }
 function applyZoom() {
   const g = geometry(tpl);
@@ -194,7 +194,7 @@ function styleCSS() {
   const fam = f => f ? `${familyCSS(f)}, var(--doc-font)` : 'var(--doc-font)';
   const type = s => `font-family:${fam(s.font)};font-size:${+s.size}pt;color:${s.color};font-weight:${s.bold ? 700 : 400};font-style:${s.italic ? 'italic' : 'normal'};text-decoration:${s.underline ? 'underline' : 'none'};letter-spacing:${+s.letter ? s.letter + 'pt' : 'normal'};`;
   const para = s => `${s.shade ? `--style-shade:${s.shade};` : ''}text-align:${s.align || 'left'};line-height:${+s.line || 1.25};--sb:${+s.spaceBefore || 0}pt;--sa:${+s.spaceAfter || 0}pt;`
-    + `margin-left:${+s.indentLeft || 0}cm;margin-right:${+s.indentRight || 0}cm;text-indent:${+s.firstLine || 0}cm;${s.shade ? `background-color:${s.shade};` : ''}`;
+    + `margin-left:${+s.indentLeft || 0}cm;margin-right:${+s.indentRight || 0}cm;text-indent:${+s.firstLine || 0}cm;`;
   const st = tpl.styles;
   let css = `.docbody p{${type(st.p)}}\n.docbody > p{${para(st.p)}}\n.docbody li > p{text-align:${st.p.align || 'left'};line-height:${+st.p.line || 1.25};}\n`;
   for (const k of ['h1', 'h2', 'h3']) css += `.docbody ${k}{${type(st[k])}${para(st[k])}}\n`;
@@ -398,6 +398,11 @@ const COMMANDS = {
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
   math: () => openMath(null, null),
+  // two columns: a one-row, two-column table with invisible borders and no cell margins
+  twoCols: () => {
+    const cell = () => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, borderWidth: 0, vAlign: 'top' }, content: [{ type: 'paragraph' }] });
+    ch().insertContent({ type: 'table', attrs: { padV: 0, padH: 0 }, content: [{ type: 'tableRow', content: [cell(), cell()] }] }).run();
+  },
   spell: () => {
     spellOn = !spellOn; lsSet('matekosdoksi.spell', spellOn ? '1' : '0');
     setSpellEnabled(editor.view, spellOn);
@@ -1365,20 +1370,47 @@ $('#wmPick').addEventListener('click', () => pickImage(2400, url => { tpl.wm.img
 $('#wmClear').addEventListener('click', () => { tpl.wm.img = ''; fillPanel(); tplChanged(); });
 const startTpl = () => normalizeTpl(DEFAULT_TPL);
 
-/* ready-made templates: red box at the top of the template panel (like Matekos Prezi); the locked ones come later */
+/* ready-made templates: red box at the top of the template panel (like Matekos Prezi); the locked ones come later.
+   Below them: save the current settings into a template file (.mdsab) and use one (at most one per document). */
 const PRESETS = [['ures', 'Üres', false, '#ffffff', '#da291c'], ['feladatsor', 'Feladatsor', true, '#f4f6f8', '#1f5f74'], ['kiadvany', 'Kiadvány', true, '#fdf3d7', '#b7950b'], ['pre', 'Pré', true, '#ece6f5', '#7d3c98']];
-const presetLabel = () => (PRESETS.find(p => p[0] === tpl.preset) || PRESETS[0])[1];
+let customTpl = null;               // {name, tpl}: the template file used in this document
+const presetLabel = () => tpl.preset === 'custom' && customTpl ? customTpl.name : (PRESETS.find(p => p[0] === tpl.preset) || PRESETS[0])[1];
 function presetName() {
   $('#tplName').textContent = presetLabel();
-  $('#presetBox').innerHTML = `<div class="pbhead"><b>Kész sablonok</b><span>Jelenleg: ${esc(presetLabel())}</span></div><div class="pbgrid">`
-    + PRESETS.map(([k, l, locked, a, b]) => `<button class="pbcard${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}" title="${locked ? 'Hamarosan' : l}"><i style="--a:${a};--b:${b}"></i><span>${locked ? svg('lock') : ''}${l}${k === 'ures' ? ' (új, üres)' : ''}</span>${locked ? '<small>hamarosan</small>' : ''}</button>`).join('') + '</div>';
+  const cards = PRESETS.map(([k, l, locked, a, b]) => `<button class="pbcard${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}" title="${locked ? 'Hamarosan' : l}"><i style="--a:${a};--b:${b}"></i><span>${locked ? svg('lock') : ''}${l}${k === 'ures' ? ' (alapbeállítás)' : ''}</span>${locked ? '<small>hamarosan</small>' : ''}</button>`);
+  if (customTpl) cards.push(`<button class="pbcard custom${tpl.preset === 'custom' ? ' on' : ''}" data-preset="custom" title="Sablonfájlból: ${esc(customTpl.name)}"><i style="--a:#ffffff;--b:#2e4a9e"></i><span>${esc(customTpl.name)}</span><small>sablonfájlból</small></button>`);
+  $('#presetBox').innerHTML = `<div class="pbhead"><b>Kész sablonok</b><span>Jelenleg: ${esc(presetLabel())}${tpl.preset === 'custom' ? ' (sablonfájl)' : ''}</span></div><div class="pbgrid">${cards.join('')}</div>
+    <div class="pbfile"><button class="btn" id="tplToFile" title="A jobb oldali panel minden beállítása – az élőfejjel és az élőlábbal együtt – egy sablonfájlba (.mdsab)">Sablon mentése fájlba…</button><button class="btn" id="tplFromFile" title="Egy .mdsab sablonfájl használata ebben a dokumentumban">Sablonfájl importálása…</button></div>`;
 }
 $('#presetBox').addEventListener('click', async e => {
+  if (e.target.closest('#tplToFile')) {
+    try {
+      const t = JSON.parse(JSON.stringify(tpl)); delete t.preset;
+      const n = await saveTemplateFile({ name: customTpl && tpl.preset === 'custom' ? customTpl.name : docTitle() + ' sablon', tpl: t }, (customTpl && tpl.preset === 'custom' ? customTpl.name : docTitle() + ' sablon'));
+      if (n) toast('Sablon elmentve: ' + n);
+    } catch (err) { toast('A sablon mentése nem sikerült: ' + (err && err.message || err)); }
+    return;
+  }
+  if (e.target.closest('#tplFromFile')) {
+    let r;
+    try { r = await openTemplateFile(); } catch (err) { toast(err && err.message || String(err)); return; }
+    if (!r) return;
+    if (customTpl && !await confirmBox(`A dokumentumban már van egy sablonfájl („${customTpl.name}”). Egyszerre csak egy lehet – lecseréled erre: „${r.name.replace(/\.mdsab$/i, '')}”?`, 'Csere')) return;
+    if (hfOpen) closeHF();
+    customTpl = { name: r.name.replace(/\.mdsab$/i, ''), tpl: r.data.tpl };
+    tpl = normalizeTpl(JSON.parse(JSON.stringify(customTpl.tpl))); tpl.preset = 'custom';
+    fillPanel(); markDirty(); applyTpl(true); saveSoon();
+    toast('Sablonfájl használatban: ' + customTpl.name);
+    return;
+  }
   const b = e.target.closest('[data-preset]'); if (!b) return;
   if (b.classList.contains('locked')) { toast('Ez a sablon hamarosan érkezik.'); return; }
-  if (!await confirmBox('Az „Üres” sablon lép a mostani helyére (oldal, élőfej és élőláb, vízjel, szövegstílusok). A dokumentum szövege megmarad. Folytatod?', 'Sablon alkalmazása')) return;
+  if (b.dataset.preset === tpl.preset) return;
+  const label = b.dataset.preset === 'custom' ? customTpl.name : 'Üres';
+  if (!await confirmBox(`A(z) „${label}” sablon lép a mostani helyére (oldal, élőfej és élőláb, vízjel, szövegstílusok)${b.dataset.preset === 'ures' ? ' – a dokumentum formázása az alapbeállításra áll vissza' : ''}. A dokumentum szövege megmarad. Folytatod?`, 'Sablon alkalmazása')) return;
   if (hfOpen) closeHF();
-  tpl = normalizeTpl(DEFAULT_TPL); tpl.preset = b.dataset.preset; fillPanel(); markDirty(); applyTpl(true); saveSoon();
+  tpl = normalizeTpl(b.dataset.preset === 'custom' ? JSON.parse(JSON.stringify(customTpl.tpl)) : DEFAULT_TPL); tpl.preset = b.dataset.preset;
+  fillPanel(); markDirty(); applyTpl(true); saveSoon();
   toast('Sablon: ' + presetLabel());
 });
 
@@ -1406,7 +1438,7 @@ function confirmBox(msg, yes = 'Igen') {
   });
 }
 const docTitle = () => $('#docTitle').value.trim() || 'Névtelen dokumentum';
-function docData() { return { title: docTitle(), tpl, doc: editor.getJSON(), colors: docColors }; }
+function docData() { return { title: docTitle(), tpl, doc: editor.getJSON(), colors: docColors, ...(customTpl ? { customTpl } : {}) }; }
 const autoValue = () => ({ ...docData(), path: getCurrentPath(), dirty });
 function saveSoon() { clearTimeout(autoT); autoT = setTimeout(saveLocal, 900); }
 async function saveLocal() {
@@ -1441,6 +1473,7 @@ $('#docTitle').addEventListener('keydown', e => {
 function loadData(d) {
   tpl = normalizeTpl(d.tpl || {});
   docColors = Array.isArray(d.colors) ? d.colors : []; refreshPickers();
+  customTpl = d.customTpl && d.customTpl.tpl ? d.customTpl : null;
   $('#docTitle').value = d.title || 'Névtelen dokumentum';
   if (d.doc) editor.commands.setContent(d.doc, { emitUpdate: false });
   else if (typeof d.html === 'string') editor.commands.setContent(d.html, { emitUpdate: false });   // documents from the first prototype
@@ -1513,7 +1546,7 @@ async function openPath(p) {
 async function newDocument() {
   closePops();
   if (dirty && $('#home').hidden && !await confirmBox('Új dokumentumot kezdesz. A mostani nem mentett módosításai elvesznek. Folytatod?', 'Új dokumentum')) return false;
-  tpl = startTpl(); $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
+  tpl = startTpl(); customTpl = null; $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
   editor.commands.setContent('<p></p>'); fillPanel(); applyTpl(true);
   dirty = false; sessionOpen = true; setStatus(); saveSoon();
   showHome(false); editor.commands.focus();
@@ -1564,9 +1597,14 @@ $('#fImport').addEventListener('click', doImportDocx);
 function themeLabel() { const dark = document.documentElement.dataset.theme !== 'light'; $('#fTheme').textContent = dark ? '☀  Világos mód' : '☾  Sötét mód'; }
 $('#fTheme').addEventListener('click', () => {
   const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-  document.documentElement.dataset.theme = t; lsSet('matekosdoksi.theme', t); themeLabel(); closePops();
+  document.documentElement.dataset.theme = t; lsSet('matekosdoksi.theme', t); themeLabel(); windowTheme(); closePops();
 });
-themeLabel();
+/** The window's own title bar follows the mode too (desktop app). */
+async function windowTheme() {
+  if (!isTauri()) return;
+  try { const { getCurrentWindow } = await import('@tauri-apps/api/window'); await getCurrentWindow().setTheme(document.documentElement.dataset.theme === 'light' ? 'light' : 'dark'); } catch (e) { /* not available */ }
+}
+themeLabel(); windowTheme();
 $('#fHome').addEventListener('click', () => { closePops(); sessionOpen = true; clearTimeout(autoT); saveLocal(); showHome(true); });
 $('#expPdf').addEventListener('click', doPdf);
 $('#expPrint').addEventListener('click', doPrint);

@@ -138,3 +138,37 @@ export async function pickDocx() {
     inp.click();
   });
 }
+
+/* ---------- template files (.mdsab = Matekos Doksi SABlon) ---------- */
+export async function saveTemplateFile(data, suggested) {
+  const json = JSON.stringify({ app: 'matekos-doksi-sablon', v: 1, ...data });
+  if (isTauri()) {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const path = await save({ defaultPath: safeName(suggested) + '.mdsab', filters: [{ name: 'Matekos Doksi sablon', extensions: ['mdsab'] }] });
+    if (!path) return null;
+    await writeTextFile(path, json);
+    return baseName(path);
+  }
+  const url = URL.createObjectURL(new Blob([json], { type: 'application/json' })), a = document.createElement('a');
+  a.href = url; a.download = safeName(suggested) + '.mdsab'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return a.download;
+}
+/** Pick a template file: {data, name} or null. */
+export async function openTemplateFile() {
+  let text, name;
+  if (isTauri()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    const path = await open({ multiple: false, filters: [{ name: 'Matekos Doksi sablon', extensions: ['mdsab'] }] });
+    if (!path) return null;
+    text = await readTextFile(path); name = baseName(path);
+  } else {
+    const f = await new Promise(res => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.mdsab'; inp.onchange = () => res(inp.files[0] || null); inp.click(); });
+    if (!f) return null;
+    text = await f.text(); name = f.name;
+  }
+  const data = JSON.parse(text);
+  if (!data || data.app !== 'matekos-doksi-sablon' || !data.tpl) throw new Error('Ez nem Matekos Doksi sablonfájl (.mdsab).');
+  return { data, name };
+}

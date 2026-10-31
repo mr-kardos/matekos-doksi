@@ -27,7 +27,7 @@ export const DEFAULT_TPL = {
   headerDist: 12, footerDist: 12, hfMid: 50, headerFont: '', footerFont: '', headerLine: true, footerLine: false,
   hfLeft: 25, hfRight: 25,
   headerSize: 9, headerColor: '#59616b', footerSize: 9, footerColor: '#59616b',
-  wm: { type: 'text', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
+  wm: { type: 'none', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
   font: 'bonum',
   imgGap: 4,
   styles: {

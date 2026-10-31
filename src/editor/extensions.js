@@ -153,8 +153,11 @@ export const ListMarkers = Extension.create({
             const ordered = child.type.name === 'orderedList';
             const sty = child.attrs.numStyle || listDefaults.num;
             const start = ordered ? (child.attrs.cont ? (ends[sty] ?? 0) + 1 : (child.attrs.start ?? 1)) : 1;
-            if (ordered) ends[sty] = start + child.childCount - 1;
-            child.forEach((item, ioff, idx) => {
+            if (ordered) { let n = 0; child.forEach(it => { if (!it.attrs.ghost) n++; }); ends[sty] = start + n - 1; }
+            let real = -1;                           // holder items are not counted
+            child.forEach((item, ioff) => {
+              if (!item.attrs.ghost) real++;
+              const idx = Math.max(0, real);
               const ipos = cpos + 1 + ioff;          // position of listItem
               const first = item.firstChild;
               const mk = {
@@ -172,6 +175,7 @@ export const ListMarkers = Extension.create({
                 walk(item, ipos, depth + 1, [...here.map(m => ({ ...m, up: m.up + 1 })), { ...mk, up: 1 }]);
                 return;
               }
+              if (item.attrs.ghost) { walk(item, ipos, depth + 1, null); return; }
               if (first && first.isTextblock) {
                 for (const m of [{ ...mk, up: 0 }, ...here]) {
                   decos.push(Decoration.widget(ipos + 2, () => {
@@ -895,7 +899,9 @@ export const ListItemAttrs = Extension.create({
   name: 'listItemAttrs',
   addGlobalAttributes() {
     return [{ types: ['listItem'], attributes: {
-      sameLine: { default: false, parseHTML: el => el.getAttribute('data-same') === '1', renderHTML: a => a.sameLine ? { 'data-same': '1' } : {} }
+      sameLine: { default: false, parseHTML: el => el.getAttribute('data-same') === '1', renderHTML: a => a.sameLine ? { 'data-same': '1' } : {} },
+      // an invisible holder item: lets the first item of a list stand one level deeper
+      ghost: { default: false, parseHTML: el => el.hasAttribute('data-ghost'), renderHTML: a => a.ghost ? { 'data-ghost': '1' } : {} }
     } }];
   }
 });
@@ -905,7 +911,7 @@ function flatten(list, level, out, pos) {
     const liPos = pos + 1 + off, content = [], subs = [];
     let cOff = 0, contentStart = liPos + 1;
     li.forEach((c, o) => { if (isList(c)) subs.push([c, liPos + 1 + o]); else content.push(c); });
-    out.push({ level, type: list.type, attrs: list.attrs, itemAttrs: li.attrs, content, from: liPos, start: contentStart,
+    if (!li.attrs.ghost) out.push({ level, type: list.type, attrs: list.attrs, itemAttrs: li.attrs, content, from: liPos, start: contentStart,
       end: subs.length ? subs[0][1] : liPos + li.nodeSize - 1 });
     void cOff;
     for (const [sub, sp] of subs) flatten(sub, level + 1, out, sp);
@@ -927,14 +933,14 @@ function rebuild(items, schema) {
         cur.items.push({ attrs: it.itemAttrs, content: [...it.content], src: it });
         i++;
       } else {
-        if (!cur) { cur = { type: it.type, attrs: { ...it.attrs }, items: [{ attrs: null, content: [schema.nodes.paragraph.create()] }] }; lists.push(cur); }
+        if (!cur) { cur = { type: it.type, attrs: { ...it.attrs }, items: [{ attrs: { ghost: true }, content: [schema.nodes.paragraph.create()] }] }; lists.push(cur); }
         const subs = build(level + 1);
         cur.items[cur.items.length - 1].content.push(...subs);
       }
     }
     return lists.map(l => l.type.create(l.attrs, l.items.map(x => { const n = schema.nodes.listItem.create(x.attrs, x.content.length ? x.content : [schema.nodes.paragraph.create()]); n._src = x.src; return n; })));
   };
-  return build(items.length ? items[0].level : 0);
+  return build(0);
 }
 /** Change the level of the selected list items by delta (+1 / -1). Returns false when not in a list. */
 export function changeListLevel(view, delta) {
@@ -948,12 +954,13 @@ export function changeListLevel(view, delta) {
   const sel = items.filter(it => it.end >= from && it.start <= to);
   if (!sel.length) return false;
   for (const it of items) it.newLevel = it.level;
-  for (const it of sel) it.newLevel = Math.max(0, it.level + delta);
-  // a list cannot skip a level: an item is at most one level deeper than the one before it
-  for (let k = 0; k < items.length; k++) {
-    const max = k === 0 ? 0 : items[k - 1].newLevel + 1;
-    if (items[k].newLevel > max) items[k].newLevel = sel.includes(items[k]) ? Math.min(items[k].level, max) : max;
+  for (const it of sel) {
+    it.newLevel = Math.max(0, it.level + delta);
+    // keep the symbol it shows now (a default bullet would otherwise change with the level)
+    if (it.newLevel !== it.level && it.type.name === 'bulletList' && !it.attrs.bulletChar && !it.attrs.bulletImage) it.attrs = { ...it.attrs, bulletChar: bulletAt(it.level) };
   }
+  // a list cannot skip a level: an item is at most one level deeper than the one before it
+  // the items after a moved one keep their level; holder items fill any gap above a deeper first item
   if (items.every(it => it.newLevel === it.level)) return true;
   // an item moving to a level gets the format of its new neighbours there only if it has none of its own
   for (const it of items) it.level = it.newLevel;
@@ -962,7 +969,7 @@ export function changeListLevel(view, delta) {
   const offA = (() => { const it = items.find(x => x.start <= st.selection.anchor && st.selection.anchor <= x.end); return it ? [items.indexOf(it), st.selection.anchor - it.start] : null; })();
   const offH = (() => { const it = items.find(x => x.start <= st.selection.head && st.selection.head <= x.end); return it ? [items.indexOf(it), st.selection.head - it.start] : null; })();
   const tr = st.tr.replaceWith(outerPos, outerPos + outer.nodeSize, nodes);
-  const starts = []; const walk = (n, p) => n.forEach((c, o) => { const cp = p + 1 + o; if (c.type.name === 'listItem') { starts.push(cp + 1); c.forEach((g, go) => { if (isList(g)) walk(g, cp + 1 + go); }); } });
+  const starts = []; const walk = (n, p) => n.forEach((c, o) => { const cp = p + 1 + o; if (c.type.name === 'listItem') { if (!c.attrs.ghost) starts.push(cp + 1); c.forEach((g, go) => { if (isList(g)) walk(g, cp + 1 + go); }); } });
   let p = outerPos; for (const n of nodes) { walk(n, p); p += n.nodeSize; }
   try {
     const A = offA && starts[offA[0]] != null ? starts[offA[0]] + offA[1] : null, H = offH && starts[offH[0]] != null ? starts[offH[0]] + offH[1] : null;

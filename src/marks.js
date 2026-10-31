@@ -4,7 +4,7 @@ const SKIP = '.math,.lm,.pg-sp,.pg-spb,.ibar,.isize,.ih,.mpending,.pagebreak,.ta
 const CM = 96 / 2.54;
 const cm = px => (Math.round(px / CM * 100) / 100).toString().replace('.', ',');
 
-export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLabel = f => f) {
+export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLabel = f => f, blank = false) {
   const sr = stackEl.getBoundingClientRect();
   const X = v => (v - sr.left) / scale, Y = v => (v - sr.top) / scale;
   const out = [];
@@ -72,7 +72,7 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
       const st = styles[b.tagName === 'P' ? 'p' : b.tagName.toLowerCase()];
       const notes = [];
       const lh = b.getAttribute('data-lh'), sb = b.getAttribute('data-sb'), sa = b.getAttribute('data-sa');
-      if (st && lh != null && Math.abs(+lh - (+st.line || 0)) > 0.001) notes.push('sorköz ' + String(+lh).replace('.', ','));
+      if (!blank && st && lh != null && Math.abs(+lh - (+st.line || 0)) > 0.001) notes.push('sorköz ' + String(+lh).replace('.', ','));
       if (st && sb != null && Math.abs(+sb - (+st.spaceBefore || 0)) > 0.01) notes.push('előtte ' + String(+sb).replace('.', ',') + ' pt');
       if (st && sa != null && Math.abs(+sa - (+st.spaceAfter || 0)) > 0.01) notes.push('utána ' + String(+sa).replace('.', ',') + ' pt');
       if (notes.length) out.push(`<span class="mk-dev par" style="left:${X(br.right) + 4}px;top:${Y(br.top) + 1}px">${notes.join(' · ')}</span>`);
@@ -80,8 +80,8 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
       if (st) for (const sp of b.querySelectorAll('span[style]')) {
         if (sp.closest(SKIP)) continue;
         const ss = sp.style, n2 = [];
-        if (ss.fontSize) { const v = parseFloat(ss.fontSize); if (Math.abs(v - (+st.size || 0)) > 0.01) n2.push(String(v).replace('.', ',') + ' pt'); }
-        if (ss.fontFamily) n2.push(famLabel(ss.fontFamily));
+        if (ss.fontSize && !blank) { const v = parseFloat(ss.fontSize); if (Math.abs(v - (+st.size || 0)) > 0.01) n2.push(String(v).replace('.', ',') + ' pt'); }
+        if (ss.fontFamily && !blank) n2.push(famLabel(ss.fontFamily));   // no template: font, size, line spacing are not 'differences'
         if (ss.letterSpacing && ss.letterSpacing !== 'normal') { const v = parseFloat(ss.letterSpacing); if (Math.abs(v - (+st.letter || 0)) > 0.01) n2.push('betűköz ' + String(v).replace('.', ',') + ' pt'); }
         if (!n2.length) continue;
         const rs = Array.from(sp.getClientRects()).filter(q => q.width > 0);

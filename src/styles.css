@@ -92,16 +92,16 @@ button,input,select,textarea{ font-family:inherit; }
 .ProseMirror h1{ font-size:var(--h1s,1.75em); color:var(--h1c,inherit); font-weight:var(--h1w,700); font-style:var(--h1i,normal); text-decoration:var(--h1u,none); line-height:1.2; --sa:.45em; }
 .ProseMirror h2{ font-size:var(--h2s,1.35em); color:var(--h2c,inherit); font-weight:var(--h2w,700); font-style:var(--h2i,normal); text-decoration:var(--h2u,none); line-height:1.25; --sb:.5em; --sa:.35em; }
 .ProseMirror h3{ font-size:var(--h3s,1.12em); color:var(--h3c,inherit); font-weight:var(--h3w,700); font-style:var(--h3i,normal); text-decoration:var(--h3u,none); line-height:1.3; --sb:.4em; --sa:.3em; }
-.ProseMirror .shaded{ background-color:var(--shade); }
+.ProseMirror .shaded{ background:none !important; }   /* drawn as margin-to-margin bands (shading.js) */
 
-.ProseMirror ul,.ProseMirror ol{ margin:0; padding:0 0 0 1.8em; list-style:none; }
+.ProseMirror ul,.ProseMirror ol{ margin:0; padding:0 0 0 var(--gap,1.8em); list-style:none; }
 .ProseMirror li{ position:relative; }
 .ProseMirror li > p{ --sa:2pt; }
 .ProseMirror li:last-child > p:last-child{ --sa:var(--after,6pt); }
 .ProseMirror li li:last-child > p:last-child{ --sa:2pt; }
 /* list symbol: in the line itself (so it sits on the line's baseline – a fraction's line meets the number's middle),
    0 wide, its text running to the left of where the item's text starts */
-.lm{ display:inline-flex; justify-content:flex-end; width:0; vertical-align:baseline; transform:translateX(-.45em); white-space:nowrap; user-select:none; pointer-events:none; text-indent:0; font-style:normal; font-weight:normal; text-decoration:none; }
+.lm{ display:inline-flex; justify-content:flex-start; width:0; vertical-align:baseline; transform:translateX(calc(-1 * var(--gap,1.8em))); white-space:nowrap; user-select:none; pointer-events:none; text-indent:0; font-style:normal; font-weight:normal; text-decoration:none; }
 .lm img{ vertical-align:-0.1em; }
 mark{ color:inherit; padding:0; }
 .ProseMirror .tableWrapper{ padding:0 0 var(--after,6pt); overflow-x:auto; }
@@ -306,9 +306,10 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 .md-foot .sp{ flex:1; }
 /* same-line nested lists ("1. a) …"): the outer marker sits in the first line of the inner list */
 .ProseMirror p.lm-collapsed{ height:0; padding:0 !important; margin:0 !important; overflow:hidden; }
-.lm.lm-up{ transform:translateX(calc(-.45em - var(--up) * 1.8em)); }
+.lm.lm-up{ transform:translateX(calc(-1 * var(--gap,1.8em) * (var(--up) + 1))); }
 
 /* a list with its own hanging indent (all levels): symbol-to-text gap = --gap; inner symbols under the outer text */
-.ProseMirror ul[data-gap],.ProseMirror ol[data-gap],.ProseMirror [data-gap] ul,.ProseMirror [data-gap] ol{ padding-left:var(--gap); }
-.ProseMirror [data-gap] .lm{ justify-content:flex-start; transform:translateX(calc(-1 * var(--gap))); }
-.ProseMirror [data-gap] .lm.lm-up{ transform:translateX(calc(-1 * var(--gap) * (var(--up) + 1))); }
+
+
+/* list items moved deeper without an item above them: an invisible holder item (no line, no symbol) */
+.ProseMirror li[data-ghost] > p:first-child{ height:0; padding:0 !important; margin:0 !important; overflow:hidden; }
