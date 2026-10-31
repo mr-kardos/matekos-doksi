@@ -136,8 +136,8 @@ function ordinal(n, style) {
 }
 const DEFAULT_BULLETS = ['•', '◦', '▪'];
 /** Default list symbol and numbering of the document template (Normál stílus). */
-export const listDefaults = { bullet: '•', num: 'decimal' };
-const bulletAt = depth => depth % 3 === 0 ? (listDefaults.bullet || '•') : DEFAULT_BULLETS[depth % 3];
+export const listDefaults = { bullet: '•', num: 'decimal', img: null };   // img: the template's picture symbol (Matekos végtelen)
+const bulletAt = depth => depth % 3 === 0 ? (listDefaults.img ? '•' : (listDefaults.bullet || '•')) : DEFAULT_BULLETS[depth % 3];
 /** Real (measurable, printable) list markers, rendered as widgets at the start of each item's first line. */
 export const ListMarkers = Extension.create({
   name: 'listMarkers',
@@ -163,9 +163,10 @@ export const ListMarkers = Extension.create({
               const mk = {
                 key: ordered ? 'o' + ordinal(start + idx, child.attrs.numStyle || listDefaults.num)
                   : child.attrs.bulletImage ? 'i' + child.attrs.bulletSize + child.attrs.bulletImage.length + child.attrs.bulletImage.slice(-24)
-                    : 'b' + (child.attrs.bulletChar || bulletAt(depth)),
-                text: ordered ? ordinal(start + idx, child.attrs.numStyle || listDefaults.num) : child.attrs.bulletImage ? null : (child.attrs.bulletChar || bulletAt(depth)),
-                img: !ordered && child.attrs.bulletImage ? child.attrs.bulletImage : null, size: child.attrs.bulletSize || 0.9
+                    : 'b' + (child.attrs.bulletChar || bulletAt(depth)) + (!child.attrs.bulletChar && depth % 3 === 0 && listDefaults.img ? 'img' : ''),
+                text: ordered ? ordinal(start + idx, child.attrs.numStyle || listDefaults.num) : (child.attrs.bulletImage || (!child.attrs.bulletChar && depth % 3 === 0 && listDefaults.img)) ? null : (child.attrs.bulletChar || bulletAt(depth)),
+                img: !ordered && child.attrs.bulletImage ? child.attrs.bulletImage : (!ordered && !child.attrs.bulletChar && depth % 3 === 0 && listDefaults.img) || null,
+                size: child.attrs.bulletImage ? (child.attrs.bulletSize || 0.9) : 0.7
               };
               const here = idx === 0 && carry ? carry : [];
               // an item that starts with an empty line and a list: the nested list's first item shares the line

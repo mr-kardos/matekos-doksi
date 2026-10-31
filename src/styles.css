@@ -94,7 +94,8 @@ button,input,select,textarea{ font-family:inherit; }
 .ProseMirror h3{ font-size:var(--h3s,1.12em); color:var(--h3c,inherit); font-weight:var(--h3w,700); font-style:var(--h3i,normal); text-decoration:var(--h3u,none); line-height:1.3; --sb:.4em; --sa:.3em; }
 .ProseMirror .shaded{ background:none !important; }   /* drawn as margin-to-margin bands (shading.js) */
 
-.ProseMirror ul,.ProseMirror ol{ margin:0; padding:0 0 0 var(--gap,0.8cm); list-style:none; }
+.ProseMirror ul,.ProseMirror ol{ margin:0; padding:0; list-style:none; }
+.ProseMirror li{ padding-left:var(--gap,0.8cm); display:flow-root; }   /* beside a picture: symbol and text both keep clear of it */
 .ProseMirror li{ position:relative; }
 .ProseMirror li > p{ --sa:2pt; }
 .ProseMirror li:last-child > p:last-child{ --sa:var(--after,6pt); }
@@ -122,9 +123,9 @@ mark{ color:inherit; padding:0; }
 
 /* math */
 .math{ display:inline-block; cursor:default; border-radius:2px; white-space:nowrap; text-indent:0; }
-/* tall formulas: their own height plus the normal line spacing above and below – never less than a little room */
-.math:not(.disp):not(.wrap){ padding:calc(max(.25em, (1lh - 1em) / 2) + max(0em, (1em - 1lh) / 2)) 0; }
-.math.wrap mjx-container > svg{ margin-top:calc(max(.25em, (1lh - 1em) / 2) + max(0em, (1em - 1lh) / 2)); margin-bottom:calc(max(.25em, (1lh - 1em) / 2) + max(0em, (1em - 1lh) / 2)); }   /* margin, not padding: padding would shrink the drawing */
+.math:not(.disp){ padding:.14em 0; }   /* breathing room so tall inline formulas never touch the neighbouring lines (as in 0.7) */
+/* a one-line formula wider than the line: it stays on its line and shows beyond the margin (no extra lines) */
+.math:not(.wrap):not(.disp){ max-width:100%; }
 .math.disp{ display:block; text-align:center; padding:.3em 0; }
 .math mjx-container{ margin:0 !important; display:inline-block !important; }
 .math.ProseMirror-selectednode,.math.in-sel{ background:var(--selbg); outline:none; }
@@ -315,3 +316,4 @@ code.k{ font:12px ui-monospace, Menlo, Consolas, monospace; background:var(--hov
 
 /* list items moved deeper without an item above them: an invisible holder item (no line, no symbol) */
 .ProseMirror li[data-ghost] > p:first-child{ height:0; padding:0 !important; margin:0 !important; overflow:hidden; }
+.ProseMirror .imgw{ z-index:3; }   /* above the (positioned) paragraphs around it: every point of a picture can be clicked */

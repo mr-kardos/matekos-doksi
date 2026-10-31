@@ -246,6 +246,7 @@ function applyTpl(rerenderMath) {
   // default list symbol / numbering
   if (listDefaults.bullet !== tpl.lists.bullet || listDefaults.num !== tpl.lists.num) {
     listDefaults.bullet = tpl.lists.bullet; listDefaults.num = tpl.lists.num;
+    listDefaults.img = tpl.lists.bullet === 'matekos' ? MATEKOS_BULLET : null;
     editor.view.dispatch(editor.state.tr.setMeta('listDefaults', true).setMeta('addToHistory', false));
   }
   hfRenderCache();
@@ -668,7 +669,7 @@ $('#props').addEventListener('click', e => {
   };
   showPop('popAnyColor', host);
 }, true);
-swatches($('#swCell'), ['#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee', '#d6e4f0'], c => forCells('cells', () => ({ background: c === 'none' ? null : c })), 'Nincs kitöltés');
+swatches($('#swCell'), ['#da291c', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee', '#d6e4f0'], c => forCells('cells', () => ({ background: c === 'none' ? null : c })), 'Nincs kitöltés');
 
 /* letter spacing (Prezi) */
 const spR = $('#spacingR'), spN = $('#spacingIn');
@@ -764,18 +765,19 @@ $('#popNum').onopen = () => { const on = AE().isActive('orderedList'), a = on ? 
 /* line spacing (Prezi: list + own value) */
 const LH = [1, 1.15, 1.25, 1.5, 2, 2.5, 3];
 $('#lineList').innerHTML = LH.map(v => `<button class="pitem" data-lh="${v}">${String(v).replace('.', ',')}</button>`).join('');
-$('#popLine').onopen = () => {
+function lineOpen() {
   const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph');
   const v = a.lineHeight ? +a.lineHeight : tpl.styles[AE().isActive('heading') ? 'h' + AE().getAttributes('heading').level : 'p'].line;
   for (const b of $('#lineList').children) b.classList.toggle('on', +b.dataset.lh === v);
-  $('#lhIn').value = !LH.includes(v) ? String(v).replace('.', ',') : '';
-};
+  $('#lhIn').value = String(v).replace('.', ',');            // always the value in effect
+}
 $('#lineList').addEventListener('click', e => { const b = e.target.closest('[data-lh]'); if (!b) return; closePops(); ch().setParaAttrs({ lineHeight: +b.dataset.lh }).run(); });
 $('#lhOk').onclick = () => { const v = parseFloat(String($('#lhIn').value).replace(',', '.')); if (!(v >= 0.5 && v <= 5)) return; closePops(); ch().setParaAttrs({ lineHeight: Math.round(v * 100) / 100 }).run(); };
 $('#lhIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#lhOk').click(); } });
 
 /* paragraph: indents, first line / hanging, spacing (Prezi) */
 $('#popPara').onopen = () => {
+  lineOpen();
   const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph');
   const sk = AE().isActive('heading') ? 'h' + AE().getAttributes('heading').level : 'p';
   for (const inp of $$('#popPara [data-pf]')) {
@@ -1346,7 +1348,7 @@ function styleRows() {
         <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="${b}.contextual"> Nincs térköz az azonos stílusú bekezdések között</label>
         ${k === 'p' ? `<label class="chk" style="margin-top:4px"><input type="checkbox" data-k="lists.contextual"> Nincs térköz a listaelemek között</label>` : ''}
         ${k === 'p' ? `<div class="fgrid" style="margin-top:8px">
-          <label class="fld">Felsorolásjel<select data-k="lists.bullet">${['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'].map(c => `<option>${c}</option>`).join('')}</select></label>
+          <label class="fld">Felsorolásjel<select data-k="lists.bullet">${['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'].map(c => `<option>${c}</option>`).join('')}<option value="matekos">∞ Matekos végtelen</option></select></label>
           <label class="fld">Számozás<select data-k="lists.num"><option value="decimal">1. 2. 3.</option><option value="decimal-paren">1) 2) 3)</option><option value="lower-alpha">a) b) c)</option><option value="upper-alpha">A. B. C.</option><option value="lower-roman">i. ii. iii.</option><option value="upper-roman">I. II. III.</option></select></label>
         </div><div class="phint">Az új listák ezzel a jellel / számozással indulnak.</div>` : ''}
       </div></div>`;
@@ -1419,14 +1421,14 @@ const startTpl = () => normalizeTpl(DEFAULT_TPL);
 
 /* ready-made templates: red box at the top of the template panel (like Matekos Prezi); the locked ones come later.
    Below them: save the current settings into a template file (.mdsab) and use one (at most one per document). */
-const PRESETS = [['ures', 'Sima', false, '#ffffff', '#da291c'], ['feladatsor', 'Feladatsor', true, '#f4f6f8', '#1f5f74'], ['kiadvany', 'Kiadvány', true, '#fdf3d7', '#b7950b'], ['pre', 'Pré', true, '#ece6f5', '#7d3c98']];
+const PRESETS = [['ures', 'Sima', false, '#ffffff', '#da291c'], ['feladatsor', 'Feladatsor', false, '#f4f6f8', '#1f5f74'], ['kiadvany', 'Kiadvány', true, '#fdf3d7', '#b7950b'], ['pre', 'Pré', true, '#ece6f5', '#7d3c98']];
 let customTpl = null;               // {name, tpl}: the template file used in this document
 const presetLabel = () => tpl.preset === 'custom' && customTpl ? customTpl.name : (PRESETS.find(p => p[0] === tpl.preset) || PRESETS[0])[1];
 function presetName() {
   $('#tplName').textContent = presetLabel();
-  const cards = PRESETS.map(([k, l, locked, a, b]) => `<button class="pbcard${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}" title="${locked ? 'Hamarosan' : l}"><i style="--a:${a};--b:${b}"></i><span>${locked ? svg('lock') : ''}${l}${k === 'ures' ? ' (alapbeállítás)' : ''}</span>${locked ? '<small>hamarosan</small>' : ''}</button>`);
+  const cards = PRESETS.map(([k, l, locked, a, b]) => `<button class="pbcard${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}" title="${locked ? 'Hamarosan' : l}"><i style="--a:${a};--b:${b}"></i><span>${locked ? svg('lock') : ''}${l}</span>${locked ? '<small>hamarosan</small>' : ''}</button>`);
   if (customTpl) cards.push(`<button class="pbcard custom${tpl.preset === 'custom' ? ' on' : ''}" data-preset="custom" title="Sablonfájlból: ${esc(customTpl.name)}"><i style="--a:#ffffff;--b:#2e4a9e"></i><span>${esc(customTpl.name)}</span><small>sablonfájlból</small></button>`);
-  $('#presetBox').innerHTML = `<div class="pbhead"><b>Kész sablonok</b><span>Jelenleg: ${esc(presetLabel())}${tpl.preset === 'custom' ? ' (sablonfájl)' : ''}</span></div><div class="pbgrid">${cards.join('')}</div>
+  $('#presetBox').innerHTML = `<div class="pbhead"><b>Sablonok</b></div><div class="pbgrid">${cards.join('')}</div>
     <div class="pbfile"><button class="btn" id="tplToFile" title="A jobb oldali panel minden beállítása – az élőfejjel és az élőlábbal együtt – egy sablonfájlba (.mdsab)">Sablon mentése fájlba…</button><button class="btn" id="tplFromFile" title="Egy .mdsab sablonfájl használata ebben a dokumentumban">Sablonfájl importálása…</button></div>`;
 }
 $('#presetBox').addEventListener('click', async e => {
@@ -1457,10 +1459,15 @@ $('#presetBox').addEventListener('click', async e => {
   const b = e.target.closest('[data-preset]'); if (!b) return;
   if (b.classList.contains('locked')) { toast('Ez a sablon hamarosan érkezik.'); return; }
   if (b.dataset.preset === tpl.preset) return;
-  const label = b.dataset.preset === 'custom' ? customTpl.name : 'Sima';
+  const label = b.dataset.preset === 'custom' ? customTpl.name : (PRESETS.find(p => p[0] === b.dataset.preset) || [])[1];
   if (!await confirmBox(`A(z) „${label}” sablon lép a mostani helyére (oldal, élőfej és élőláb, vízjel, szövegstílusok)${b.dataset.preset === 'ures' ? ' – a dokumentum formázása az alapbeállításra áll vissza' : ''}. A dokumentum szövege megmarad. Folytatod?`, 'Sablon alkalmazása')) return;
   if (hfOpen) closeHF();
-  tpl = normalizeTpl(b.dataset.preset === 'custom' ? JSON.parse(JSON.stringify(customTpl.tpl)) : DEFAULT_TPL); tpl.preset = b.dataset.preset;
+  let src = DEFAULT_TPL;
+  if (b.dataset.preset === 'custom') src = JSON.parse(JSON.stringify(customTpl.tpl));
+  else if (b.dataset.preset !== 'ures') {                    // a ready-made template of the app (public/presets)
+    try { const r = await fetch(`./presets/${b.dataset.preset}.mdsab`); src = (await r.json()).tpl; } catch (err) { toast('A sablon nem tölthető be.'); return; }
+  }
+  tpl = normalizeTpl(src); tpl.preset = b.dataset.preset;
   fillPanel(); markDirty(); applyTpl(true); saveSoon();
   toast('Sablon: ' + presetLabel());
 });

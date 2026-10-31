@@ -185,3 +185,9 @@ tools/                font verification
 
 ## 0.8.1
 - Fix: line-breaking formulas were drawn too small (the extra room around them shrank the drawing).
+
+## 0.8.2
+- Formulas handled as in 0.7.x; a one-line formula wider than the line stays on its line and shows beyond the margin.
+- Feladatsor template (public/presets/feladatsor.mdsab). „Sablonok”, „Sima”; Matekos végtelen as template symbol.
+- Tabs never end at the same place. Line spacing moved into the paragraph popover; new line-button icon.
+- Table toolbar labels; red cell fill. Pictures: every point clickable, moving works; list symbols keep clear of pictures.

@@ -38,16 +38,18 @@ export function layoutTabs(root, scale = 1, originOf = null) {
     for (const t of b.querySelectorAll('span.tab')) {
       if (t.closest('p,h1,h2,h3,li,td,th') !== b) continue;
       const x = (t.getBoundingClientRect().left - x0) / scale;
-      let w = 0;
-      const stop = stops.find(s => s.pos > x + 0.5);
-      if (stop && stop.align !== 'left') {
-        const seg = segWidth(t, scale);
-        w = stop.align === 'right' ? stop.pos - x - seg : stop.pos - x - seg / 2;
-        if (w < 0) w = 0;
-      } else if (stop) w = stop.pos - x;
-      else { const step = DEFAULT_STEP * CM; w = (Math.floor(x / step + 1e-6) + 1) * step - x; }
-      // where the tab ends (cm from the margin): the tab stop itself – shown by the formatting marks
-      t.dataset.stop = String(Math.round((stop ? stop.pos : (Math.floor(x / (DEFAULT_STEP * CM) + 1e-6) + 1) * DEFAULT_STEP * CM) / CM * 100) / 100);
+      // the first stop that really moves the text on (a right / centre stop the text already passed is skipped,
+      // so two tabs can never end at the same place)
+      const step = DEFAULT_STEP * CM, nextDefault = from => (Math.floor(from / step + 1e-6) + 1) * step;
+      let w = 0, stop = null, endPos = null;
+      for (const s2 of stops) {
+        if (s2.pos <= x + 0.5) continue;
+        if (s2.align === 'left') { stop = s2; w = s2.pos - x; break; }
+        const seg = segWidth(t, scale), ww = s2.align === 'right' ? s2.pos - x - seg : s2.pos - x - seg / 2;
+        if (ww > 1) { stop = s2; w = ww; break; }
+      }
+      if (!stop) { endPos = nextDefault(x + 0.5); w = endPos - x; }
+      t.dataset.stop = String(Math.round((stop ? stop.pos : endPos) / CM * 100) / 100);
       // a hair less than the exact width: rounding must never push the text over the margin
       t.style.width = Math.max(0, stop && stop.align !== 'left' ? w - 0.5 : w) + 'px';
       if (stop && stop.leader) t.dataset.leader = stop.leader; else delete t.dataset.leader;
