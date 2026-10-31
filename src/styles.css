@@ -124,7 +124,7 @@ mark{ color:inherit; padding:0; }
 .math{ display:inline-block; cursor:default; border-radius:2px; white-space:nowrap; text-indent:0; }
 /* tall formulas: their own height plus the normal line spacing above and below – never less than a little room */
 .math:not(.disp):not(.wrap){ padding:calc(max(.25em, (1lh - 1em) / 2) + max(0em, (1em - 1lh) / 2)) 0; }
-.math.wrap mjx-container > svg{ padding:calc(max(.25em, (1lh - 1em) / 2) + max(0em, (1em - 1lh) / 2)) 0; }
+.math.wrap mjx-container > svg{ margin-top:calc(max(.25em, (1lh - 1em) / 2) + max(0em, (1em - 1lh) / 2)); margin-bottom:calc(max(.25em, (1lh - 1em) / 2) + max(0em, (1em - 1lh) / 2)); }   /* margin, not padding: padding would shrink the drawing */
 .math.disp{ display:block; text-align:center; padding:.3em 0; }
 .math mjx-container{ margin:0 !important; display:inline-block !important; }
 .math.ProseMirror-selectednode,.math.in-sel{ background:var(--selbg); outline:none; }

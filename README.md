@@ -182,3 +182,6 @@ tools/                font verification
   neighbours; cursor next to formulas in cells.
 - Lists: no extra line under a final list; Enter in an empty inner item moves only it out; deleting an empty item
   never moves the others; no hidden marks on holder lines. „Üres” is now „Sima”; a saved template file is used at once.
+
+## 0.8.1
+- Fix: line-breaking formulas were drawn too small (the extra room around them shrank the drawing).
