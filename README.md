@@ -172,3 +172,13 @@ tools/                font verification
   and use one per document; switch freely between it and the ready-made templates. New documents start without one.
 - Formula editor: the 0 key on a Mac with a Hungarian layout; a click always gets back into the live field.
 - Watermark off by default. Eye mode: no font / size / line-spacing differences in documents without a template.
+
+## 0.8.0
+- One-line formulas wider than the column stay visible beyond the margin; tables never get a scroll bar.
+- Line and paragraph spacing come on top of the room tall formulas need (never overlapping, even with 0 spacing).
+- Indent buttons: 0.8 cm – where list text starts. Value boxes always show the value in effect.
+- Word import: the kind of every indent is kept, with the app's own step (everything lines up).
+- Table toolbar with labels and separators; Tab never adds rows; new rows / columns take the look of their
+  neighbours; cursor next to formulas in cells.
+- Lists: no extra line under a final list; Enter in an empty inner item moves only it out; deleting an empty item
+  never moves the others; no hidden marks on holder lines. „Üres” is now „Sima”; a saved template file is used at once.

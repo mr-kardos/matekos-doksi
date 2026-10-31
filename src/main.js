@@ -61,7 +61,7 @@ const editor = new Editor({
   extensions: [
     StarterKit.configure({
       heading: { levels: [1, 2, 3] }, code: false, codeBlock: false, blockquote: false, horizontalRule: false,
-      link: false, bulletList: false, orderedList: false, listItem: false,
+      link: false, bulletList: false, orderedList: false, listItem: false, trailingNode: false,   // no extra empty line under a final list
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
@@ -91,17 +91,24 @@ const editor = new Editor({
       mousedown: (view, e) => {
         if (e.button !== 0 || e.detail > 1 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return false;
         const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
-        if (!t || t.closest('.math,.imgw,td,th,.lm')) return false;
-        const blk = t.closest('p,h1,h2,h3');
-        if (!blk || !blk.querySelector('.math.wrap')) return false;
+        if (!t || t.closest('.math,.imgw,.lm')) return false;
+        const cellEl = t.closest('td,th');
+        const blk = t.closest('p,h1,h2,h3') || (cellEl && [...cellEl.querySelectorAll('p,h1,h2,h3')].find(p => { const r = p.getBoundingClientRect(); return e.clientY >= r.top && e.clientY <= r.bottom; }));
+        if (!blk || !blk.querySelector('.math')) return false;
         const hit = view.posAtCoords({ left: e.clientX, top: e.clientY }); if (!hit) return false;
         e.preventDefault();
         const anchor = hit.pos;
         view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor)));
         if (!view.hasFocus()) view.dom.focus({ preventScroll: true });
+        const cellOf = pos => { const $p = view.state.doc.resolve(pos); for (let d = $p.depth; d > 0; d--) { const r = $p.node(d).type.spec.tableRole; if (r === 'cell' || r === 'header_cell') return $p.before(d); } return null; };
+        const aCell = cellOf(anchor);
         const mv = ev => {
           const h = view.posAtCoords({ left: ev.clientX, top: ev.clientY }); if (!h) return;
-          try { view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, h.pos))); } catch (err) { /* outside text */ }
+          const hCell = cellOf(h.pos);
+          try {
+            if (aCell != null && hCell != null && hCell !== aCell) view.dispatch(view.state.tr.setSelection(CellSelection.create(view.state.doc, aCell, hCell)));
+            else view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, h.pos)));
+          } catch (err) { /* outside text */ }
         };
         const up = () => { removeEventListener('mousemove', mv); removeEventListener('mouseup', up); };
         addEventListener('mousemove', mv); addEventListener('mouseup', up);
@@ -393,8 +400,8 @@ const COMMANDS = {
   alignJustify: () => ch().setTextAlign('justify').run(),
   bulletList: () => ch().toggleBulletList().run(),
   orderedList: () => ch().toggleOrderedList().run(),
-  indent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, 1), AE().view.focus()) : ch().shiftIndent(1).run(),
-  outdent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, -1), AE().view.focus()) : ch().shiftIndent(-1).run(),
+  indent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, 1), AE().view.focus()) : ch().shiftIndent(0.8).run(),
+  outdent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, -1), AE().view.focus()) : ch().shiftIndent(-0.8).run(),
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
   math: () => openMath(null, null),
@@ -451,7 +458,7 @@ for (const bar of [$('#ribbon'), $('#tableBar'), $('.b1left')]) {
     if (hfEd && (['math', 'image', 'pageBreak', 'bulletList', 'orderedList', 'indent', 'outdent'].includes(b.dataset.cmd) || ['popTable', 'popShade', 'popBullet', 'popNum'].includes(b.dataset.pop)))
       return toast('Az élőfejben és az élőlábban ez nem használható.');
     if (b.dataset.cmd && COMMANDS[b.dataset.cmd]) return COMMANDS[b.dataset.cmd]();
-    if (b.dataset.tbl) return AE().chain().focus()[b.dataset.tbl]().run();
+    if (b.dataset.tbl) return tableCmd(b.dataset.tbl);
     if (b.dataset.valign) return ch().setCellAttribute('vAlign', b.dataset.valign).run();
     if (b.dataset.talign) return setTableAttrs({ align: b.dataset.talign });
   });
@@ -776,12 +783,18 @@ $('#popPara').onopen = () => {
     if (k === 'keepNext') inp.checked = a.keepNext ?? !!(tpl.styles[sk] && tpl.styles[sk].keepNext);
     else if (k === 'ctx') inp.checked = a.ctx ?? (AE().isActive('listItem') ? !!tpl.lists.contextual : !!(tpl.styles[sk] && tpl.styles[sk].contextual));
     else if (inp.type === 'checkbox') inp.checked = !!a[k];
-    else inp.value = a[k] ?? '';
+    else {      // the value in effect: set on the paragraph, or the style's (never an empty box)
+      const st = AE().isActive('listItem') && !AE().isActive('heading') ? { ...tpl.styles.p, indentLeft: 0, firstLine: 0 } : tpl.styles[sk] || {};
+      const fromStyle = { indentLeft: st.indentLeft, indentRight: st.indentRight, spaceBefore: st.spaceBefore, spaceAfter: st.spaceAfter }[k];
+      inp.value = a[k] ?? (fromStyle ?? 0);
+    }
   }
   const lst = listAroundAny(AE().state);
   const hang = (lst && lst.node.attrs.gap) || a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
-  $('#pfFirstKind').value = hang ? 'hang' : a.firstLine > 0 ? 'first' : 'none';
-  $('#pfFirstVal').value = hang || a.firstLine || '';
+  const fl = a.firstLine ?? (AE().isActive('listItem') ? 0 : (tpl.styles[sk] || {}).firstLine || 0);
+  const hang2 = hang || (fl < 0 ? -fl : 0);
+  $('#pfFirstKind').value = hang2 ? 'hang' : fl > 0 ? 'first' : 'none';
+  $('#pfFirstVal').value = hang2 || (fl > 0 ? fl : 0);
 };
 /** The outermost list around the cursor. */
 function listAroundAny(state) {
@@ -863,8 +876,37 @@ $('#popTable').onopen = () => hl(0, 0);
 for (const id of ['#popTblIns', '#popTblDel']) $(id).addEventListener('click', e => {
   const b = e.target.closest('[data-tbl]'); if (!b) return;
   closePops();
-  editor.chain().focus()[b.dataset.tbl]().run();
+  tableCmd(b.dataset.tbl);
 });
+/** Table commands; a new row / column takes over the look of the one next to it (fill, borders, text position,
+ *  paragraph formatting, row height). */
+function tableCmd(cmd) {
+  const before = tableContext(editor.state);
+  editor.chain().focus()[cmd]().run();
+  if (!before || !/^add(Row|Column)(Before|After)$/.test(cmd)) return;
+  const c = tableContext(editor.state); if (!c) return;
+  const { map, table, start } = c, isRow = cmd.startsWith('addRow'), after = cmd.endsWith('After');
+  const newIdx = isRow ? (after ? before.rect.bottom : before.rect.top) : (after ? before.rect.right : before.rect.left);
+  const srcIdx = after ? newIdx - 1 : newIdx + 1;
+  const tr = editor.state.tr, done = new Set();
+  const n = isRow ? map.width : map.height;
+  for (let k = 0; k < n; k++) {
+    const [r, cc, rs, cs] = isRow ? [newIdx, k, srcIdx, k] : [k, newIdx, k, srcIdx];
+    if (r >= map.height || cc >= map.width || rs < 0 || cs < 0 || rs >= map.height || cs >= map.width) continue;
+    const relN = map.map[r * map.width + cc], relS = map.map[rs * map.width + cs];
+    if (relN === relS || done.has(relN)) continue; done.add(relN);
+    const nCell = table.nodeAt(relN), sCell = table.nodeAt(relS); if (!nCell || !sCell) continue;
+    const keep = { colspan: nCell.attrs.colspan, rowspan: nCell.attrs.rowspan, colwidth: nCell.attrs.colwidth };
+    tr.setNodeMarkup(tr.mapping.map(start + relN), undefined, { ...sCell.attrs, ...keep });
+    const sp = sCell.firstChild, np = nCell.firstChild;
+    if (sp && np && np.type === sp.type) tr.setNodeMarkup(tr.mapping.map(start + relN + 1), undefined, { ...sp.attrs });
+  }
+  if (isRow) {                                   // the same row height
+    let oN = null, oS = null; table.forEach((row, o, i) => { if (i === newIdx) oN = [o, row]; if (i === srcIdx) oS = [o, row]; });
+    if (oN && oS) tr.setNodeMarkup(tr.mapping.map(start + oN[0]), undefined, { ...oN[1].attrs, height: oS[1].attrs.height });
+  }
+  if (tr.docChanged) editor.view.dispatch(tr);
+}
 
 /** The document range of the visual line the cursor is in. */
 function currentLineRange() {
@@ -916,12 +958,17 @@ function fillTableFields() {
   const c = curTable(); if (!c) return;
   const act = document.activeElement;
   if (act !== $('#tpWidth')) $('#tpWidth').value = c.table.attrs.width || 100;
-  const row = c.table.child(Math.min(c.rect.top, c.table.childCount - 1));
-  if (act !== $('#tpRowH')) $('#tpRowH').value = row.attrs.height || '';
-  const cell = c.table.nodeAt(c.map.map[c.rect.top * c.map.width + c.rect.left]);
-  if (act !== $('#tpColW')) $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? Math.round(cell.attrs.colwidth[0] / MM * 10) / 10 : '';
-  if (act !== $('#tpPadV')) $('#tpPadV').value = c.table.attrs.padV ?? '';
-  if (act !== $('#tpPadH')) $('#tpPadH').value = c.table.attrs.padH ?? '';
+  // always the value in effect (also when it is automatic): measured on the page
+  const r1 = n => Math.round(n * 10) / 10;
+  const rowIdx = Math.min(c.rect.top, c.table.childCount - 1), row = c.table.child(rowIdx);
+  let rowOff = 0; c.table.forEach((r, o, i) => { if (i === rowIdx) rowOff = o; });
+  const rowDom = editor.view.nodeDOM(c.start + rowOff);
+  if (act !== $('#tpRowH')) $('#tpRowH').value = row.attrs.height || (rowDom ? r1(rowDom.getBoundingClientRect().height / scale / MM) : '');
+  const cellRel = c.map.map[c.rect.top * c.map.width + c.rect.left], cell = c.table.nodeAt(cellRel), cellDom = editor.view.nodeDOM(c.start + cellRel);
+  if (act !== $('#tpColW')) $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? r1(cell.attrs.colwidth[0] / MM) : (cellDom ? r1(cellDom.getBoundingClientRect().width / scale / MM) : '');
+  const ccs = cellDom ? getComputedStyle(cellDom) : null;
+  if (act !== $('#tpPadV')) $('#tpPadV').value = c.table.attrs.padV ?? (ccs ? r1(parseFloat(ccs.paddingTop) / MM) : '');
+  if (act !== $('#tpPadH')) $('#tpPadH').value = c.table.attrs.padH ?? (ccs ? r1(parseFloat(ccs.paddingLeft) / MM) : '');
   for (const b of $$('#tableBar [data-talign]')) b.classList.toggle('on', (c.table.attrs.align || 'left') === b.dataset.talign);
 }
 for (const [id, k] of [['#tpPadV', 'padV'], ['#tpPadH', 'padH']]) $(id).addEventListener('change', e => {
@@ -1372,7 +1419,7 @@ const startTpl = () => normalizeTpl(DEFAULT_TPL);
 
 /* ready-made templates: red box at the top of the template panel (like Matekos Prezi); the locked ones come later.
    Below them: save the current settings into a template file (.mdsab) and use one (at most one per document). */
-const PRESETS = [['ures', 'Üres', false, '#ffffff', '#da291c'], ['feladatsor', 'Feladatsor', true, '#f4f6f8', '#1f5f74'], ['kiadvany', 'Kiadvány', true, '#fdf3d7', '#b7950b'], ['pre', 'Pré', true, '#ece6f5', '#7d3c98']];
+const PRESETS = [['ures', 'Sima', false, '#ffffff', '#da291c'], ['feladatsor', 'Feladatsor', true, '#f4f6f8', '#1f5f74'], ['kiadvany', 'Kiadvány', true, '#fdf3d7', '#b7950b'], ['pre', 'Pré', true, '#ece6f5', '#7d3c98']];
 let customTpl = null;               // {name, tpl}: the template file used in this document
 const presetLabel = () => tpl.preset === 'custom' && customTpl ? customTpl.name : (PRESETS.find(p => p[0] === tpl.preset) || PRESETS[0])[1];
 function presetName() {
@@ -1387,7 +1434,11 @@ $('#presetBox').addEventListener('click', async e => {
     try {
       const t = JSON.parse(JSON.stringify(tpl)); delete t.preset;
       const n = await saveTemplateFile({ name: customTpl && tpl.preset === 'custom' ? customTpl.name : docTitle() + ' sablon', tpl: t }, (customTpl && tpl.preset === 'custom' ? customTpl.name : docTitle() + ' sablon'));
-      if (n) toast('Sablon elmentve: ' + n);
+      if (n) {
+        if (customTpl && tpl.preset !== 'custom' && !await confirmBox(`A dokumentumban már van egy sablonfájl („${customTpl.name}”). Egyszerre csak egy lehet – ez lép a helyére: „${n.replace(/\.mdsab$/i, '')}”?`, 'Csere')) { toast('Sablon elmentve: ' + n); return; }
+        customTpl = { name: n.replace(/\.mdsab$/i, ''), tpl: t }; tpl.preset = 'custom'; presetName(); markDirty(); saveSoon();
+        toast('Sablon elmentve és használatban: ' + n);
+      }
     } catch (err) { toast('A sablon mentése nem sikerült: ' + (err && err.message || err)); }
     return;
   }
@@ -1406,7 +1457,7 @@ $('#presetBox').addEventListener('click', async e => {
   const b = e.target.closest('[data-preset]'); if (!b) return;
   if (b.classList.contains('locked')) { toast('Ez a sablon hamarosan érkezik.'); return; }
   if (b.dataset.preset === tpl.preset) return;
-  const label = b.dataset.preset === 'custom' ? customTpl.name : 'Üres';
+  const label = b.dataset.preset === 'custom' ? customTpl.name : 'Sima';
   if (!await confirmBox(`A(z) „${label}” sablon lép a mostani helyére (oldal, élőfej és élőláb, vízjel, szövegstílusok)${b.dataset.preset === 'ures' ? ' – a dokumentum formázása az alapbeállításra áll vissza' : ''}. A dokumentum szövege megmarad. Folytatod?`, 'Sablon alkalmazása')) return;
   if (hfOpen) closeHF();
   tpl = normalizeTpl(b.dataset.preset === 'custom' ? JSON.parse(JSON.stringify(customTpl.tpl)) : DEFAULT_TPL); tpl.preset = b.dataset.preset;

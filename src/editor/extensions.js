@@ -826,13 +826,20 @@ export const TabNode = Node.create({
       // in a list item, right after the symbol: the item moves one level in; anywhere else: a tab
       Tab: () => {
         const ed = this.editor;
-        if (ed.isActive('table')) return false;
+        if (ed.isActive('table')) { ed.commands.goToNextCell(1); return true; }       // no new rows from Tab
         const { $from, empty } = ed.state.selection;
         // in a list: right after the symbol, on a selected formula or with several items selected -> one level in
         if (ed.isActive('listItem') && (!empty || $from.parentOffset === 0)) { changeListLevel(ed.view, 1); return true; }
         return ed.commands.insertContent({ type: 'tab' });
       },
-      'Shift-Tab': () => { const ed = this.editor; if (ed.isActive('table') || !ed.isActive('listItem')) return false; changeListLevel(ed.view, -1); return true; },
+      'Shift-Tab': () => { const ed = this.editor; if (ed.isActive('table')) { ed.commands.goToNextCell(-1); return true; } if (!ed.isActive('listItem')) return false; changeListLevel(ed.view, -1); return true; },
+      Enter: () => {
+        const ed = this.editor, { $from, empty } = ed.state.selection;
+        if (!empty || !ed.isActive('listItem') || $from.parent.content.size) return false;
+        const li = $from.node($from.depth - 1);
+        if (!li || li.type.name !== 'listItem' || li.childCount !== 1 || $from.depth < 4) return false;   // top level: the usual (leaves the list)
+        return changeListLevel(ed.view, -1);
+      },
       Backspace: () => {
         if (deleteEmptyListItem(this.editor.view)) return true;
         const st = this.editor.state, sel = st.selection;
@@ -899,9 +906,9 @@ export const ListItemAttrs = Extension.create({
   name: 'listItemAttrs',
   addGlobalAttributes() {
     return [{ types: ['listItem'], attributes: {
-      sameLine: { default: false, parseHTML: el => el.getAttribute('data-same') === '1', renderHTML: a => a.sameLine ? { 'data-same': '1' } : {} },
+      sameLine: { default: false, keepOnSplit: false, parseHTML: el => el.getAttribute('data-same') === '1', renderHTML: a => a.sameLine ? { 'data-same': '1' } : {} },
       // an invisible holder item: lets the first item of a list stand one level deeper
-      ghost: { default: false, parseHTML: el => el.hasAttribute('data-ghost'), renderHTML: a => a.ghost ? { 'data-ghost': '1' } : {} }
+      ghost: { default: false, keepOnSplit: false, parseHTML: el => el.hasAttribute('data-ghost'), renderHTML: a => a.ghost ? { 'data-ghost': '1' } : {} }
     } }];
   }
 });
@@ -994,7 +1001,6 @@ export function deleteEmptyListItem(view) {
   if (k < 0 || items[k].level === 0) return false;
   const prev = k - 1;
   items.splice(k, 1);
-  for (let j = 0; j < items.length; j++) { const max = j === 0 ? 0 : items[j - 1].level + 1; if (items[j].level > max) items[j].level = max; }
   const nodes = rebuild(items, st.schema);
   const tr = st.tr.replaceWith(outerPos, outerPos + outer.nodeSize, nodes);
   // cursor: end of the previous item's text

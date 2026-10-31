@@ -22,7 +22,7 @@
       <span id="status" class="status" aria-live="polite"></span>
     </div>
     <div class="b1right">
-      <button class="btn tplbtn" id="bTpl" title="Sablon: kész sablonok és a sablonszerkesztő (jobb oldali panel) – megnyitás / bezárás"><span class="tpll">Sablon:</span> <b id="tplName">Üres</b></button>
+      <button class="btn tplbtn" id="bTpl" title="Sablon: kész sablonok és a sablonszerkesztő (jobb oldali panel) – megnyitás / bezárás"><span class="tpll">Sablon:</span> <b id="tplName">Sima</b></button>
       <button class="btn menubtn zoombtn" data-pop="popZoom" id="bZoom" title="Nagyítás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg><span id="zoomLabel"></span><svg class="ddi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
     </div>
   </div>
@@ -83,7 +83,8 @@
     <span class="ctxlabel">Táblázat</span>
     <button class="tb wide" data-pop="popTblIns" data-icon="tblAdd" title="Sorok vagy oszlopok beszúrása"><span class="lbl">Beszúrás ▾</span></button>
     <button class="tb wide" data-pop="popTblDel" data-icon="tblDel" title="Sorok, oszlopok vagy a táblázat törlése"><span class="lbl">Törlés ▾</span></button>
-    <button class="tb" data-tbl="mergeOrSplit" data-icon="merge" title="Cellák egyesítése / felosztása"></button>
+    <span class="ctxsep"></span>
+    <button class="tb wide" data-tbl="mergeOrSplit" data-icon="merge" title="Cellák egyesítése / felosztása"><span class="lbl">Egyesítés</span></button>
     <span class="ctxsep"></span>
     <button class="tb" data-valign="top" data-icon="vtop" title="Cellatartalom felülre"></button>
     <button class="tb" data-valign="middle" data-icon="vmid" title="Cellatartalom középre"></button>
@@ -92,12 +93,15 @@
     <button class="tb" data-pop="popCell" data-icon="fill" title="Cella kitöltőszíne"></button>
     <button class="tb" data-pop="popBorders" data-icon="borders" title="Cellaszegélyek: elrejtés, vastagság, szín"></button>
     <span class="ctxsep"></span>
-    <label class="tsz" data-icon="tWidth" title="Táblázat szélessége (a szövegszélesség %-ában)"><input type="number" id="tpWidth" min="10" max="100" step="5">%</label>
-    <label class="tsz" data-icon="rowH" title="A kijelölt sorok magassága (üres = automatikus)"><input type="number" id="tpRowH" min="3" step="1" placeholder="auto">mm</label>
-    <label class="tsz" data-icon="colW" title="A kijelölt oszlopok szélessége (üres = automatikus)"><input type="number" id="tpColW" min="5" step="1" placeholder="auto">mm</label>
-    <label class="tsz" data-icon="cellPad" title="Cellamargó: térköz a cella szegélye és a szöveg között – fent és lent (mm)"><input type="number" id="tpPadV" min="0" max="20" step="0.5" placeholder="1">mm</label>
-    <label class="tsz" data-icon="cellPadH" title="Cellamargó: térköz a cella szegélye és a szöveg között – balra és jobbra (mm)"><input type="number" id="tpPadH" min="0" max="20" step="0.5" placeholder="1,8">mm</label>
+    <label class="tsz" data-icon="tWidth" title="Táblázat szélessége (a szövegszélesség %-ában)"><span class="tszl">Szélesség</span><input type="number" id="tpWidth" min="10" max="100" step="5">%</label>
     <span class="ctxsep"></span>
+    <label class="tsz" data-icon="rowH" title="A kijelölt sorok magassága (üresre törölve: automatikus)"><span class="tszl">Sor</span><input type="number" id="tpRowH" min="3" step="0.5">mm</label>
+    <label class="tsz" data-icon="colW" title="A kijelölt oszlopok szélessége (üresre törölve: automatikus)"><span class="tszl">Oszlop</span><input type="number" id="tpColW" min="5" step="0.5">mm</label>
+    <span class="ctxsep"></span>
+    <label class="tsz" data-icon="cellPad" title="Cellamargó: térköz a cella szegélye és a szöveg között – fent és lent (mm)"><span class="tszl">Margó ↕</span><input type="number" id="tpPadV" min="0" max="20" step="0.1">mm</label>
+    <label class="tsz" data-icon="cellPadH" title="Cellamargó: térköz a cella szegélye és a szöveg között – balra és jobbra (mm)"><span class="tszl">↔</span><input type="number" id="tpPadH" min="0" max="20" step="0.1">mm</label>
+    <span class="ctxsep"></span>
+    <span class="tszl tszl-b">Igazítás</span>
     <button class="tb" data-talign="left" data-icon="tAlignL" title="Táblázat balra"></button>
     <button class="tb" data-talign="center" data-icon="tAlignC" title="Táblázat középen"></button>
     <button class="tb" data-talign="right" data-icon="tAlignR" title="Táblázat jobbra"></button>

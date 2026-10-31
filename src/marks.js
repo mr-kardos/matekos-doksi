@@ -51,6 +51,7 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
   }
   for (const b of editorDom.querySelectorAll('p,h1,h2,h3')) {
     if (b.closest('.hf')) continue;
+    if (b.classList.contains('lm-collapsed') || b.closest('li[data-ghost]') === b.parentElement && b === b.parentElement.firstElementChild && b.parentElement.hasAttribute('data-ghost') || b.getBoundingClientRect().height < 1) continue;   // hidden holder lines
     range.selectNodeContents(b);
     const rects = Array.from(range.getClientRects()).filter(q => q.width > 0 || q.height > 0);
     const last = rects[rects.length - 1], br = b.getBoundingClientRect(), cs = getComputedStyle(b);

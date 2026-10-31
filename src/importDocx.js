@@ -269,7 +269,19 @@ export async function importDocx(buf) {
     const attrs = {};
     // alignment: the paragraph's own, or its style's (justified text stays justified)
     const jc = val(kid(pPr, 'w:jc')) || styleProp(styleId || defStyle, 'jc'); if (jc) attrs.textAlign = { both: 'justify', distribute: 'justify', center: 'center', right: 'right', end: 'right' }[jc] || 'left';
-    // indents, spacing and line height: as the template's paragraph styles say
+    // indents: the kind is kept (left indent, first-line indent, hanging indent), the size is the app's own step
+    // (0.8 cm – where list text starts), so everything lines up; spacing and line height come from the template
+    const ind = kid(pPr, 'w:ind');
+    if (ind) {
+      const STEP = 0.8, cm = v => +v * CM_PER_TWIP;
+      const L = cm(ind.getAttribute('w:left') ?? ind.getAttribute('w:start') ?? 0), R = cm(ind.getAttribute('w:right') ?? ind.getAttribute('w:end') ?? 0);
+      const first = cm(ind.getAttribute('w:firstLine') ?? 0), hang = cm(ind.getAttribute('w:hanging') ?? 0);
+      const steps = v => Math.max(1, Math.round(v / STEP)) * STEP;
+      if (L > 0.1) attrs.indentLeft = round2(steps(L));
+      if (R > 0.1) attrs.indentRight = round2(steps(R));
+      if (first > 0.1) attrs.firstLine = STEP;
+      else if (hang > 0.1) { attrs.firstLine = -STEP; attrs.indentLeft = Math.max(attrs.indentLeft || 0, STEP); }
+    }
     const content = await inlines(p, sty && sty.size);
     while (content.length && content[0].type === 'hardBreak') content.shift();
     while (content.length && content[content.length - 1].type === 'hardBreak') content.pop();
