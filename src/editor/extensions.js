@@ -704,22 +704,28 @@ export const KvImage = Node.create({
           const er = v.dom.getBoundingClientRect();
           let target, attrs = { ...cur.attrs };
           if (wrapped) {
-            // anchor the picture to the line at its new top edge; keep the exact offset from that line
-            const y = Math.min(Math.max(gr.top + 2, er.top + 1), er.bottom - 2);
-            const hit = v.posAtCoords({ left: er.left + 2, top: y });
-            if (!hit) return;
-            target = hit.pos;
-            const $t = v.state.doc.resolve(target);
-            if (!$t.parent.isTextblock) return;
-            if (target > pos && target <= pos + cur.nodeSize) target = pos;      // dropped on its own line start
-            const c = v.coordsAtPos(target);
-            const lineTop = c.top;
+            // anchor the picture to the start of the line at its new top edge (found with the picture itself taken out
+            // of the layout, so it cannot get in the way), and keep the exact offset from that line and the margin
+            const oldDisplay = dom.style.display;
+            dom.style.display = 'none';
+            void v.dom.offsetHeight;
+            const er2 = v.dom.getBoundingClientRect();
+            const y = Math.min(Math.max(gr.top + 1, er2.top + 1), er2.bottom - 2);
+            let hit = v.posAtCoords({ left: er2.left + 3, top: y });
+            if (hit && !v.state.doc.resolve(hit.pos).parent.isTextblock) hit = v.posAtCoords({ left: gr.left + gr.width / 2, top: y });
+            let lineTop = null;
+            if (hit) { target = hit.pos; try { lineTop = v.coordsAtPos(target, 1).top; } catch (err) { lineTop = null; } }
+            dom.style.display = oldDisplay;
+            if (!hit || lineTop == null || !v.state.doc.resolve(target).parent.isTextblock) return;
+            if (target > pos && target <= pos + cur.nodeSize) target = pos;      // its own place
             const colW = er.width / scale, w = gr.width / scale;
             const leftX = (gr.left - er.left) / scale;
             const toLeft = leftX + w / 2 < colW / 2;
             attrs.wrap = toLeft ? 'wl' : 'wr';
             attrs.dx = Math.round(Math.max(0, Math.min(colW - w, toLeft ? leftX : colW - leftX - w)));
-            attrs.dy = Math.round(Math.max(0, (gr.top - lineTop) / scale));
+            // the picture's top edge = line top + .2em (its margin) + dy
+            const em = parseFloat(getComputedStyle(dom.parentElement || v.dom).fontSize) || 16;
+            attrs.dy = Math.round(Math.max(0, (gr.top - lineTop) / scale - 0.2 * em));
           } else {
             const hit = v.posAtCoords({ left: ev.clientX, top: ev.clientY });
             if (!hit) return;

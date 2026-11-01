@@ -203,3 +203,7 @@ tools/                font verification
   in the desktop app HTML drag & drop is handled by the page – `dragDropEnabled: false`).
 - Line shading and line buttons next to the tab button. Formula editor preview in the real font of the text.
 - Format painter also copies the list symbol / numbering format.
+
+## 0.8.5
+- Pictures with text wrapping: dropped exactly where they are released (the line is found with the picture
+  taken out of the layout, so it no longer anchors to its own old place).
