@@ -48,6 +48,7 @@ let tblCtx = null;                 // table + selected cells, remembered while a
 let ovRaf = 0, imgMoving = false;  // overlay redraw state
 let hfEd = null;                   // header/footer editor while it is open (the ribbon then formats it)
 let keepScroll = null;
+let painter = null;                 // format painter: {marks, para} waiting for the next selection
 let spellOn = load('matekosdoksi.spell') !== '0';
 const AE = () => hfEd || editor;
 const stack = $('#stack'), outer = $('#outer'), ws = $('#ws'), pagesEl = $('#pages');
@@ -115,7 +116,11 @@ const editor = new Editor({
         return true;
       },
       // no dragging of cell contents inside tables
-      dragstart: (view, e) => { e.preventDefault(); return true; },          // selected text is never dragged away
+      dragstart: (view, e) => {                // selected text is never dragged away – pictures may be
+        const t = e.target && e.target.nodeType === 1 ? e.target : e.target && e.target.parentElement;
+        if ((t && t.closest && t.closest('.imgw')) || (view.state.selection.node && view.state.selection.node.type.name === 'image')) return false;
+        e.preventDefault(); return true;
+      },
       drop: (view, e) => { const t = e.target && (e.target.nodeType === 1 ? e.target : e.target.parentElement); if (t && t.closest('td,th') && !(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) { e.preventDefault(); return true; } return false; }
     },
     handlePaste(view, event) {
@@ -406,11 +411,18 @@ const COMMANDS = {
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
   math: () => openMath(null, null),
-  // two columns: a one-row, two-column table with invisible borders and no cell margins
-  twoCols: () => {
-    const cell = () => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, borderWidth: 0, vAlign: 'top' }, content: [{ type: 'paragraph' }] });
-    ch().insertContent({ type: 'table', attrs: { padV: 0, padH: 0 }, content: [{ type: 'tableRow', content: [cell(), cell()] }] }).run();
+  painter: () => {
+    if (painter) { painter = null; document.body.classList.remove('painting'); updateToolbar(); return; }
+    const ed = AE(), st = ed.state, $f = st.selection.$from;
+    const marks = (st.selection.empty ? (st.storedMarks || $f.marks()) : (st.doc.nodeAt(st.selection.from) || { marks: [] }).marks).filter(m => m.type.name !== 'link' && m.type.name !== 'lineShade');
+    const blk = $f.parent, pa = {};
+    for (const k of ['textAlign', 'lineHeight', 'spaceBefore', 'spaceAfter', 'indentLeft', 'indentRight', 'firstLine', 'shade', 'ctx']) if (blk.attrs[k] !== undefined) pa[k] = blk.attrs[k];
+    painter = { marks, para: pa, heading: blk.type.name === 'heading' ? blk.attrs.level : 0 };
+    document.body.classList.add('painting'); updateToolbar();
+    toast('Formátummásoló: jelöld ki a szöveget, amelyre át kell vinni. Esc: mégse');
   },
+  // two columns: a one-row, two-column table with invisible borders and no cell margins
+  twoCols: () => twoColumns(),
   spell: () => {
     spellOn = !spellOn; lsSet('matekosdoksi.spell', spellOn ? '1' : '0');
     setSpellEnabled(editor.view, spellOn);
@@ -422,7 +434,7 @@ const STATES = {
   bold: () => lookAt(cs => (parseInt(cs.fontWeight, 10) || 400) >= 600), italic: () => lookAt(cs => cs.fontStyle === 'italic'),
   underline: () => lookAt(cs => /underline/.test(cs.textDecorationLine)), spell: () => spellOn,
   strike: () => AE().isActive('strike'), superscript: () => AE().isActive('superscript'), subscript: () => AE().isActive('subscript'),
-  upper: isUpper, marks: () => showMarks,
+  upper: isUpper, marks: () => showMarks, painter: () => !!painter,
   alignLeft: () => AE().isActive({ textAlign: 'left' }), alignCenter: () => AE().isActive({ textAlign: 'center' }),
   alignRight: () => AE().isActive({ textAlign: 'right' }), alignJustify: () => AE().isActive({ textAlign: 'justify' }),
   bulletList: () => AE().isActive('bulletList'), orderedList: () => AE().isActive('orderedList')
@@ -480,6 +492,63 @@ function findMatches(re) {
   });
   return out;
 }
+/* two columns: a 1×2 table with invisible borders and no cell margins. With text selected, that text is moved into
+   it, divided evenly (blocks, or the items of a list – a list split in two keeps counting in the second column);
+   the text and paragraph formatting stay as they are. */
+function twoColumns() {
+  const st = editor.state, S = st.schema, { $from, $to, empty } = st.selection;
+  const cell = content => S.nodes.tableCell.create({ colspan: 1, rowspan: 1, borderWidth: 0, vAlign: 'top' }, content.length ? content : [S.nodes.paragraph.create()]);
+  const table = (a, b) => S.nodes.table.create({ padV: 0, padH: 0 }, [S.nodes.tableRow.create(null, [cell(a), cell(b)])]);
+  const inTable = (() => { for (let d = $from.depth; d > 0; d--) if ($from.node(d).type.spec.tableRole) return true; return false; })();
+  if (empty || inTable || $from.depth < 1) { editor.view.dispatch(st.tr.replaceSelectionWith(table([], [])).scrollIntoView()); editor.view.focus(); return; }
+  // the whole top-level blocks the selection touches
+  const i0 = $from.index(0), i1 = $to.index(0);
+  const blocks = []; for (let i = i0; i <= i1; i++) blocks.push(st.doc.child(i));
+  const from = $from.before(1), to = $to.after(1);
+  // units: a block, or one item of a list
+  const units = [];
+  for (const b of blocks) {
+    if ((b.type.name === 'bulletList' || b.type.name === 'orderedList') && b.childCount > 1) b.forEach((it, o, k) => units.push({ list: b, item: it, k }));
+    else units.push({ node: b });
+  }
+  const half = Math.ceil(units.length / 2);
+  const toBlocks = us => {
+    const out = []; let cur = null;
+    for (const u of us) {
+      if (u.node) { out.push(u.node); cur = null; continue; }
+      if (cur && cur.src === u.list) { cur.items.push(u.item); continue; }
+      cur = { src: u.list, first: u.k, items: [u.item] }; out.push(cur);
+    }
+    return out.map(x => x.src ? x.src.type.create({ ...x.src.attrs, ...(x.src.type.name === 'orderedList' ? { start: (x.src.attrs.start ?? 1) + x.first, cont: false } : {}) }, x.items) : x);
+  };
+  const tbl = table(toBlocks(units.slice(0, half)), toBlocks(units.slice(half)));
+  const tr = st.tr.replaceWith(from, to, tbl);
+  try { tr.setSelection(TextSelection.near(tr.doc.resolve(from + 4))); } catch (e) { /* keep */ }
+  editor.view.dispatch(tr.scrollIntoView()); editor.view.focus();
+}
+
+/* format painter: applied when the mouse is released over a selection */
+function applyPainter() {
+  const ed = editor, st = ed.state, { from, to, empty } = st.selection;
+  if (!painter || empty) return;
+  const tr = st.tr;
+  const FORMAT = ['bold', 'italic', 'underline', 'strike', 'superscript', 'subscript', 'highlight', 'textStyle'];
+  for (const n of FORMAT) { const t = st.schema.marks[n]; if (t) tr.removeMark(from, to, t); }
+  for (const m of painter.marks) tr.addMark(from, to, m);
+  st.doc.nodesBetween(from, to, (n, pos) => {
+    if (n.type.name === 'paragraph' || n.type.name === 'heading') {
+      if (painter.heading && n.type.name === 'paragraph') tr.setNodeMarkup(pos, st.schema.nodes.heading, { ...n.attrs, ...painter.para, level: painter.heading });
+      else if (!painter.heading && n.type.name === 'heading') tr.setNodeMarkup(pos, st.schema.nodes.paragraph, { ...n.attrs, ...painter.para });
+      else tr.setNodeMarkup(pos, undefined, { ...n.attrs, ...painter.para, ...(n.type.name === 'heading' ? { level: painter.heading || n.attrs.level } : {}) });
+      return false;
+    }
+  });
+  ed.view.dispatch(tr);
+  painter = null; document.body.classList.remove('painting'); updateToolbar();
+}
+editor.view.dom.addEventListener('mouseup', () => { if (painter) setTimeout(applyPainter, 0); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && painter) { painter = null; document.body.classList.remove('painting'); updateToolbar(); } });
+
 /* spell checking (Hunspell + Magyar Ispell, the same on every computer) */
 queueMicrotask(() => { editor.registerPlugin(spellPlugin()); setSpellEnabled(editor.view, spellOn); });   // after the whole module is set up
 let spellTarget = null;
@@ -763,7 +832,7 @@ $('#popNum').onopen = () => { const on = AE().isActive('orderedList'), a = on ? 
   $('#numStart').value = on ? (a.start ?? 1) : 1; };
 
 /* line spacing (Prezi: list + own value) */
-const LH = [1, 1.15, 1.25, 1.5, 2, 2.5, 3];
+const LH = [1, 1.15, 1.25, 1.5, 2, 2.5];
 $('#lineList').innerHTML = LH.map(v => `<button class="pitem" data-lh="${v}">${String(v).replace('.', ',')}</button>`).join('');
 function lineOpen() {
   const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph');

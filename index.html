@@ -28,6 +28,7 @@
   </div>
   <div class="ribbon" id="ribbon">
     <div class="grp">
+      <button class="tb" data-cmd="painter" data-state="painter" data-icon="painter" title="Formátummásoló: a kijelölt szöveg formázását átviszi a következő kijelölésre. Esc: mégse"></button>
       <button class="tb fontbtn" data-pop="popFont" title="Betűtípus – a kijelölt szövegre (kijelölés nélkül az ezután beírt szövegre)"><span id="fontLabel">Betűtípus</span></button>
       <span class="sizebox"><input id="sizeIn" class="sel size" inputmode="decimal" title="Betűméret (pt)" aria-label="Betűméret" value="12"><button class="tb mini sizedd" data-pop="popSize" data-icon="chev" title="Betűméretek"></button></span>
     </div>
@@ -38,11 +39,12 @@
       <button class="tb" data-cmd="strike" data-state="strike" title="Áthúzott"><s>S</s></button>
       <button class="tb" data-cmd="superscript" data-state="superscript" title="Felső index">x²</button>
       <button class="tb" data-cmd="subscript" data-state="subscript" title="Alsó index">x₂</button>
+      <button class="tb" data-cmd="upper" data-state="upper" title="Csupa nagybetű / ahogy begépelted (a betűk nem változnak, csak a megjelenésük)"><span class="aa">Aa</span></button>
+      <button class="tb" data-pop="popSpacing" data-icon="spacing" title="Betűköz"></button>
       <button class="tb cbtn" data-pop="popColor" data-icon="colorA" title="Betűszín"><i class="cbar" id="colorBar"></i></button>
       <button class="tb cbtn" data-pop="popHi" data-icon="marker" title="Kijelölt szöveg kiemelése"><i class="cbar" style="background:#fff176"></i></button>
       <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyék: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#dbe9ee"></i></button>
       <button class="tb" data-pop="popRule" data-icon="ruleLine" title="Elválasztó vonal a bekezdés fölött vagy alatt – margótól margóig"></button>
-      <button class="tb" data-cmd="upper" data-state="upper" title="Csupa nagybetű / ahogy begépelted (a betűk nem változnak, csak a megjelenésük)"><span class="aa">Aa</span></button>
       <button class="tb" data-cmd="clearFormat" data-icon="clear" title="Formázás törlése"></button>
     </div>
     <div class="grp">
@@ -63,7 +65,6 @@
       <button class="tb" data-cmd="outdent" data-icon="outdent" title="Behúzás csökkentése (listában Shift+Tab)"></button>
       <button class="tb" data-cmd="indent" data-icon="indent" title="Behúzás növelése (listában Tab)"></button>
       <button class="tb" data-pop="popPara" data-icon="para" title="Bekezdés: behúzások és bekezdésköz"></button>
-      <button class="tb" data-pop="popSpacing" data-icon="spacing" title="Betűköz"></button>
       <button class="tb" data-pop="popTabs" data-icon="tabstop" title="Tabulátorok"></button>
     </div>
     <div class="grp">

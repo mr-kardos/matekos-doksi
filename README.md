@@ -191,3 +191,9 @@ tools/                font verification
 - Feladatsor template (public/presets/feladatsor.mdsab). „Sablonok”, „Sima”; Matekos végtelen as template symbol.
 - Tabs never end at the same place. Line spacing moved into the paragraph popover; new line-button icon.
 - Table toolbar labels; red cell fill. Pictures: every point clickable, moving works; list symbols keep clear of pictures.
+
+## 0.8.3
+- Pictures: press and drag moves them straight away; dragging pictures is no longer blocked (only text is).
+- 10 % more room around tall formulas. Bigger line-spacing buttons (no 3.0), text clear of the selection marker. Format painter next to the font selector.
+- „Két hasáb” with text selected: the text goes into the two columns, divided evenly (list items too), formatting kept.
+- Capitals and letter spacing buttons left of the text colour.
