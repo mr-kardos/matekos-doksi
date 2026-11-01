@@ -594,7 +594,7 @@ export const KvImage = Node.create({
   atom: true,
   selectable: true,
   draggable: false,
-  addOptions() { return { getScale: () => 1, onChange: null }; },
+  addOptions() { return { getScale: () => 1, onChange: null, pageBox: null }; },
   addAttributes() {
     return {
       src: { default: '' },
@@ -681,7 +681,12 @@ export const KvImage = Node.create({
             dom.classList.add('moving');
             ext.options.onChange && ext.options.onChange('moving');
           }
-          ghost.style.left = (ev.clientX - ox) + 'px'; ghost.style.top = (ev.clientY - oy) + 'px';
+          let gx = ev.clientX - ox, gy = ev.clientY - oy;
+          if (wrapped && ext.options.pageBox) {
+            const bx = ext.options.pageBox(ev.clientY);
+            if (bx) { gx = Math.min(Math.max(gx, bx.left), bx.right - r0.width); gy = Math.min(Math.max(gy, bx.top), bx.bottom - r0.height); }
+          }
+          ghost.style.left = gx + 'px'; ghost.style.top = gy + 'px';
           if (ind) {
             const hit = v.posAtCoords({ left: ev.clientX, top: ev.clientY });
             if (hit) { const c = v.coordsAtPos(hit.pos); ind.style.left = c.left + 'px'; ind.style.top = c.top + 'px'; ind.style.height = (c.bottom - c.top) + 'px'; }
@@ -696,7 +701,7 @@ export const KvImage = Node.create({
           if (!ghost) return;
           // a cancelled pointer (e.g. the system started a drag anyway): place it where the mouse last was
           const ev = ev0.type === 'pointercancel' ? { ...last, type: 'pointerup' } : ev0;
-          if (ev0.type === 'pointercancel') { ghost.style.left = (last.clientX - ox) + 'px'; ghost.style.top = (last.clientY - oy) + 'px'; }
+          if (ev0.type === 'pointercancel') mv(last);
           ext.options.onChange && ext.options.onChange();
           const gr = ghost.getBoundingClientRect();
           ghost.remove(); if (ind) ind.remove();
@@ -711,8 +716,10 @@ export const KvImage = Node.create({
             void v.dom.offsetHeight;
             const er2 = v.dom.getBoundingClientRect();
             const y = Math.min(Math.max(gr.top + 1, er2.top + 1), er2.bottom - 2);
-            let hit = v.posAtCoords({ left: er2.left + 3, top: y });
-            if (hit && !v.state.doc.resolve(hit.pos).parent.isTextblock) hit = v.posAtCoords({ left: gr.left + gr.width / 2, top: y });
+            // a text line outside tables at that height, or the nearest one above it (over a table, a display formula…)
+            const okAt = h => { if (!h) return false; const $h = v.state.doc.resolve(h.pos); if (!$h.parent.isTextblock) return false; for (let d = $h.depth; d > 0; d--) if ($h.node(d).type.spec.tableRole) return false; return true; };
+            let hit = null;
+            for (let yy = y; yy > er2.top - 1 && !hit; yy -= 6) { const h = v.posAtCoords({ left: er2.left + 3, top: yy }); if (okAt(h)) hit = h; }
             let lineTop = null;
             if (hit) { target = hit.pos; try { lineTop = v.coordsAtPos(target, 1).top; } catch (err) { lineTop = null; } }
             dom.style.display = oldDisplay;
@@ -740,6 +747,36 @@ export const KvImage = Node.create({
           tr.setSelection(NodeSelection.create(tr.doc, at));
           v.dispatch(tr);
           if (!v.hasFocus()) v.dom.focus({ preventScroll: true });
+          if (wrapped) {
+            // measure where it really is and correct the offsets until it sits exactly where it was released
+            const want = { left: gr.left, top: gr.top };
+            let curPos = at;                                    // the moved picture is a new node with a new view
+            const fix = tries => {
+              const p = curPos;
+              const n = v.state.doc.nodeAt(p); if (!n || n.type.name !== 'image') return;
+              const nd = v.nodeDOM(p); if (!nd || !nd.isConnected) return;
+              const r = nd.getBoundingClientRect(), sc = ext.options.getScale() || 1;
+              const dyErr = (want.top - r.top) / sc, dxErr = (n.attrs.wrap === 'wl' ? want.left - r.left : r.left - want.left) / sc;
+              const a2 = { ...n.attrs };
+              if (Math.abs(dxErr) > 0.5) a2.dx = Math.max(0, Math.round((n.attrs.dx || 0) + dxErr));
+              if (Math.abs(dyErr) > 0.5) {
+                const ndy = (n.attrs.dy || 0) + dyErr;
+                if (ndy >= 0) a2.dy = Math.round(ndy);
+                else {                                          // its line starts below the wanted place: one line earlier
+                  const hit = v.posAtCoords({ left: v.dom.getBoundingClientRect().left + 3, top: want.top - 2 });
+                  if (hit && hit.pos < p && v.state.doc.resolve(hit.pos).parent.isTextblock && tries > 0) {
+                    const t2 = v.state.tr.delete(p, p + n.nodeSize), at2 = t2.mapping.map(hit.pos);
+                    t2.insert(at2, n.type.create({ ...a2, dy: 0 })); t2.setSelection(NodeSelection.create(t2.doc, at2)); t2.setMeta('addToHistory', false);
+                    v.dispatch(t2); curPos = at2; requestAnimationFrame(() => fix(tries - 1)); return;
+                  }
+                  a2.dy = 0;
+                }
+              }
+              if (a2.dx !== n.attrs.dx || a2.dy !== n.attrs.dy) { v.dispatch(v.state.tr.setNodeMarkup(p, undefined, a2).setMeta('addToHistory', false)); if (tries > 0) requestAnimationFrame(() => fix(tries - 1)); }
+            };
+            requestAnimationFrame(() => requestAnimationFrame(() => fix(4)));
+            setTimeout(() => fix(2), 450);                    // once more after the pages have been laid out again
+          }
         };
         addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
       };

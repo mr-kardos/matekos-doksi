@@ -77,7 +77,13 @@ const editor = new Editor({
       onRendered: () => relayout(60),
       onPreview: p => showPreview(p)
     }),
-    KvImage.configure({ getScale: () => scale, onChange: m => updateOverlays(m) }),
+    KvImage.configure({ getScale: () => scale, onChange: m => updateOverlays(m),
+      // the area inside the margins of the page under a point (screen coordinates): pictures stay inside it
+      pageBox: clientY => {
+        const g = geometry(tpl), sr = stack.getBoundingClientRect(), er = editor.view.dom.getBoundingClientRect();
+        const i = Math.max(0, Math.min(pageCount - 1, Math.floor((clientY - sr.top) / scale / g.P)));
+        return { left: er.left, right: er.right, top: sr.top + g.contentTop(i) * scale, bottom: sr.top + g.contentBottom(i) * scale };
+      } }),
     Pagination.configure({ getTpl: () => tpl, getScale: () => scale, onLayout: n => applyLayout(n),
       // while the page breaks are recalculated the document is briefly shorter: keep the scroll position
       beforeRun: () => { keepScroll = ws.scrollTop; outer.style.minHeight = outer.offsetHeight + 'px'; },

@@ -207,3 +207,7 @@ tools/                font verification
 ## 0.8.5
 - Pictures with text wrapping: dropped exactly where they are released (the line is found with the picture
   taken out of the layout, so it no longer anchors to its own old place).
+
+## 0.8.6
+- Pictures with text wrapping move freely on their own layer, only kept inside the page margins, and are placed
+  exactly where they are released (measured and corrected after placing); the text then wraps around them.
