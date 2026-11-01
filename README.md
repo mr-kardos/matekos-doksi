@@ -197,3 +197,9 @@ tools/                font verification
 - 10 % more room around tall formulas. Bigger line-spacing buttons (no 3.0), text clear of the selection marker. Format painter next to the font selector.
 - „Két hasáb” with text selected: the text goes into the two columns, divided evenly (list items too), formatting kept.
 - Capitals and letter spacing buttons left of the text colour.
+
+## 0.8.4
+- Pictures: a move always ends where the mouse is released (the system's drag & drop can no longer take over;
+  in the desktop app HTML drag & drop is handled by the page – `dragDropEnabled: false`).
+- Line shading and line buttons next to the tab button. Formula editor preview in the real font of the text.
+- Format painter also copies the list symbol / numbering format.

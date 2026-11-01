@@ -19,7 +19,7 @@ import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady }
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP } from './tabs.js';
 import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
@@ -417,7 +417,10 @@ const COMMANDS = {
     const marks = (st.selection.empty ? (st.storedMarks || $f.marks()) : (st.doc.nodeAt(st.selection.from) || { marks: [] }).marks).filter(m => m.type.name !== 'link' && m.type.name !== 'lineShade');
     const blk = $f.parent, pa = {};
     for (const k of ['textAlign', 'lineHeight', 'spaceBefore', 'spaceAfter', 'indentLeft', 'indentRight', 'firstLine', 'shade', 'ctx']) if (blk.attrs[k] !== undefined) pa[k] = blk.attrs[k];
-    painter = { marks, para: pa, heading: blk.type.name === 'heading' ? blk.attrs.level : 0 };
+    // a list: its symbol / numbering format comes along too
+    let list = null;
+    for (let d = $f.depth; d > 0; d--) { const n = $f.node(d); if (n.type.name === 'bulletList' || n.type.name === 'orderedList') { const { bulletChar, bulletImage, bulletSize, numStyle, gap } = n.attrs; list = { type: n.type.name, attrs: n.type.name === 'orderedList' ? { numStyle, gap } : { bulletChar, bulletImage, bulletSize, gap } }; break; } }
+    painter = { marks, para: pa, heading: blk.type.name === 'heading' ? blk.attrs.level : 0, list };
     document.body.classList.add('painting'); updateToolbar();
     toast('Formátummásoló: jelöld ki a szöveget, amelyre át kell vinni. Esc: mégse');
   },
@@ -544,6 +547,11 @@ function applyPainter() {
     }
   });
   ed.view.dispatch(tr);
+  if (painter.list) {                          // the list format: the selected items get it (a new list if needed)
+    const L = painter.list;
+    if (!ed.isActive(L.type)) ed.chain().focus()[L.type === 'bulletList' ? 'toggleBulletList' : 'toggleOrderedList']().run();
+    applyListAttrs(L.type, { ...L.attrs });
+  }
   painter = null; document.body.classList.remove('painting'); updateToolbar();
 }
 editor.view.dom.addEventListener('mouseup', () => { if (painter) setTimeout(applyPainter, 0); });
@@ -1220,8 +1228,14 @@ function openMath(pos, node) {
   let tex = node ? node.attrs.tex : '';
   if (!node && !sel.empty) tex = editor.state.doc.textBetween(sel.from, sel.to, ' ');
   const finish = () => { if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true }); };
+  // the preview shows the formula in the font it will really have there
+  let look;
+  try {
+    if (node) look = lookOf(node, editor.view.nodeDOM(pos));
+    else { const d = editor.view.domAtPos(sel.from), el = d.node.nodeType === 1 ? d.node : d.node.parentElement; look = lookAtDom(el, marksAt(editor.state).some(m => m.type.name === 'bold')); }
+  } catch (e) { look = null; }
   openMathEditor({
-    tex, editing: !!node, top: $('#app').getBoundingClientRect().bottom + 10, wrap: node ? !!node.attrs.wrap : true,
+    tex, editing: !!node, look, top: $('#app').getBoundingClientRect().bottom + 10, wrap: node ? !!node.attrs.wrap : true,
     onApply: (t, wrap) => {
       if (t == null) return finish();
       if (editPos != null) {

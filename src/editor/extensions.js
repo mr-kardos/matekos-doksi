@@ -355,6 +355,14 @@ export function lookOf(n, dom) {
   if (font === 'bonum') font = null;
   return { font, bold: base.bold || (parseInt(cs.fontWeight, 10) || 400) >= 600 };
 }
+/** The look a formula gets at a place in the text (element there): font of the text, bold. */
+export function lookAtDom(el, bold = false) {
+  if (!el) return { font: docMathFont === 'bonum' ? null : docMathFont, bold };
+  const cs = getComputedStyle(el);
+  let font = mathFontFromCSS(cs.fontFamily) || docMathFont;
+  if (font === 'bonum') font = null;
+  return { font, bold: bold || (parseInt(cs.fontWeight, 10) || 400) >= 600 };
+}
 /** Formatting a new formula takes over: the marks in effect at the cursor (bold, colour, size, font…). */
 export const marksAt = state => (state.storedMarks || state.selection.$from.marks()).filter(m => !['link', 'code'].includes(m.type.name));
 const DOLLAR_RE = /(\\?)\$\$([^$]+?)\$\$|(\\?)\$([^$\s](?:[^$]*?[^$\s\\])?)\$|\\\((.+?)\\\)|\\\[(.+?)\\\]/g;
@@ -656,9 +664,14 @@ export const KvImage = Node.create({
         const v = view(), scale = ext.options.getScale() || 1;
         const r0 = dom.getBoundingClientRect(), ox = e.clientX - r0.left, oy = e.clientY - r0.top;
         const sx = e.clientX, sy = e.clientY;
-        let ghost = null, ind = null;
+        let ghost = null, ind = null, last = { clientX: e.clientX, clientY: e.clientY };
         const wrapped = cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr';
+        // the system's own drag & drop must not take over while the picture is being moved (it would swallow the drop)
+        const noNative = ev => ev.preventDefault();
+        document.addEventListener('dragstart', noNative, true);
+        try { if (e.target && e.target.setPointerCapture && e.pointerId != null) e.target.setPointerCapture(e.pointerId); } catch (err) { /* not capturable */ }
         const mv = ev => {
+          last = { clientX: ev.clientX, clientY: ev.clientY };
           if (!ghost) {
             if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
             ghost = img.cloneNode(); ghost.className = 'img-ghost';
@@ -676,10 +689,14 @@ export const KvImage = Node.create({
           const ws = document.getElementById('ws');
           if (ws) { const wr = ws.getBoundingClientRect(); if (ev.clientY < wr.top + 40) ws.scrollTop -= 14; else if (ev.clientY > wr.bottom - 40) ws.scrollTop += 14; }
         };
-        const up = ev => {
+        const up = ev0 => {
           removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+          document.removeEventListener('dragstart', noNative, true);
           dom.classList.remove('moving');
           if (!ghost) return;
+          // a cancelled pointer (e.g. the system started a drag anyway): place it where the mouse last was
+          const ev = ev0.type === 'pointercancel' ? { ...last, type: 'pointerup' } : ev0;
+          if (ev0.type === 'pointercancel') { ghost.style.left = (last.clientX - ox) + 'px'; ghost.style.top = (last.clientY - oy) + 'px'; }
           ext.options.onChange && ext.options.onChange();
           const gr = ghost.getBoundingClientRect();
           ghost.remove(); if (ind) ind.remove();

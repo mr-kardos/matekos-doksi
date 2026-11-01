@@ -104,6 +104,7 @@ const CATS = [
 ];
 /* ---- the dialog ---- */
 let dlg, mf, texBox, prev, onApply = null, onDelete = null, cats, palette, curCat = 'fav', dragging = null;
+let prevLook = { font: null, bold: false };   // the font / weight the formula will really have in the text
 /* favourites: chosen palette buttons, kept by the app (for every presentation); first start: the old quick buttons */
 const FAV_KEY = 'matekosdoksi.mathFav';
 let favMode = false;
@@ -126,7 +127,7 @@ function cleanTex() { return (mf.getValue('latex-without-placeholders') || '').t
 function syncFromField() {
   if (document.activeElement !== texBox) texBox.value = mf.value;
   const t = mf.value.replace(/\\placeholder\{\}/g, '\\square ');
-  if (t.trim()) renderInto(prev, t, false); else prev.innerHTML = '<span class="mph">A végleges képlet (Bonum betűkkel) itt jelenik meg</span>';
+  if (t.trim()) renderInto(prev, t, false, undefined, prevLook.bold, false, prevLook.font); else prev.innerHTML = '<span class="mph">A végleges képlet itt jelenik meg – ugyanazzal a betűtípussal, mint a szövegben</span>';
 }
 function markPlaceholders() {
   const root = mf.shadowRoot; if (!root) return;
@@ -309,7 +310,8 @@ function apply() { const a = onApply, t = cleanTex(), w = dlg.querySelector('#md
 /**
  * Open the editor. onApply(tex) is called with the final TeX ('' = empty), or null when cancelled.
  */
-export function openMathEditor({ tex = '', editing = false, top = 80, wrap = false, onApply: ok, onDelete: del }) {
+export function openMathEditor({ tex = '', editing = false, top = 80, wrap = false, look = null, onApply: ok, onDelete: del }) {
+  prevLook = look || { font: null, bold: false };
   if (!dlg) build();
   dlg.querySelector('#mdWrap').checked = !!wrap;
   onApply = ok; onDelete = del;
