@@ -229,3 +229,9 @@ tools/                font verification
 - The wrapping is worked out again whenever the layout changes (fonts and formulas drawn later), not only on edits.
 - Red selection frames for pictures and free tables, red dashed invisible table lines; the table's move handle above the
   column selectors. Pictures resize from the dragged corner (the opposite corner stays) and never past the page margins.
+
+## 0.9.0
+- Pictures: „Szöveg mögött” mode (Ctrl/⌘ + click selects such a picture).
+- Wrapping: objects lying on each other count as one (one margin); only the lines beside an object make room, and the
+  paragraph indents do not count there; list symbols keep clear of the object.
+- Arrow keys step over a free table. A list item with all-bold text gets a bold number / symbol.

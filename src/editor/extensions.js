@@ -169,6 +169,10 @@ export const ListMarkers = Extension.create({
                 size: child.attrs.bulletImage ? (child.attrs.bulletSize || 0.9) : 0.7
               };
               const here = idx === 0 && carry ? carry : [];
+              // all the text of the item's first line bold -> the symbol bold too
+              let allBold = false;
+              if (first && first.isTextblock && first.textContent.trim()) { allBold = true; first.descendants(c => { if (c.isText && c.text.trim() && !c.marks.some(m => m.type.name === 'bold')) allBold = false; }); }
+              mk.bold = allBold;
               // an item that starts with an empty line and a list: the nested list's first item shares the line
               const sameLine = !!item.attrs.sameLine && first && first.isTextblock && !first.content.size && item.childCount > 1 && /List$/.test(item.child(1).type.name);
               if (sameLine) {
@@ -181,13 +185,13 @@ export const ListMarkers = Extension.create({
                 for (const m of [{ ...mk, up: 0 }, ...here]) {
                   decos.push(Decoration.widget(ipos + 2, () => {
                     const s = document.createElement('span');
-                    s.className = 'lm' + (m.up ? ' lm-up' : '');
+                    s.className = 'lm' + (m.up ? ' lm-up' : '') + (m.bold ? ' lm-b' : '');
                     if (m.up) s.style.setProperty('--up', m.up);
                     s.contentEditable = 'false';
                     if (m.img) { const im = document.createElement('img'); im.src = m.img; im.alt = ''; im.style.height = m.size + 'em'; s.appendChild(im); }
                     else s.textContent = m.text;
                     return s;
-                  }, { side: -1, key: m.key + '|' + m.up, ignoreSelection: true }));
+                  }, { side: -1, key: m.key + '|' + m.up + (m.bold ? 'b' : ''), ignoreSelection: true }));
                 }
               }
               walk(item, ipos, depth + 1, null);
@@ -686,7 +690,7 @@ export const KvImage = Node.create({
       img.draggable = false;
       dom.appendChild(img);
       const paint = () => {
-        dom.className = 'imgw ' + (cur.attrs.pin ? 'pinned' + (cur.attrs.wrap === 'over' ? ' over' : '') : (cur.attrs.wrap || 'wl')) + (selected ? ' ProseMirror-selectednode' : '');
+        dom.className = 'imgw ' + (cur.attrs.pin ? 'pinned' + (cur.attrs.wrap === 'over' ? ' over' : cur.attrs.wrap === 'under' ? ' under' : '') : (cur.attrs.wrap || 'wl')) + (selected ? ' ProseMirror-selectednode' : '');
         if (img.getAttribute('src') !== cur.attrs.src) img.src = cur.attrs.src;
         img.alt = cur.attrs.alt || '';
         dom.style.cssText = cur.attrs.pin ? (cur.attrs.width ? `width:${cur.attrs.width}px` : '') : imgStyle(cur.attrs);
@@ -753,7 +757,7 @@ export const KvImage = Node.create({
         const r0 = dom.getBoundingClientRect(), ox = e.clientX - r0.left, oy = e.clientY - r0.top;
         const sx = e.clientX, sy = e.clientY;
         let ghost = null, ind = null, last = { clientX: e.clientX, clientY: e.clientY };
-        const wrapped = cur.attrs.pin || cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr' || cur.attrs.wrap === 'over';
+        const wrapped = cur.attrs.pin || cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr' || cur.attrs.wrap === 'over' || cur.attrs.wrap === 'under';
         // the system's own drag & drop must not take over while the picture is being moved (it would swallow the drop)
         const noNative = ev => ev.preventDefault();
         document.addEventListener('dragstart', noNative, true);
@@ -899,7 +903,7 @@ export const KvImage = Node.create({
         img, move, resize, node: () => cur,
         // an older wrapped picture (text-anchored float): becomes freely placed where it is now
         pinHere: () => {
-          if (cur.attrs.pin || !(cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr' || cur.attrs.wrap === 'over') || !ext.options.pageBox) return;
+          if (cur.attrs.pin || !(cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr' || cur.attrs.wrap === 'over' || cur.attrs.wrap === 'under') || !ext.options.pageBox) return;
           const r = dom.getBoundingClientRect(); if (!r.width) return;
           const bx = ext.options.pageBox(r.top + 1), sc = ext.options.getScale() || 1, pos = getPos();
           if (!bx || typeof pos !== 'number') return;
@@ -909,7 +913,7 @@ export const KvImage = Node.create({
         },
         setWrap: w => {
           // text wrapping: the picture is placed freely at its present place on the page (left / right edge of the text)
-          if ((w === 'wl' || w === 'wr' || w === 'over') && ext.options.pageBox) {
+          if ((w === 'wl' || w === 'wr' || w === 'over' || w === 'under') && ext.options.pageBox) {
             const r = dom.getBoundingClientRect(), bx = ext.options.pageBox(r.top + 1), sc = ext.options.getScale() || 1;
             if (bx) {
               const px = w === 'wl' ? 0 : Math.max(0, (bx.right - bx.left - r.width) / sc);

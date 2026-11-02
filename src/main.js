@@ -92,10 +92,34 @@ const editor = new Editor({
   content: '<p></p>',
   editorProps: {
     attributes: { spellcheck: 'false', lang: 'hu', class: 'docbody' },
+    handleKeyDown: (view, e) => {
+      if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.shiftKey || !view.state.selection.empty) return false;
+      const down = e.key === 'ArrowDown';
+      if (!view.endOfTextblock(down ? 'down' : 'up')) return false;
+      const $f = view.state.selection.$from; if ($f.depth < 1) return false;
+      let p = down ? $f.after(1) : $f.before(1), skipped = false;
+      for (;;) {
+        const n = down ? view.state.doc.nodeAt(p) : view.state.doc.resolve(p).nodeBefore;
+        if (!n || n.type.name !== 'table' || !n.attrs.pin) break;
+        p = down ? p + n.nodeSize : p - n.nodeSize; skipped = true;
+      }
+      if (!skipped) return false;
+      try { view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(p), down ? 1 : -1)).scrollIntoView()); } catch (err) { return false; }
+      return true;
+    },
     handleDOMEvents: {
       // Paragraphs with line-breaking formulas: the browser cannot place the cursor or extend a selection
       // across them (they are inline, not boxes) – there the editor places cursor and selection itself.
       mousedown: (view, e) => {
+        if (e.button === 0 && (e.ctrlKey || e.metaKey)) {            // a picture behind the text: Ctrl/⌘ + click selects it
+          const under = [...view.dom.querySelectorAll('.imgw.under')].find(el => { const r = el.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; });
+          if (under) {
+            e.preventDefault();
+            let at = null; view.state.doc.descendants((n, p) => { if (at == null && n.type.name === 'image' && view.nodeDOM(p) === under) at = p; });
+            if (at != null) view.dispatch(view.state.tr.setSelection(NodeSelection.create(view.state.doc, at)));
+            return true;
+          }
+        }
         if (e.button !== 0 || e.detail > 1 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return false;
         const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
         if (!t || t.closest('.math,.imgw,.lm')) return false;
@@ -211,8 +235,21 @@ function lineAtY(y, skipEl) {
       while (lo < hi) { const mid = (lo + hi) >> 1; rg.setStart(t, mid); rg.setEnd(t, mid + 1); const q = rg.getClientRects(); const cr = q[q.length - 1]; if (cr && cr.bottom > y) hi = mid; else lo = mid + 1; }
       // back to the start of that line
       rg.setStart(t, lo); rg.setEnd(t, lo + 1); const top0 = rg.getBoundingClientRect().top;
-      let s0 = lo; while (s0 > 0) { rg.setStart(t, s0 - 1); rg.setEnd(t, s0); if (Math.abs(rg.getBoundingClientRect().top - top0) > 2) break; s0--; }
-      try { return { pos: view.posAtDOM(t, s0), top: top0 }; } catch (e) { return null; }
+      let s0 = lo, tn = t; while (s0 > 0) { rg.setStart(tn, s0 - 1); rg.setEnd(tn, s0); if (Math.abs(rg.getBoundingClientRect().top - top0) > 2) break; s0--; }
+      // the line may begin in an earlier text piece (marks, spell-check underlines split the text)
+      if (s0 === 0) {
+        const back = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, { acceptNode: x => x.parentElement.closest('.lm,.math,.pin-sp,.pg-sp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+        back.currentNode = tn;
+        while (back.previousNode()) {
+          const pt = back.currentNode; if (!pt.data.length) continue;
+          rg.setStart(pt, pt.data.length - 1); rg.setEnd(pt, pt.data.length);
+          if (Math.abs(rg.getBoundingClientRect().top - top0) > 2) break;
+          tn = pt; s0 = pt.data.length - 1;
+          while (s0 > 0) { rg.setStart(tn, s0 - 1); rg.setEnd(tn, s0); if (Math.abs(rg.getBoundingClientRect().top - top0) > 2) break; s0--; }
+          if (s0 > 0) break;
+        }
+      }
+      try { return { pos: view.posAtDOM(tn, s0), top: top0 }; } catch (e) { return null; }
     }
     try { return { pos: view.posAtDOM(b, 0), top: br.top + pt }; } catch (e) { return null; }
   }
@@ -239,36 +276,37 @@ function updatePins() {
   if (inputs === pinInputs && pinRounds >= 2) return;                // at most twice per change: their own effect on the layout must not start new rounds
   if (inputs !== pinInputs) { pinInputs = inputs; pinRounds = 0; pinLast = []; }
   pinRounds++;
-  // 2. invisible floats in the text beside each of them (text on the side with more room) – measured on the text
-  //    without the present floats (they would move the very lines they are anchored to)
+  // 2. invisible floats in the text beside them (text on the side with more room) – measured on the text without the
+  //    present floats (they would move the very lines they are anchored to). Objects lying on each other count as
+  //    one (their outer outline, one margin); only the lines beside them make room, whatever the paragraph indents.
   const gap = (tpl.imgGap ?? 4) * MM, specs = [];
   const old = [...dom.querySelectorAll('.pin-sp')]; for (const o of old) o.style.display = 'none';
-  for (const [ei, el] of els.entries()) {
-    const r = el.getBoundingClientRect();
-    if (!r.width || !r.height || el.classList.contains('over')) continue;      // over the text: nothing to keep clear
+  const boxes = els.filter(el => !el.classList.contains('over') && !el.classList.contains('under')).map(el => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, el }; }).filter(x => x.r > x.l && x.b > x.t);
+  const groups = [];
+  for (const bx of boxes.sort((p, q) => p.t - q.t)) {
+    const gp = gap * scale, hit = groups.find(G => bx.l < G.r + gp && bx.r > G.l - gp && bx.t < G.b + gp && bx.b > G.t - gp);
+    if (hit) { hit.l = Math.min(hit.l, bx.l); hit.r = Math.max(hit.r, bx.r); hit.t = Math.min(hit.t, bx.t); hit.b = Math.max(hit.b, bx.b); hit.els.push(bx.el); }
+    else groups.push({ ...bx, els: [bx.el] });
+  }
+  for (const [ei, G] of groups.entries()) {
     const keepOld = () => { if (pinRounds > 1 && pinLast[ei]) specs.push(pinLast[ei]); };   // a second round never takes a float away
-    const textLeft = (r.left - er.left) >= (er.right - r.right);
+    const textLeft = (G.l - er.left) >= (er.right - G.r);
     const side = textLeft ? 'right' : 'left';
-    const w = textLeft ? (er.right - r.left) / scale + gap : (r.right - er.left) / scale + gap;
-    // the first text line at the element's top edge (measured from the layout itself – works off screen too)
-    const found = lineAtY(r.top + 1, el);
+    const found = lineAtY(G.t + 1, null);
     let pos = found ? found.pos : null, lineTop = found ? found.top : null;
-    // in a list: list items are closed boxes (their symbols keep clear of pictures), a float inside one would not
-    // reach the next items – so the float goes before the outermost item, and the whole item makes room
-    if (pos != null) {
-      const $p = editor.view.state.doc.resolve(pos);
-      for (let d = 1; d <= $p.depth; d++) if ($p.node(d).type.name === 'listItem') {
-        const liPos = $p.before(d), liDom = editor.view.nodeDOM(liPos);
-        if (liDom) { pos = liPos; lineTop = liDom.getBoundingClientRect().top; }
-        // the first item of the list: before the whole list (where a page break would also go)
-        if ($p.index(d - 1) === 0) { const lp = $p.before(d - 1); if (editor.view.nodeDOM(lp)) pos = lp; }
-        break;
-      }
-    }
-    if (pos == null || lineTop >= r.bottom) { keepOld(); continue; }         // no text beside it
-    const dy = Math.max(0, (r.top - lineTop) / scale), h = (r.bottom - Math.max(r.top, lineTop)) / scale + gap;
+    if (pos == null || lineTop >= G.b) { keepOld(); continue; }             // no text beside it
+    // the float sits in the paragraph of that line: its width is measured from that paragraph's own edge, so the text
+    // beside the object starts right at the object's margin (the paragraph's indent does not count there)
+    let blk = null; try { const d = editor.view.domAtPos(pos); blk = (d.node.nodeType === 1 ? d.node : d.node.parentElement).closest('p,h1,h2,h3'); } catch (e) { blk = null; }
+    if (!blk) { keepOld(); continue; }
+    const br = blk.getBoundingClientRect(), bcs = getComputedStyle(blk);
+    const cbL = br.left + (parseFloat(bcs.paddingLeft) || 0), cbR = br.right - (parseFloat(bcs.paddingRight) || 0);
+    const li = blk.closest('li'), markRoom = li ? (parseFloat(getComputedStyle(li).paddingLeft) || 0) * scale : 0;   // list symbols stay clear of the object
+    const wPx = textLeft ? cbR - (G.l - gap * scale) : (G.r + gap * scale) - cbL + markRoom;
+    if (wPx <= 1) { keepOld(); continue; }
+    const w = wPx / scale;
+    const dy = Math.max(0, (G.t - lineTop) / scale), h = (G.b - Math.max(G.t, lineTop)) / scale + gap;
     // a line at the very top of a page comes after a page break: the float must come after that break too
-    // (otherwise it would stay at the end of the previous page); elsewhere it goes before any later break
     const sr0 = stack.getBoundingClientRect(), pgOf = Math.floor((lineTop - sr0.top) / scale / g.P);
     const atPageTop = (lineTop - (sr0.top + g.contentTop(pgOf) * scale)) / scale < 24;
     const sp = { pos, side, after: atPageTop, w: Math.round(w), h: Math.round(h), dy: Math.round(dy), key: `pin${pos}${side}${atPageTop ? 'a' : 'b'}${Math.round(w)}x${Math.round(h)}+${Math.round(dy)}` };

@@ -95,7 +95,7 @@ button,input,select,textarea{ font-family:inherit; }
 .ProseMirror .shaded{ background:none !important; }   /* drawn as margin-to-margin bands (shading.js) */
 
 .ProseMirror ul,.ProseMirror ol{ margin:0; padding:0; list-style:none; }
-.ProseMirror li{ padding-left:var(--gap,0.8cm); display:flow-root; }   /* beside a picture: symbol and text both keep clear of it */
+.ProseMirror li{ padding-left:var(--gap,0.8cm); }   /* beside a free picture the text gets extra room for the symbol (see the wrapping floats) */
 .ProseMirror li{ position:relative; }
 .ProseMirror li > p{ --sa:2pt; }
 .ProseMirror li:last-child > p:last-child{ --sa:var(--after,6pt); }

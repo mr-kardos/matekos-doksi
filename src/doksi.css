@@ -467,3 +467,8 @@ body.painting .ProseMirror{ cursor:copy; }
 #tblHandles .th-btn.mv{ width:calc(24px*var(--inv)); height:calc(24px*var(--inv)); border-radius:50%; background:#da291c; color:#fff; border:0; display:grid; place-items:center; cursor:move; box-shadow:0 1px 4px rgba(0,0,0,.3); }
 #tblHandles .th-btn.mv svg{ width:calc(15px*var(--inv)); height:calc(15px*var(--inv)); }
 #tableBar [data-talign]:disabled{ opacity:.35; pointer-events:none; }
+
+/* a picture behind the text: below the lines (the text runs over it) */
+.ProseMirror .imgw.pinned.under{ z-index:-1; }
+/* list symbol of an all-bold item */
+.lm.lm-b{ font-weight:700; }
