@@ -235,7 +235,7 @@ function updatePins() {
   }
   // the floats are worked out again only when the text or a pinned element changed (at most twice per change) –
   // their own effect on the layout must not start a new round
-  const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)].join(',')).join('|') + ':' + docVersion) : '';
+  const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)].join(',')).join('|') + ':' + docVersion + ':' + pageCount + ':' + Math.round(dom.scrollHeight / 4)) : '';   // also when the layout changed (fonts, formulas drawn later)
   if (inputs === pinInputs && pinRounds >= 2) return;                // at most twice per change: their own effect on the layout must not start new rounds
   if (inputs !== pinInputs) { pinInputs = inputs; pinRounds = 0; pinLast = []; }
   pinRounds++;
@@ -267,7 +267,11 @@ function updatePins() {
     }
     if (pos == null || lineTop >= r.bottom) { keepOld(); continue; }         // no text beside it
     const dy = Math.max(0, (r.top - lineTop) / scale), h = (r.bottom - Math.max(r.top, lineTop)) / scale + gap;
-    const sp = { pos, side, w: Math.round(w), h: Math.round(h), dy: Math.round(dy), key: `pin${pos}${side}${Math.round(w)}x${Math.round(h)}+${Math.round(dy)}` };
+    // a line at the very top of a page comes after a page break: the float must come after that break too
+    // (otherwise it would stay at the end of the previous page); elsewhere it goes before any later break
+    const sr0 = stack.getBoundingClientRect(), pgOf = Math.floor((lineTop - sr0.top) / scale / g.P);
+    const atPageTop = (lineTop - (sr0.top + g.contentTop(pgOf) * scale)) / scale < 24;
+    const sp = { pos, side, after: atPageTop, w: Math.round(w), h: Math.round(h), dy: Math.round(dy), key: `pin${pos}${side}${atPageTop ? 'a' : 'b'}${Math.round(w)}x${Math.round(h)}+${Math.round(dy)}` };
     if (pinRounds > 1 && pinLast[ei]) { specs.push(pinLast[ei]); continue; }   // second round: keep the first one (no flip-flop)
     specs.push(sp); pinLast[ei] = sp;
   }
@@ -443,7 +447,7 @@ function drawTableHandles() {
   if (table.attrs.pin) {
     const wr = toStack(wrap.getBoundingClientRect());
     h += `<div class="tbl-frame" style="left:${wr.x - 3 * inv}px;top:${wr.y - 3 * inv}px;width:${wr.w + 6 * inv}px;height:${wr.h + 6 * inv}px"></div>`
-      + `<button class="th-btn mv" data-ts="move" title="A táblázat áthelyezése (húzd)" style="left:${wr.x + wr.w / 2 - 12 * inv}px;top:${wr.y - 3 * inv - 26 * inv}px">${svg('move')}</button>`;
+      + `<button class="th-btn mv" data-ts="move" title="A táblázat áthelyezése (húzd)" style="left:${wr.x + wr.w / 2 - 12 * inv}px;top:${wr.y - gapY - 32 * inv}px">${svg('move')}</button>`;   // above the column selectors
   }
   if (layer._key !== h) { layer.innerHTML = h; layer._key = h; }
 }

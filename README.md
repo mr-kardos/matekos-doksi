@@ -223,3 +223,9 @@ tools/                font verification
   (free, the text does not make way).
 - Free tables: selection frame with the move handle at the top centre, own width (60 % unless set), horizontal
   moving, text wraps beside them; table alignment is switched off in this mode.
+
+## 0.8.9
+- Free pictures / tables at the top of a page: the text wraps there too (the invisible float comes after the page break).
+- The wrapping is worked out again whenever the layout changes (fonts and formulas drawn later), not only on edits.
+- Red selection frames for pictures and free tables, red dashed invisible table lines; the table's move handle above the
+  column selectors. Pictures resize from the dragged corner (the opposite corner stays) and never past the page margins.

@@ -5,8 +5,8 @@
 :root{ --accent:#da291c; --accent-soft:#fbe3e1; --on-accent:#ffffff; --sel:#da291c; --selbg:rgba(47,111,219,.28); }
 :root[data-theme="dark"]{ --accent:#ff7a6e; --accent-soft:#4a2421; --on-accent:#1a0d0c; --sel:#ff7a6e; }
 /* picture frame / table selectors keep the blue selection colour of the document */
-#imgFrame{ outline-color:#2f6fdb; }
-#imgFrame .ih{ border-color:#2f6fdb; }
+#imgFrame{ outline-color:#da291c; }
+#imgFrame .ih{ border-color:#da291c; }
 .th-btn.on{ background:#2f6fdb; border-color:#2f6fdb; }
 input[type=checkbox], input[type=radio]{ accent-color:var(--accent); }
 
@@ -458,12 +458,12 @@ body.painting .ProseMirror{ cursor:copy; }
 #tblHandles .th-btn.mv{ cursor:move; font-size:calc(12px*var(--inv)); }
 
 /* the table being worked in: its invisible borders as dashed lines (not printed, not in the PDF) */
-.ProseMirror .tbl-active td[data-bw="0"], .ProseMirror .tbl-active th[data-bw="0"]{ outline:1px dashed rgba(47,111,219,.7); outline-offset:-1px; }
+.ProseMirror .tbl-active td[data-bw="0"], .ProseMirror .tbl-active th[data-bw="0"]{ outline:1px dashed rgba(218,41,28,.75); outline-offset:-1px; }
 
 /* a picture over the text: the text does not make way */
 .ProseMirror .imgw.pinned.over{ z-index:5; }
 /* free table: selection frame with the move handle at the top centre (as in Matekos Prezi) */
-#tblHandles .tbl-frame{ position:absolute; border:calc(1.5px*var(--inv)) solid #2f6fdb; border-radius:calc(3px*var(--inv)); pointer-events:none; }
-#tblHandles .th-btn.mv{ width:calc(24px*var(--inv)); height:calc(24px*var(--inv)); border-radius:50%; background:#2f6fdb; color:#fff; border:0; display:grid; place-items:center; cursor:move; box-shadow:0 1px 4px rgba(0,0,0,.3); }
+#tblHandles .tbl-frame{ position:absolute; border:calc(1.5px*var(--inv)) solid #da291c; border-radius:calc(3px*var(--inv)); pointer-events:none; }
+#tblHandles .th-btn.mv{ width:calc(24px*var(--inv)); height:calc(24px*var(--inv)); border-radius:50%; background:#da291c; color:#fff; border:0; display:grid; place-items:center; cursor:move; box-shadow:0 1px 4px rgba(0,0,0,.3); }
 #tblHandles .th-btn.mv svg{ width:calc(15px*var(--inv)); height:calc(15px*var(--inv)); }
 #tableBar [data-talign]:disabled{ opacity:.35; pointer-events:none; }

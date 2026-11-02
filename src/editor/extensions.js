@@ -641,7 +641,7 @@ export function setPinSpacers(view, specs) {
     d.className = 'pin-sp'; d.contentEditable = 'false';
     d.style.cssText = `float:${sp.side};width:${sp.w}px;height:${sp.h}px;margin-top:${sp.dy}px;`;
     return d;
-  }, { side: -2, key: sp.key, ignoreSelection: true }));     // before a page-break spacer at the same place: it stays on its page
+  }, { side: sp.after ? 0 : -2, key: sp.key, ignoreSelection: true }));   // before / after a page-break spacer at the same place
   view.dispatch(view.state.tr.setMeta(pinKey, DecorationSet.create(view.state.doc, decos)).setMeta('addToHistory', false));
 }
 
@@ -706,22 +706,43 @@ export const KvImage = Node.create({
       });
       const setAttrs = attrs => { const pos = getPos(); if (typeof pos === 'number') view().dispatch(view().state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, ...attrs })); };
       const reselect = () => { const p = getPos(); if (typeof p === 'number') view().dispatch(view().state.tr.setSelection(NodeSelection.create(view().state.doc, p))); };
-      // corner handles: resize (keeps proportions)
+      // corner handles: resize (keeps proportions); the opposite corner stays where it is, and a free picture
+      // never grows beyond the page margins
       const resize = (e, h, size) => {
         const scale = ext.options.getScale() || 1;
-        const sx = e.clientX, startW = dom.getBoundingClientRect().width / scale, sign = h.includes('e') ? 1 : -1;
-        const maxW = view().dom.clientWidth;
+        const r0 = dom.getBoundingClientRect(), sx = e.clientX, startW = r0.width / scale, ratio = r0.height / (r0.width || 1);
+        const east = h.includes('e'), south = h.includes('s'), sign = east ? 1 : -1;
+        const pinned = !!cur.attrs.pin && ext.options.pageBox;
+        const bx = pinned ? ext.options.pageBox(r0.top + 1) : null;
+        // room towards the dragged corner (from the fixed corner to the margin)
+        let maxW = view().dom.clientWidth;
+        if (bx) {
+          const roomX = (east ? bx.right - r0.left : r0.right - bx.left) / scale;
+          const roomY = (south ? bx.bottom - r0.top : r0.bottom - bx.top) / scale / (ratio || 1);
+          maxW = Math.max(16, Math.floor(Math.min(roomX, roomY)));
+        }
+        const fixL = r0.left, fixR = r0.right, fixT = r0.top, fixB = r0.bottom;
         let w = startW;
         const mv = ev => {
-          w = Math.max(16, Math.min(maxW, startW + sign * (ev.clientX - sx) / scale));
+          w = Math.max(16, Math.min(maxW, startW + sign * (ev.clientX - sx) / scale)); if (bx) w = Math.floor(w);
           dom.style.width = Math.round(w) + 'px';
+          if (bx) {                           // keep the fixed corner in place while dragging
+            const hNew = w * ratio;
+            const left = east ? fixL : fixR - w * scale, top = south ? fixT : fixB - hNew * scale;
+            dom.style.left = (parseFloat(dom.style.left) || 0) + (left - dom.getBoundingClientRect().left) / scale + 'px';
+            dom.style.top = (parseFloat(dom.style.top) || 0) + (top - dom.getBoundingClientRect().top) / scale + 'px';
+          }
           if (size) size.textContent = Math.round(w / (96 / 25.4)) + ' mm';
           ext.options.onChange && ext.options.onChange();
         };
         const up = () => {
           removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
           if (size) size.textContent = '';
-          setAttrs({ width: Math.round(w) }); reselect();
+          if (bx) {
+            const r = dom.getBoundingClientRect();
+            setAttrs({ width: Math.round(w), px: Math.round((r.left - bx.left) / scale * 10) / 10, py: Math.round((r.top - bx.top) / scale * 10) / 10, pg: bx.page });
+          } else setAttrs({ width: Math.round(w) });
+          reselect();
         };
         addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
       };
