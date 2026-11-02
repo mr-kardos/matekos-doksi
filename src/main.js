@@ -222,7 +222,7 @@ function pinsSoon() { if (!pinRaf) pinRaf = requestAnimationFrame(() => { pinRaf
 function updatePins() {
   const dom = editor.view.dom, g = geometry(tpl), er = dom.getBoundingClientRect();
   // 0. pictures wrapped the older way (anchored in the text) become freely placed where they are
-  const legacy = [...dom.querySelectorAll('.imgw.wl, .imgw.wr')].filter(el => el._kv && !el.classList.contains('pinned'));
+  const legacy = [...dom.querySelectorAll('.imgw.wl, .imgw.wr, .imgw.over')].filter(el => el._kv && !el.classList.contains('pinned'));
   if (legacy.length) { for (const el of legacy) el._kv.pinHere(); return; }       // the change brings us back here
   const els = [...dom.querySelectorAll('.pinned')];
   // 1. exact place: correct for whatever box the element is measured from
@@ -245,7 +245,7 @@ function updatePins() {
   const old = [...dom.querySelectorAll('.pin-sp')]; for (const o of old) o.style.display = 'none';
   for (const [ei, el] of els.entries()) {
     const r = el.getBoundingClientRect();
-    if (!r.width || !r.height) continue;
+    if (!r.width || !r.height || el.classList.contains('over')) continue;      // over the text: nothing to keep clear
     const keepOld = () => { if (pinRounds > 1 && pinLast[ei]) specs.push(pinLast[ei]); };   // a second round never takes a float away
     const textLeft = (r.left - er.left) >= (er.right - r.right);
     const side = textLeft ? 'right' : 'left';
@@ -395,7 +395,7 @@ function drawImgFrame() {
   if (!d) { f.hidden = true; return; }
   const r = toStack(d._kv.img.getBoundingClientRect());
   Object.assign(f.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
-  const w = d._kv.node().attrs.wrap;
+  const w0 = d._kv.node().attrs.wrap, w = w0 === 'wr' ? 'wl' : w0;
   for (const b of f.querySelectorAll('[data-wrap]')) b.classList.toggle('on', b.dataset.wrap === w);
   f.hidden = false;
 }
@@ -440,7 +440,11 @@ function drawTableHandles() {
   let h = `<button class="th-btn${allOn ? ' on' : ''}" data-ts="all" title="A teljes táblázat kijelölése" style="left:${tr.x - gapX}px;top:${tr.y - gapY}px">◢</button>`;
   cols.forEach((r, i) => { if (r) h += `<button class="th-btn${colOn(i) ? ' on' : ''}" data-ts="col" data-i="${i}" title="Oszlop kijelölése" style="left:${r.x + r.w / 2 - 8 * inv}px;top:${tr.y - gapY}px">▼</button>`; });
   rows.forEach((r, i) => { if (r && r.h > 0) h += `<button class="th-btn row${rowOn(i) ? ' on' : ''}" data-ts="row" data-i="${i}" title="Sor kijelölése" style="left:${tr.x - gapX}px;top:${r.y + r.h / 2 - 8 * inv}px">▶</button>`; });
-  if (table.attrs.pin) h += `<button class="th-btn mv" data-ts="move" title="A táblázat áthelyezése (húzd)" style="left:${tr.x + tr.w - 16 * inv}px;top:${tr.y - gapY}px">✥</button>`;
+  if (table.attrs.pin) {
+    const wr = toStack(wrap.getBoundingClientRect());
+    h += `<div class="tbl-frame" style="left:${wr.x - 3 * inv}px;top:${wr.y - 3 * inv}px;width:${wr.w + 6 * inv}px;height:${wr.h + 6 * inv}px"></div>`
+      + `<button class="th-btn mv" data-ts="move" title="A táblázat áthelyezése (húzd)" style="left:${wr.x + wr.w / 2 - 12 * inv}px;top:${wr.y - 3 * inv - 26 * inv}px">${svg('move')}</button>`;
+  }
   if (layer._key !== h) { layer.innerHTML = h; layer._key = h; }
 }
 function selectTableRange(r0, c0, r1, c1) {
@@ -483,8 +487,9 @@ function toggleTablePin() {
   const wrap = editor.view.nodeDOM(c.pos);
   if (c.table.attrs.pin) { editor.view.dispatch(editor.state.tr.setNodeMarkup(c.pos, undefined, { ...c.table.attrs, pin: false })); return; }
   const r = wrap.getBoundingClientRect(), bx = editor.extensionManager.extensions.find(x => x.name === 'image').options.pageBox(r.top + 1); if (!bx) return;
-  editor.view.dispatch(editor.state.tr.setNodeMarkup(c.pos, undefined, { ...c.table.attrs, pin: true, pg: bx.page, px: Math.max(0, Math.round((r.left - bx.left) / scale)), py: Math.max(0, Math.round((r.top - bx.top) / scale)) }));
-  toast('A táblázat szabadon mozgatható: húzd a jobb felső sarkánál lévő ✥ fogóval. A szöveg körbefut rajta.');
+  // a free table gets a width of its own (60 % unless it has one), so it can move and text can wrap beside it
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(c.pos, undefined, { ...c.table.attrs, width: c.table.attrs.width && c.table.attrs.width < 100 ? c.table.attrs.width : 60, pin: true, pg: bx.page, px: Math.max(0, Math.round((r.left - bx.left) / scale)), py: Math.max(0, Math.round((r.top - bx.top) / scale)) }));
+  toast('A táblázat szabadon mozgatható: húzd a keret tetején középen lévő fogóval. A szöveg körbefut rajta.');
 }
 $('#tblHandles').addEventListener('mousedown', e => {
   const b = e.target.closest('.th-btn'); if (!b || e.button !== 0) return;
@@ -1181,6 +1186,7 @@ function fillTableFields() {
   if (act !== $('#tpColW')) $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? r1(cell.attrs.colwidth[0] / MM) : (cellDom ? r1(cellDom.getBoundingClientRect().width / scale / MM) : '');
   const ccs = cellDom ? getComputedStyle(cellDom) : null;
   $('#tblPin').classList.toggle('on', !!c.table.attrs.pin);
+  for (const b of $$('#tableBar [data-talign]')) b.disabled = !!c.table.attrs.pin;   // alignment means nothing for a free table
   if (act !== $('#tpPadV')) $('#tpPadV').value = c.table.attrs.padV ?? (ccs ? r1(parseFloat(ccs.paddingTop) / MM) : '');
   if (act !== $('#tpPadH')) $('#tpPadH').value = c.table.attrs.padH ?? (ccs ? r1(parseFloat(ccs.paddingLeft) / MM) : '');
   for (const b of $$('#tableBar [data-talign]')) b.classList.toggle('on', (c.table.attrs.align || 'left') === b.dataset.talign);

@@ -217,3 +217,9 @@ tools/                font verification
   independent of the text, kept inside the margins); the text wraps around them through invisible floats.
   Pictures wrapped the older way are converted automatically.
 - Tables: invisible borders shown dashed while the cursor is in the table.
+
+## 0.8.8
+- Pictures: one „Körbefuttatás” button (the text goes on the side with more room) and a new „Szöveg fölött” mode
+  (free, the text does not make way).
+- Free tables: selection frame with the move handle at the top centre, own width (60 % unless set), horizontal
+  moving, text wraps beside them; table alignment is switched off in this mode.

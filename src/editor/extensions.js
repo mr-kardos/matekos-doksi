@@ -261,8 +261,13 @@ class KvTableView extends TableView {
   update(node) { const ok = super.update(node); if (ok) this.kv(node); return ok; }
   kv(node) {
     const w = node.attrs.width;
-    if (w && (!this.table.style.width || this.table.style.width.endsWith('%'))) this.table.style.width = w + '%';
-    else if (!w && this.table.style.width.endsWith('%')) this.table.style.width = '';
+    if (node.attrs.pin) {                  // free: the frame takes the width (share of the text width), the table fills it
+      this.dom.style.width = (w || 60) + '%'; this.table.style.width = '100%';
+    } else {
+      this.dom.style.width = '';
+      if (w && (!this.table.style.width || this.table.style.width.endsWith('%'))) this.table.style.width = w + '%';
+      else if (!w && this.table.style.width.endsWith('%')) this.table.style.width = '';
+    }
     placePinned(this.dom, node.attrs);
     // cell margins of the whole table (mm): inner space between the cell borders and the text
     if (node.attrs.padV != null) this.table.style.setProperty('--cpv', node.attrs.padV + 'mm'); else this.table.style.removeProperty('--cpv');
@@ -681,7 +686,7 @@ export const KvImage = Node.create({
       img.draggable = false;
       dom.appendChild(img);
       const paint = () => {
-        dom.className = 'imgw ' + (cur.attrs.pin ? 'pinned' : (cur.attrs.wrap || 'wl')) + (selected ? ' ProseMirror-selectednode' : '');
+        dom.className = 'imgw ' + (cur.attrs.pin ? 'pinned' + (cur.attrs.wrap === 'over' ? ' over' : '') : (cur.attrs.wrap || 'wl')) + (selected ? ' ProseMirror-selectednode' : '');
         if (img.getAttribute('src') !== cur.attrs.src) img.src = cur.attrs.src;
         img.alt = cur.attrs.alt || '';
         dom.style.cssText = cur.attrs.pin ? (cur.attrs.width ? `width:${cur.attrs.width}px` : '') : imgStyle(cur.attrs);
@@ -727,7 +732,7 @@ export const KvImage = Node.create({
         const r0 = dom.getBoundingClientRect(), ox = e.clientX - r0.left, oy = e.clientY - r0.top;
         const sx = e.clientX, sy = e.clientY;
         let ghost = null, ind = null, last = { clientX: e.clientX, clientY: e.clientY };
-        const wrapped = cur.attrs.pin || cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr';
+        const wrapped = cur.attrs.pin || cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr' || cur.attrs.wrap === 'over';
         // the system's own drag & drop must not take over while the picture is being moved (it would swallow the drop)
         const noNative = ev => ev.preventDefault();
         document.addEventListener('dragstart', noNative, true);
@@ -873,7 +878,7 @@ export const KvImage = Node.create({
         img, move, resize, node: () => cur,
         // an older wrapped picture (text-anchored float): becomes freely placed where it is now
         pinHere: () => {
-          if (cur.attrs.pin || !(cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr') || !ext.options.pageBox) return;
+          if (cur.attrs.pin || !(cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr' || cur.attrs.wrap === 'over') || !ext.options.pageBox) return;
           const r = dom.getBoundingClientRect(); if (!r.width) return;
           const bx = ext.options.pageBox(r.top + 1), sc = ext.options.getScale() || 1, pos = getPos();
           if (!bx || typeof pos !== 'number') return;
@@ -883,7 +888,7 @@ export const KvImage = Node.create({
         },
         setWrap: w => {
           // text wrapping: the picture is placed freely at its present place on the page (left / right edge of the text)
-          if ((w === 'wl' || w === 'wr') && ext.options.pageBox) {
+          if ((w === 'wl' || w === 'wr' || w === 'over') && ext.options.pageBox) {
             const r = dom.getBoundingClientRect(), bx = ext.options.pageBox(r.top + 1), sc = ext.options.getScale() || 1;
             if (bx) {
               const px = w === 'wl' ? 0 : Math.max(0, (bx.right - bx.left - r.width) / sc);
