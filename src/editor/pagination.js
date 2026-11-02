@@ -14,7 +14,7 @@ import { layoutTabs } from '../tabs.js';
 
 export const pgKey = new PluginKey('pagination');
 
-const SKIP_CLASSES = ['tab', 'lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih', 'fcaret', 'column-resize-handle'];
+const SKIP_CLASSES = ['pin-sp', 'pinned', 'tab', 'lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih', 'fcaret', 'column-resize-handle'];
 
 function lineBoxes(dom, Y, LH) {
   const groups = [];
@@ -202,6 +202,7 @@ function measure(view, tpl, scale) {
 
   const visit = (node, pos, chain) => {
     if (node.isTextblock) return doTextblock(node, pos, chain);
+    if (node.type.name === 'table' && node.attrs.pin) return;      // a freely placed table: not in the text flow
     if (node.type.name === 'table') return doTable(node, pos, chain);
     if (node.type.name === 'pageBreak') {
       const d = view.nodeDOM(pos);

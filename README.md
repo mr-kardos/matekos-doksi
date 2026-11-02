@@ -211,3 +211,9 @@ tools/                font verification
 ## 0.8.6
 - Pictures with text wrapping move freely on their own layer, only kept inside the page margins, and are placed
   exactly where they are released (measured and corrected after placing); the text then wraps around them.
+
+## 0.8.7
+- Pictures with text wrapping and „Szabad elhelyezés” tables are pinned to a place on their page (own layer,
+  independent of the text, kept inside the margins); the text wraps around them through invisible floats.
+  Pictures wrapped the older way are converted automatically.
+- Tables: invisible borders shown dashed while the cursor is in the table.

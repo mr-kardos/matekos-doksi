@@ -19,7 +19,7 @@ import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady }
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP } from './tabs.js';
 import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
@@ -66,7 +66,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, TabNode.configure({ getScale: () => scale }),
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, Pins, ActiveTable, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -82,7 +82,7 @@ const editor = new Editor({
       pageBox: clientY => {
         const g = geometry(tpl), sr = stack.getBoundingClientRect(), er = editor.view.dom.getBoundingClientRect();
         const i = Math.max(0, Math.min(pageCount - 1, Math.floor((clientY - sr.top) / scale / g.P)));
-        return { left: er.left, right: er.right, top: sr.top + g.contentTop(i) * scale, bottom: sr.top + g.contentBottom(i) * scale };
+        return { page: i, left: er.left, right: er.right, top: sr.top + g.contentTop(i) * scale, bottom: sr.top + g.contentBottom(i) * scale };
       } }),
     Pagination.configure({ getTpl: () => tpl, getScale: () => scale, onLayout: n => applyLayout(n),
       // while the page breaks are recalculated the document is briefly shorter: keep the scroll position
@@ -150,7 +150,7 @@ const editor = new Editor({
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
   onFocus: () => { if (hfEd) { hfEd = null; updateToolbar(); } updateOverlays(); },
   onBlur: () => updateOverlays(),
-  onTransaction: () => { updateToolbar(); updateOverlays(); marksSoon(); }
+  onTransaction: ({ transaction }) => { if (transaction.docChanged) docVersion++; updateToolbar(); updateOverlays(); marksSoon(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
 
@@ -188,7 +188,98 @@ function applyLayout(n) {
   updateOverlays();
   thumbsSoon();
   marksSoon();
+  pinsSoon();
 }
+/* ---- freely placed pictures / tables: their place on the page, and the text kept clear of them ---- */
+let pinRaf = 0, pinPrev = '', pinRounds = 0, pinInputs = '', docVersion = 0, pinLast = [];
+/** The text line at height y (screen coordinates): {pos, top} – the line start in the document. Pinned
+ *  elements, tables and the spacers are left out; works also for parts of the document that are not on screen. */
+function lineAtY(y, skipEl) {
+  const view = editor.view;
+  for (const b of view.dom.querySelectorAll('p,h1,h2,h3')) {
+    if (b.closest('.pinned,td,th') || (skipEl && skipEl.contains(b))) continue;
+    const br = b.getBoundingClientRect(); if (br.bottom <= y || !br.height) continue;
+    const pt = parseFloat(getComputedStyle(b).paddingTop) || 0;
+    if (br.top + pt >= y) { try { return { pos: view.posAtDOM(b, 0), top: br.top + pt }; } catch (e) { return null; } }
+    // inside this paragraph: the first character whose line reaches below y
+    const tw = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, { acceptNode: t => t.parentElement.closest('.lm,.math,.pin-sp,.pg-sp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const rg = document.createRange();
+    while (tw.nextNode()) {
+      const t = tw.currentNode; if (!t.data.length) continue;
+      rg.selectNodeContents(t); const tr = rg.getBoundingClientRect(); if (tr.bottom <= y) continue;
+      let lo = 0, hi = t.data.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1; rg.setStart(t, mid); rg.setEnd(t, mid + 1); const q = rg.getClientRects(); const cr = q[q.length - 1]; if (cr && cr.bottom > y) hi = mid; else lo = mid + 1; }
+      // back to the start of that line
+      rg.setStart(t, lo); rg.setEnd(t, lo + 1); const top0 = rg.getBoundingClientRect().top;
+      let s0 = lo; while (s0 > 0) { rg.setStart(t, s0 - 1); rg.setEnd(t, s0); if (Math.abs(rg.getBoundingClientRect().top - top0) > 2) break; s0--; }
+      try { return { pos: view.posAtDOM(t, s0), top: top0 }; } catch (e) { return null; }
+    }
+    try { return { pos: view.posAtDOM(b, 0), top: br.top + pt }; } catch (e) { return null; }
+  }
+  return null;
+}
+function pinsSoon() { if (!pinRaf) pinRaf = requestAnimationFrame(() => { pinRaf = 0; updatePins(); }); }
+function updatePins() {
+  const dom = editor.view.dom, g = geometry(tpl), er = dom.getBoundingClientRect();
+  // 0. pictures wrapped the older way (anchored in the text) become freely placed where they are
+  const legacy = [...dom.querySelectorAll('.imgw.wl, .imgw.wr')].filter(el => el._kv && !el.classList.contains('pinned'));
+  if (legacy.length) { for (const el of legacy) el._kv.pinHere(); return; }       // the change brings us back here
+  const els = [...dom.querySelectorAll('.pinned')];
+  // 1. exact place: correct for whatever box the element is measured from
+  for (const el of els) {
+    const pg = +el.dataset.pg || 0, px = +el.dataset.px || 0, py = +el.dataset.py || 0;
+    const wantL = er.left + px * scale, wantT = er.top + (pg * g.P + py) * scale;
+    const r = el.getBoundingClientRect();
+    if (Math.abs(r.left - wantL) > 0.5) el.style.left = (parseFloat(el.style.left) || 0) + (wantL - r.left) / scale + 'px';
+    if (Math.abs(r.top - wantT) > 0.5) el.style.top = (parseFloat(el.style.top) || 0) + (wantT - r.top) / scale + 'px';
+  }
+  // the floats are worked out again only when the text or a pinned element changed (at most twice per change) –
+  // their own effect on the layout must not start a new round
+  const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)].join(',')).join('|') + ':' + docVersion) : '';
+  if (inputs === pinInputs && pinRounds >= 2) return;                // at most twice per change: their own effect on the layout must not start new rounds
+  if (inputs !== pinInputs) { pinInputs = inputs; pinRounds = 0; pinLast = []; }
+  pinRounds++;
+  // 2. invisible floats in the text beside each of them (text on the side with more room) – measured on the text
+  //    without the present floats (they would move the very lines they are anchored to)
+  const gap = (tpl.imgGap ?? 4) * MM, specs = [];
+  const old = [...dom.querySelectorAll('.pin-sp')]; for (const o of old) o.style.display = 'none';
+  for (const [ei, el] of els.entries()) {
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) continue;
+    const keepOld = () => { if (pinRounds > 1 && pinLast[ei]) specs.push(pinLast[ei]); };   // a second round never takes a float away
+    const textLeft = (r.left - er.left) >= (er.right - r.right);
+    const side = textLeft ? 'right' : 'left';
+    const w = textLeft ? (er.right - r.left) / scale + gap : (r.right - er.left) / scale + gap;
+    // the first text line at the element's top edge (measured from the layout itself – works off screen too)
+    const found = lineAtY(r.top + 1, el);
+    let pos = found ? found.pos : null, lineTop = found ? found.top : null;
+    // in a list: list items are closed boxes (their symbols keep clear of pictures), a float inside one would not
+    // reach the next items – so the float goes before the outermost item, and the whole item makes room
+    if (pos != null) {
+      const $p = editor.view.state.doc.resolve(pos);
+      for (let d = 1; d <= $p.depth; d++) if ($p.node(d).type.name === 'listItem') {
+        const liPos = $p.before(d), liDom = editor.view.nodeDOM(liPos);
+        if (liDom) { pos = liPos; lineTop = liDom.getBoundingClientRect().top; }
+        // the first item of the list: before the whole list (where a page break would also go)
+        if ($p.index(d - 1) === 0) { const lp = $p.before(d - 1); if (editor.view.nodeDOM(lp)) pos = lp; }
+        break;
+      }
+    }
+    if (pos == null || lineTop >= r.bottom) { keepOld(); continue; }         // no text beside it
+    const dy = Math.max(0, (r.top - lineTop) / scale), h = (r.bottom - Math.max(r.top, lineTop)) / scale + gap;
+    const sp = { pos, side, w: Math.round(w), h: Math.round(h), dy: Math.round(dy), key: `pin${pos}${side}${Math.round(w)}x${Math.round(h)}+${Math.round(dy)}` };
+    if (pinRounds > 1 && pinLast[ei]) { specs.push(pinLast[ei]); continue; }   // second round: keep the first one (no flip-flop)
+    specs.push(sp); pinLast[ei] = sp;
+  }
+  for (const o of old) o.style.display = '';
+  const sig = JSON.stringify(specs);
+  if (sig === pinPrev) return;
+  pinPrev = sig;
+  setPinSpacers(editor.view, specs);
+  relayout(0);
+}
+setPinTop((pg, py) => pg * geometry(tpl).P + py);
+editor.view.dom.addEventListener('kv-pin', pinsSoon);
 /* formatting marks (eye button) */
 let showMarks = load('matekosdoksi.marks') === '1', marksRaf = 0;
 function marksSoon() {
@@ -349,6 +440,7 @@ function drawTableHandles() {
   let h = `<button class="th-btn${allOn ? ' on' : ''}" data-ts="all" title="A teljes táblázat kijelölése" style="left:${tr.x - gapX}px;top:${tr.y - gapY}px">◢</button>`;
   cols.forEach((r, i) => { if (r) h += `<button class="th-btn${colOn(i) ? ' on' : ''}" data-ts="col" data-i="${i}" title="Oszlop kijelölése" style="left:${r.x + r.w / 2 - 8 * inv}px;top:${tr.y - gapY}px">▼</button>`; });
   rows.forEach((r, i) => { if (r && r.h > 0) h += `<button class="th-btn row${rowOn(i) ? ' on' : ''}" data-ts="row" data-i="${i}" title="Sor kijelölése" style="left:${tr.x - gapX}px;top:${r.y + r.h / 2 - 8 * inv}px">▶</button>`; });
+  if (table.attrs.pin) h += `<button class="th-btn mv" data-ts="move" title="A táblázat áthelyezése (húzd)" style="left:${tr.x + tr.w - 16 * inv}px;top:${tr.y - gapY}px">✥</button>`;
   if (layer._key !== h) { layer.innerHTML = h; layer._key = h; }
 }
 function selectTableRange(r0, c0, r1, c1) {
@@ -357,6 +449,42 @@ function selectTableRange(r0, c0, r1, c1) {
   const pa = start + map.positionAt(r0, c0, table), pb = start + map.positionAt(r1, c1, table);
   editor.view.dispatch(editor.state.tr.setSelection(CellSelection.create(editor.state.doc, pa, pb)));
   if (!editor.view.hasFocus()) editor.view.dom.focus({ preventScroll: true });
+}
+/* dragging a freely placed table by its ✥ handle: it moves on its own layer, inside the page margins */
+$('#tblHandles').addEventListener('pointerdown', e => {
+  const b = e.target.closest('[data-ts="move"]'); if (!b || e.button !== 0) return;
+  e.preventDefault(); e.stopPropagation();
+  const c = tableContext(editor.state); if (!c) return;
+  const wrap = editor.view.nodeDOM(c.pos); if (!wrap) return;
+  const r0 = wrap.getBoundingClientRect(), sx = e.clientX, sy = e.clientY;
+  const l0 = parseFloat(wrap.style.left) || 0, t0 = parseFloat(wrap.style.top) || 0;
+  let last = { l: r0.left, t: r0.top };
+  const mv = ev => {
+    let gx = r0.left + ev.clientX - sx, gy = r0.top + ev.clientY - sy;
+    const bx = editor.extensionManager.extensions.find(x => x.name === 'image').options.pageBox(ev.clientY);
+    if (bx) { gx = Math.min(Math.max(gx, bx.left), bx.right - r0.width); gy = Math.min(Math.max(gy, bx.top), bx.bottom - r0.height); }
+    last = { l: gx, t: gy };
+    wrap.style.left = l0 + (gx - r0.left) / scale + 'px'; wrap.style.top = t0 + (gy - r0.top) / scale + 'px';
+    updateOverlays();
+  };
+  const up = () => {
+    removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+    const bx = editor.extensionManager.extensions.find(x => x.name === 'image').options.pageBox(last.t + 1); if (!bx) return;
+    const c2 = tableContext(editor.state); if (!c2) return;
+    editor.view.dispatch(editor.state.tr.setNodeMarkup(c2.pos, undefined, { ...c2.table.attrs, pin: true, pg: bx.page, px: Math.round((last.l - bx.left) / scale * 10) / 10, py: Math.round((last.t - bx.top) / scale * 10) / 10 }));
+    pinsSoon();
+  };
+  addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+}, true);
+/* free placement of a table on / off (table toolbar) */
+queueMicrotask(() => $('#tblPin').addEventListener('click', () => { toggleTablePin(); updateToolbar(); }));
+function toggleTablePin() {
+  const c = tableContext(editor.state); if (!c) return;
+  const wrap = editor.view.nodeDOM(c.pos);
+  if (c.table.attrs.pin) { editor.view.dispatch(editor.state.tr.setNodeMarkup(c.pos, undefined, { ...c.table.attrs, pin: false })); return; }
+  const r = wrap.getBoundingClientRect(), bx = editor.extensionManager.extensions.find(x => x.name === 'image').options.pageBox(r.top + 1); if (!bx) return;
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(c.pos, undefined, { ...c.table.attrs, pin: true, pg: bx.page, px: Math.max(0, Math.round((r.left - bx.left) / scale)), py: Math.max(0, Math.round((r.top - bx.top) / scale)) }));
+  toast('A táblázat szabadon mozgatható: húzd a jobb felső sarkánál lévő ✥ fogóval. A szöveg körbefut rajta.');
 }
 $('#tblHandles').addEventListener('mousedown', e => {
   const b = e.target.closest('.th-btn'); if (!b || e.button !== 0) return;
@@ -1052,6 +1180,7 @@ function fillTableFields() {
   const cellRel = c.map.map[c.rect.top * c.map.width + c.rect.left], cell = c.table.nodeAt(cellRel), cellDom = editor.view.nodeDOM(c.start + cellRel);
   if (act !== $('#tpColW')) $('#tpColW').value = cell && cell.attrs.colwidth && cell.attrs.colwidth[0] ? r1(cell.attrs.colwidth[0] / MM) : (cellDom ? r1(cellDom.getBoundingClientRect().width / scale / MM) : '');
   const ccs = cellDom ? getComputedStyle(cellDom) : null;
+  $('#tblPin').classList.toggle('on', !!c.table.attrs.pin);
   if (act !== $('#tpPadV')) $('#tpPadV').value = c.table.attrs.padV ?? (ccs ? r1(parseFloat(ccs.paddingTop) / MM) : '');
   if (act !== $('#tpPadH')) $('#tpPadH').value = c.table.attrs.padH ?? (ccs ? r1(parseFloat(ccs.paddingLeft) / MM) : '');
   for (const b of $$('#tableBar [data-talign]')) b.classList.toggle('on', (c.table.attrs.align || 'left') === b.dataset.talign);

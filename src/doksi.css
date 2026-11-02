@@ -448,3 +448,14 @@ span.tab[data-leader="line"]{ border-bottom:.8px solid currentColor; }
 #popPara{ width:330px; }
 /* format painter waiting for its target */
 body.painting .ProseMirror{ cursor:copy; }
+
+/* freely placed pictures / tables: on their own layer; the text is kept clear by invisible floats */
+.docbody{ position:relative; }
+.ProseMirror .imgw.pinned{ position:absolute; float:none; margin:0; z-index:4; display:block; }
+.ProseMirror .tableWrapper.pinned{ position:absolute; z-index:4; padding:0; margin:0; background:transparent; }
+.ProseMirror .pin-sp{ display:block; pointer-events:none; user-select:none; }
+
+#tblHandles .th-btn.mv{ cursor:move; font-size:calc(12px*var(--inv)); }
+
+/* the table being worked in: its invisible borders as dashed lines (not printed, not in the PDF) */
+.ProseMirror .tbl-active td[data-bw="0"], .ProseMirror .tbl-active th[data-bw="0"]{ outline:1px dashed rgba(47,111,219,.7); outline-offset:-1px; }

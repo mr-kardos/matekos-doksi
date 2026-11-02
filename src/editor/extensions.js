@@ -263,6 +263,7 @@ class KvTableView extends TableView {
     const w = node.attrs.width;
     if (w && (!this.table.style.width || this.table.style.width.endsWith('%'))) this.table.style.width = w + '%';
     else if (!w && this.table.style.width.endsWith('%')) this.table.style.width = '';
+    placePinned(this.dom, node.attrs);
     // cell margins of the whole table (mm): inner space between the cell borders and the text
     if (node.attrs.padV != null) this.table.style.setProperty('--cpv', node.attrs.padV + 'mm'); else this.table.style.removeProperty('--cpv');
     if (node.attrs.padH != null) this.table.style.setProperty('--cph', node.attrs.padH + 'mm'); else this.table.style.removeProperty('--cph');
@@ -276,6 +277,7 @@ export const KvTable = Table.extend({
     return {
       ...this.parent?.(),
       width: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-width')), renderHTML: a => a.width ? { 'data-width': a.width, style: `width:${a.width}%` } : {} },
+      ...PIN_ATTRS,
       padV: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-padv')), renderHTML: a => a.padV != null ? { 'data-padv': a.padV, style: `--cpv:${a.padV}mm` } : {} },
       padH: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-padh')), renderHTML: a => a.padH != null ? { 'data-padh': a.padH, style: `--cph:${a.padH}mm` } : {} },
       align: {
@@ -580,6 +582,64 @@ export { isReady as mathIsReady, mathReady };
 /* Images: text wrap, free placement by drag, corner resize            */
 /* ------------------------------------------------------------------ */
 const WRAPS = ['wl', 'wr', 'ctr', 'inl'];
+/* ------------------------------------------------------------------ */
+/* Freely placed pictures and tables ("pinned"): drawn on their own   */
+/* layer at a fixed place of a page (pg, px, py – from the top left   */
+/* corner of the page's text area), independent of the text; the text */
+/* wraps around them through invisible floats (see setPinSpacers).    */
+/* ------------------------------------------------------------------ */
+export const PIN_ATTRS = {
+  pin: { default: false, parseHTML: el => el.getAttribute('data-pin') === '1', renderHTML: a => a.pin ? { 'data-pin': '1' } : {} },
+  pg: { default: 0, parseHTML: el => +(el.getAttribute('data-pg') || 0), renderHTML: a => a.pin ? { 'data-pg': a.pg } : {} },
+  px: { default: 0, parseHTML: el => +(el.getAttribute('data-px') || 0), renderHTML: a => a.pin ? { 'data-px': a.px } : {} },
+  py: { default: 0, parseHTML: el => +(el.getAttribute('data-py') || 0), renderHTML: a => a.pin ? { 'data-py': a.py } : {} }
+};
+let pinTopFn = null;                     // (page, py) -> top in the editor's own coordinates (set by the app)
+export function setPinTop(fn) { pinTopFn = fn; }
+export function placePinned(el, a, pinTop = pinTopFn) {
+  pinTop = pinTop || pinTopFn;
+  if (!a.pin) { if (el.classList.contains('pinned')) { el.classList.remove('pinned'); el.style.position = ''; el.style.left = ''; el.style.top = ''; } return; }
+  el.classList.add('pinned');
+  el.dataset.pg = a.pg; el.dataset.px = a.px; el.dataset.py = a.py;
+  el.style.position = 'absolute';
+  el.style.left = (a.px || 0) + 'px';
+  el.style.top = (pinTop ? pinTop(a.pg || 0, a.py || 0) : (a.py || 0)) + 'px';
+  // the app measures and corrects the exact place, and keeps the text clear of it
+  requestAnimationFrame(() => el.isConnected && el.dispatchEvent(new CustomEvent('kv-pin', { bubbles: true })));
+}
+/** The table the cursor is in gets a class: its invisible borders show as dashed lines while working in it. */
+export const ActiveTable = Extension.create({
+  name: 'activeTable',
+  addProseMirrorPlugins() {
+    return [new Plugin({ props: { decorations(state) {
+      const $f = state.selection.$from;
+      for (let d = $f.depth; d > 0; d--) if ($f.node(d).type.name === 'table') return DecorationSet.create(state.doc, [Decoration.node($f.before(d), $f.after(d), { class: 'tbl-active' })]);
+      return null;
+    } } })];
+  }
+});
+export const pinKey = new PluginKey('pins');
+export const Pins = Extension.create({
+  name: 'pins',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: pinKey,
+      state: { init: () => DecorationSet.empty, apply(tr, old) { const m = tr.getMeta(pinKey); if (m) return m; return old.map(tr.mapping, tr.doc); } },
+      props: { decorations(st) { return pinKey.getState(st); } }
+    })];
+  }
+});
+/** specs: [{pos, side: 'left'|'right', w, h, dy, key}] -> invisible floats that keep the text clear */
+export function setPinSpacers(view, specs) {
+  const decos = specs.map(sp => Decoration.widget(sp.pos, () => {
+    const d = document.createElement('span');
+    d.className = 'pin-sp'; d.contentEditable = 'false';
+    d.style.cssText = `float:${sp.side};width:${sp.w}px;height:${sp.h}px;margin-top:${sp.dy}px;`;
+    return d;
+  }, { side: -2, key: sp.key, ignoreSelection: true }));     // before a page-break spacer at the same place: it stays on its page
+  view.dispatch(view.state.tr.setMeta(pinKey, DecorationSet.create(view.state.doc, decos)).setMeta('addToHistory', false));
+}
+
 const imgStyle = a => {
   const st = [];
   if (a.width) st.push(`width:${a.width}px`);
@@ -594,7 +654,7 @@ export const KvImage = Node.create({
   atom: true,
   selectable: true,
   draggable: false,
-  addOptions() { return { getScale: () => 1, onChange: null, pageBox: null }; },
+  addOptions() { return { getScale: () => 1, onChange: null, pageBox: null, pinTop: null }; },
   addAttributes() {
     return {
       src: { default: '' },
@@ -602,13 +662,14 @@ export const KvImage = Node.create({
       width: { default: null, parseHTML: el => parseFloat(el.style.width) || numOrNull(el.getAttribute('width')) },
       wrap: { default: 'wl', parseHTML: el => el.getAttribute('data-wrap') || WRAPS.find(w => el.classList.contains(w)) || 'wl' },
       dx: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dx')) || 0 },
-      dy: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dy')) || 0 }
+      dy: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dy')) || 0 },
+      ...PIN_ATTRS
     };
   },
   parseHTML() { return [{ tag: 'img[src]' }]; },
   renderHTML({ node }) {
     const a = node.attrs;
-    return ['img', { src: a.src, alt: a.alt || '', 'data-wrap': a.wrap, 'data-dx': a.dx || 0, 'data-dy': a.dy || 0, class: a.wrap, style: imgStyle(a) || null }];
+    return ['img', { src: a.src, alt: a.alt || '', 'data-wrap': a.wrap, 'data-dx': a.dx || 0, 'data-dy': a.dy || 0, ...(a.pin ? { 'data-pin': '1', 'data-pg': a.pg, 'data-px': a.px, 'data-py': a.py } : {}), class: a.wrap, style: imgStyle(a) || null }];
   },
   addNodeView() {
     const ext = this;
@@ -620,10 +681,11 @@ export const KvImage = Node.create({
       img.draggable = false;
       dom.appendChild(img);
       const paint = () => {
-        dom.className = 'imgw ' + (cur.attrs.wrap || 'wl') + (selected ? ' ProseMirror-selectednode' : '');
+        dom.className = 'imgw ' + (cur.attrs.pin ? 'pinned' : (cur.attrs.wrap || 'wl')) + (selected ? ' ProseMirror-selectednode' : '');
         if (img.getAttribute('src') !== cur.attrs.src) img.src = cur.attrs.src;
         img.alt = cur.attrs.alt || '';
-        dom.style.cssText = imgStyle(cur.attrs);
+        dom.style.cssText = cur.attrs.pin ? (cur.attrs.width ? `width:${cur.attrs.width}px` : '') : imgStyle(cur.attrs);
+        placePinned(dom, cur.attrs);
         ext.options.onChange && ext.options.onChange();
       };
       paint();
@@ -665,7 +727,7 @@ export const KvImage = Node.create({
         const r0 = dom.getBoundingClientRect(), ox = e.clientX - r0.left, oy = e.clientY - r0.top;
         const sx = e.clientX, sy = e.clientY;
         let ghost = null, ind = null, last = { clientX: e.clientX, clientY: e.clientY };
-        const wrapped = cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr';
+        const wrapped = cur.attrs.pin || cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr';
         // the system's own drag & drop must not take over while the picture is being moved (it would swallow the drop)
         const noNative = ev => ev.preventDefault();
         document.addEventListener('dragstart', noNative, true);
@@ -706,6 +768,17 @@ export const KvImage = Node.create({
           const gr = ghost.getBoundingClientRect();
           ghost.remove(); if (ind) ind.remove();
           const pos = getPos(); if (typeof pos !== 'number' || ev.type === 'pointercancel') return;
+          if (wrapped && ext.options.pageBox) {
+            const bx = ext.options.pageBox(gr.top + 1);
+            if (bx) {
+              const sc = ext.options.getScale() || 1;
+              const trp = v.state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, pin: true, pg: bx.page, px: Math.round((gr.left - bx.left) / sc * 10) / 10, py: Math.round((gr.top - bx.top) / sc * 10) / 10 });
+              trp.setSelection(NodeSelection.create(trp.doc, pos));
+              v.dispatch(trp);
+              if (!v.hasFocus()) v.dom.focus({ preventScroll: true });
+              return;
+            }
+          }
           const er = v.dom.getBoundingClientRect();
           let target, attrs = { ...cur.attrs };
           if (wrapped) {
@@ -798,7 +871,28 @@ export const KvImage = Node.create({
       });
       dom._kv = {
         img, move, resize, node: () => cur,
-        setWrap: w => { setAttrs({ wrap: w, dx: 0, dy: 0 }); reselect(); },
+        // an older wrapped picture (text-anchored float): becomes freely placed where it is now
+        pinHere: () => {
+          if (cur.attrs.pin || !(cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr') || !ext.options.pageBox) return;
+          const r = dom.getBoundingClientRect(); if (!r.width) return;
+          const bx = ext.options.pageBox(r.top + 1), sc = ext.options.getScale() || 1, pos = getPos();
+          if (!bx || typeof pos !== 'number') return;
+          const px = Math.min(Math.max(0, (r.left - bx.left) / sc), Math.max(0, (bx.right - bx.left - r.width) / sc));
+          const py = Math.min(Math.max(0, (r.top - bx.top) / sc), Math.max(0, (bx.bottom - bx.top - r.height) / sc));
+          view().dispatch(view().state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, dx: 0, dy: 0, pin: true, pg: bx.page, px: Math.round(px * 10) / 10, py: Math.round(py * 10) / 10 }).setMeta('addToHistory', false));
+        },
+        setWrap: w => {
+          // text wrapping: the picture is placed freely at its present place on the page (left / right edge of the text)
+          if ((w === 'wl' || w === 'wr') && ext.options.pageBox) {
+            const r = dom.getBoundingClientRect(), bx = ext.options.pageBox(r.top + 1), sc = ext.options.getScale() || 1;
+            if (bx) {
+              const px = w === 'wl' ? 0 : Math.max(0, (bx.right - bx.left - r.width) / sc);
+              const py = Math.min(Math.max(0, (r.top - bx.top) / sc), Math.max(0, (bx.bottom - bx.top - r.height) / sc));
+              setAttrs({ wrap: w, dx: 0, dy: 0, pin: true, pg: bx.page, px: Math.round(px * 10) / 10, py: Math.round(py * 10) / 10 }); reselect(); return;
+            }
+          }
+          setAttrs({ wrap: w, dx: 0, dy: 0, pin: false }); reselect();
+        },
         remove: () => { const pos = getPos(); if (typeof pos === 'number') view().dispatch(view().state.tr.delete(pos, pos + cur.nodeSize)); }
       };
       return {
