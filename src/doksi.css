@@ -472,3 +472,37 @@ body.painting .ProseMirror{ cursor:copy; }
 .ProseMirror .imgw.pinned.under{ z-index:-1; }
 /* list symbol of an all-bold item */
 .lm.lm-b{ font-weight:700; }
+
+/* ---------- comments ---------- */
+#props.cmtmode > section:not(.cmtview){ display:none; }
+#props:not(.cmtmode) > .cmtview{ display:none; }
+.cmtview{ padding:12px; }
+.cmthead{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px; }
+.cmthead b{ font-size:14px; }
+.cmtnew{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+.cmtnew textarea{ width:100%; resize:vertical; border:1px solid var(--line); border-radius:8px; background:var(--chrome-2); color:var(--ink); padding:7px 8px; font:13px var(--ui); }
+.cmtcard{ border:1px solid var(--line); border-left:4px solid #8e44ad; border-radius:8px; background:var(--chrome-2); padding:8px 10px; margin-bottom:8px; cursor:pointer; }
+.cmtcard.act{ box-shadow:0 0 0 2px #8e44ad; }
+.cmtcard.done{ opacity:.55; border-left-color:#9aa3ad; }
+.cmtcard.done .ctext{ text-decoration:line-through; text-decoration-color:rgba(150,150,150,.6); }
+.cmtcard.lost{ border-left-style:dashed; }
+.cmtcard .ctop{ display:flex; align-items:center; gap:4px; }
+.cmtcard .cdate{ font-size:11px; color:var(--ink-2); margin-right:auto; }
+.cmtcard .tb.mini{ min-width:24px; height:24px; padding:0 4px; font-size:13px; }
+.cmtcard .tb.mini.on{ background:var(--accent-soft); }
+.cmtcard .ctext{ margin:6px 0; font-size:13px; line-height:1.4; white-space:normal; }
+.cmtcard .creply{ margin:6px 0 0 10px; padding-left:8px; border-left:2px solid var(--line); font-size:12.5px; }
+.cmtcard .crow{ display:flex; gap:5px; margin-top:8px; }
+.cmtcard .cin{ flex:1; min-width:0; height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome); color:var(--ink); padding:0 7px; font:12px var(--ui); }
+.cmtbtn{ display:inline-flex; align-items:center; gap:6px; }
+.cmtbtn .ico svg{ width:16px; height:16px; display:block; }
+/* purple marks on their own layer, behind the text (not printed, not in the PDF) */
+#cmtLayer{ position:absolute; left:0; top:0; z-index:1; pointer-events:none; }
+#cmtLayer .cmt-hl{ position:absolute; background:rgba(142,68,173,.22); border-bottom:2px solid rgba(142,68,173,.75); border-radius:2px; }
+#cmtLayer .cmt-hl.act{ background:rgba(142,68,173,.4); }
+#cmtLayer .cmt-hl.done{ background:rgba(150,150,150,.15); border-bottom-color:rgba(150,150,150,.5); }
+
+#cmtTop{ position:absolute; left:0; top:0; z-index:5; pointer-events:none; }
+#cmtTop .cmt-hl.obj{ position:absolute; background:rgba(142,68,173,.12); outline:2.5px solid rgba(142,68,173,.85); outline-offset:-1px; border-radius:2px; }
+#cmtTop .cmt-hl.obj.act{ background:rgba(142,68,173,.25); }
+#cmtTop .cmt-hl.obj.done{ outline-color:rgba(150,150,150,.6); background:transparent; }

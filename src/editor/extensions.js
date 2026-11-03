@@ -228,6 +228,7 @@ const cellAttrs = {
     renderHTML: a => a.vAlign && a.vAlign !== 'top' ? { 'data-valign': a.vAlign, style: `vertical-align:${a.vAlign}` } : {}
   }
 };
+cellAttrs.cmt = { default: null, parseHTML: el => el.getAttribute('data-cmt') || null, renderHTML: a => a.cmt ? { 'data-cmt': a.cmt } : {} };
 cellAttrs.borderWidth = {
   default: null,
   parseHTML: el => numOrNull(el.getAttribute('data-bw')),
@@ -672,6 +673,7 @@ export const KvImage = Node.create({
       wrap: { default: 'wl', parseHTML: el => el.getAttribute('data-wrap') || WRAPS.find(w => el.classList.contains(w)) || 'wl' },
       dx: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dx')) || 0 },
       dy: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dy')) || 0 },
+      cmt: { default: null },                // id of a comment attached to the picture
       ...PIN_ATTRS
     };
   },
@@ -691,6 +693,7 @@ export const KvImage = Node.create({
       dom.appendChild(img);
       const paint = () => {
         dom.className = 'imgw ' + (cur.attrs.pin ? 'pinned' + (cur.attrs.wrap === 'over' ? ' over' : cur.attrs.wrap === 'under' ? ' under' : '') : (cur.attrs.wrap || 'wl')) + (selected ? ' ProseMirror-selectednode' : '');
+        if (cur.attrs.cmt) dom.dataset.cmt = cur.attrs.cmt; else delete dom.dataset.cmt;
         if (img.getAttribute('src') !== cur.attrs.src) img.src = cur.attrs.src;
         img.alt = cur.attrs.alt || '';
         dom.style.cssText = cur.attrs.pin ? (cur.attrs.width ? `width:${cur.attrs.width}px` : '') : imgStyle(cur.attrs);
@@ -1202,3 +1205,16 @@ export function deleteEmptyListItem(view) {
   view.dispatch(tr.scrollIntoView());
   return true;
 }
+
+/* ------------------------------------------------------------------ */
+/* Comments: the commented text carries a mark (only an id – the look */
+/* is drawn by the app on its own layer, never printed or exported)   */
+/* ------------------------------------------------------------------ */
+export const CommentMark = Mark.create({
+  name: 'comment',
+  inclusive: false,
+  excludes: '',                 // several comments may cover the same text
+  addAttributes() { return { id: { default: null, parseHTML: el => el.getAttribute('data-cmt'), renderHTML: a => ({ 'data-cmt': a.id }) } }; },
+  parseHTML() { return [{ tag: 'span[data-cmt]' }]; },
+  renderHTML({ HTMLAttributes }) { return ['span', HTMLAttributes, 0]; }
+});

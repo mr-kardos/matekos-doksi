@@ -19,7 +19,7 @@ import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady }
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP } from './tabs.js';
 import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
@@ -66,7 +66,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, Pins, ActiveTable, TabNode.configure({ getScale: () => scale }),
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, Pins, ActiveTable, CommentMark, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -174,7 +174,7 @@ const editor = new Editor({
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
   onFocus: () => { if (hfEd) { hfEd = null; updateToolbar(); } updateOverlays(); },
   onBlur: () => updateOverlays(),
-  onTransaction: ({ transaction }) => { if (transaction.docChanged) docVersion++; updateToolbar(); updateOverlays(); marksSoon(); }
+  onTransaction: ({ transaction }) => { if (transaction.docChanged) { docVersion++; if (panelView() === 'cmt') renderComments(); else drawComments(); } updateToolbar(); updateOverlays(); marksSoon(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
 
@@ -213,6 +213,7 @@ function applyLayout(n) {
   thumbsSoon();
   marksSoon();
   pinsSoon();
+  drawComments();
 }
 /* ---- freely placed pictures / tables: their place on the page, and the text kept clear of them ---- */
 let pinRaf = 0, pinPrev = '', pinRounds = 0, pinInputs = '', docVersion = 0, pinLast = [];
@@ -1481,12 +1482,128 @@ function splitter(el, get, set, key, sign) {
 }
 splitter($('#lsplit'), () => $('#pagesNav').getBoundingClientRect().width, setLeftWidth, LSK.left, 1);
 splitter($('#rsplit'), () => props.getBoundingClientRect().width, setRightWidth, LSK.right, -1);
-function panelVisible(v) {
+/** The right panel shows the template editor or the comments ("cmt"). */
+function panelVisible(v, view = 'tpl') {
   mainEl.classList.toggle('noprops', !v); document.body.classList.toggle('noprops-on', !v);
-  $('#bTpl').classList.toggle('primary', v); lsSet(LSK.panel, v ? '1' : '0'); applyZoom();
-  if (v) fillPanel();
+  $('#props').classList.toggle('cmtmode', v && view === 'cmt');
+  $('#bTpl').classList.toggle('primary', v && view !== 'cmt'); $('#bCmt').classList.toggle('primary', v && view === 'cmt');
+  lsSet(LSK.panel, v && view !== 'cmt' ? '1' : '0'); applyZoom();
+  if (v && view !== 'cmt') fillPanel();
+  if (v && view === 'cmt') renderComments();
 }
-$('#bTpl').addEventListener('click', () => panelVisible(mainEl.classList.contains('noprops')));
+const panelView = () => mainEl.classList.contains('noprops') ? null : ($('#props').classList.contains('cmtmode') ? 'cmt' : 'tpl');
+$('#bTpl').addEventListener('click', () => panelVisible(panelView() !== 'tpl', 'tpl'));
+$('#bCmt').addEventListener('click', () => panelVisible(panelView() !== 'cmt', 'cmt'));
+
+/* ------------------------------------------------------------------ */
+/* Comments: attached to text (a mark), a picture or table cells (an  */
+/* attribute); listed in the order of the document; saved in the file */
+/* ------------------------------------------------------------------ */
+let docComments = [];               // [{id, text, at, done, replies:[{text, at}]}]
+const cmtDate = t => new Date(t).toLocaleString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+/** Where each comment is in the document: id -> first position */
+function commentPlaces() {
+  const at = {};
+  editor.state.doc.descendants((n, pos) => {
+    if (n.attrs && n.attrs.cmt && at[n.attrs.cmt] == null) at[n.attrs.cmt] = pos;
+    for (const m of n.marks || []) if (m.type.name === 'comment' && at[m.attrs.id] == null) at[m.attrs.id] = pos;
+  });
+  return at;
+}
+function renderComments() {
+  const at = commentPlaces();
+  const list = [...docComments].sort((a, b) => (at[a.id] ?? 1e12) - (at[b.id] ?? 1e12));
+  $('#cmtCount').textContent = docComments.length ? `${docComments.length} db` : '';
+  $('#cmtList').innerHTML = list.length ? list.map(c => `<div class="cmtcard${c.done ? ' done' : ''}${at[c.id] == null ? ' lost' : ''}" data-cid="${c.id}">
+      <div class="ctop"><span class="cdate">${cmtDate(c.at)}${at[c.id] == null ? ' · a megjegyzett rész már nincs meg' : ''}</span>
+        <button class="tb mini${c.done ? ' on' : ''}" data-cact="done" title="${c.done ? 'Mégsem megoldott' : 'Megoldva'}">👍</button>
+        <button class="tb mini" data-cact="del" title="Megjegyzés törlése">✕</button></div>
+      <div class="ctext">${esc(c.text).replace(/\n/g, '<br>')}</div>
+      ${(c.replies || []).map(r => `<div class="creply"><span class="cdate">${cmtDate(r.at)}</span><div>${esc(r.text).replace(/\n/g, '<br>')}</div></div>`).join('')}
+      <div class="crow"><input type="text" class="cin" placeholder="Válasz…"><button class="btn mini" data-cact="reply">Válasz</button></div>
+    </div>`).join('') : '<div class="phint" style="padding:6px 2px">Még nincs megjegyzés. Jelölj ki valamit a dokumentumban, írd be a megjegyzést fent, és kattints a „Megjegyzés hozzáadása” gombra.</div>';
+  drawComments();
+}
+function addComment() {
+  const text = $('#cmtText').value.trim();
+  const st = editor.state, sel = st.selection;
+  if (!text) { toast('Írd be a megjegyzés szövegét.'); $('#cmtText').focus(); return; }
+  const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const tr = st.tr;
+  if (sel instanceof NodeSelection && sel.node.type.name === 'image') tr.setNodeMarkup(sel.from, undefined, { ...sel.node.attrs, cmt: id });
+  else if (sel instanceof CellSelection) sel.forEachCell((cell, pos) => tr.setNodeMarkup(pos, undefined, { ...cell.attrs, cmt: id }));
+  else if (!sel.empty) tr.addMark(sel.from, sel.to, st.schema.marks.comment.create({ id }));
+  else { toast('Előbb jelölj ki szöveget, egy képet vagy táblázatcellát.'); return; }
+  editor.view.dispatch(tr);
+  docComments.push({ id, text, at: Date.now(), done: false, replies: [] });
+  $('#cmtText').value = '';
+  markDirty(); saveSoon(); renderComments(); focusCard(id);
+}
+function removeCommentAnchors(id) {
+  const st = editor.state, tr = st.tr, type = st.schema.marks.comment;
+  st.doc.descendants((n, pos) => {
+    if (n.attrs && n.attrs.cmt === id) tr.setNodeMarkup(pos, undefined, { ...n.attrs, cmt: null });
+    if (n.isText) for (const m of n.marks) if (m.type === type && m.attrs.id === id) tr.removeMark(pos, pos + n.nodeSize, m);
+  });
+  if (tr.docChanged) editor.view.dispatch(tr);
+}
+/** The page elements of a comment (text pieces, picture, cells). */
+const commentEls = id => [...editor.view.dom.querySelectorAll(`[data-cmt="${id}"]`)];
+function focusCard(id) {
+  const card = $(`#cmtList [data-cid="${id}"]`); if (!card) return;
+  for (const c of $$('#cmtList .cmtcard.act')) c.classList.remove('act');
+  card.classList.add('act'); card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  activeCmt = id; drawComments();
+}
+function showCommentPlace(id) {
+  const els = commentEls(id); if (!els.length) return;
+  const r = els[0].getBoundingClientRect(), wr = ws.getBoundingClientRect();
+  ws.scrollTo({ top: ws.scrollTop + r.top - wr.top - ws.clientHeight / 3, behavior: 'smooth' });
+  activeCmt = id; drawComments();
+}
+let activeCmt = null, cmtRaf = 0;
+function drawComments() {
+  if (cmtRaf) return;
+  cmtRaf = requestAnimationFrame(() => {
+    cmtRaf = 0;
+    const layer = $('#cmtLayer'), sr = stack.getBoundingClientRect(), out = [], top = [];
+    const done = new Set(docComments.filter(c => c.done).map(c => c.id));
+    for (const el of editor.view.dom.querySelectorAll('[data-cmt]')) {
+      const id = el.dataset.cmt, cls = (done.has(id) ? ' done' : '') + (id === activeCmt ? ' act' : '');
+      const text = el.tagName === 'SPAN' && !el.classList.contains('imgw');
+      const rects = text ? [...el.getClientRects()] : [el.getBoundingClientRect()];
+      // text: a band behind the letters; a picture / cell: a frame over it (a picture would hide a band)
+      for (const q of rects) if (q.width && q.height) (text ? out : top).push(`<div class="cmt-hl${text ? '' : ' obj'}${cls}" style="left:${(q.left - sr.left) / scale}px;top:${(q.top - sr.top) / scale}px;width:${q.width / scale}px;height:${q.height / scale}px"></div>`);
+    }
+    layer.innerHTML = out.join(''); $('#cmtTop').innerHTML = top.join('');
+  });
+}
+$('#cmtAdd').addEventListener('mousedown', e => e.preventDefault());     // keep the selection in the document
+$('#cmtAdd').addEventListener('click', addComment);
+$('#cmtText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); } });
+$('#cmtList').addEventListener('click', e => {
+  const card = e.target.closest('.cmtcard'); if (!card) return;
+  const id = card.dataset.cid, c = docComments.find(x => x.id === id); if (!c) return;
+  const act = e.target.closest('[data-cact]');
+  if (act && act.dataset.cact === 'del') { removeCommentAnchors(id); docComments = docComments.filter(x => x.id !== id); markDirty(); saveSoon(); renderComments(); return; }
+  if (act && act.dataset.cact === 'done') { c.done = !c.done; markDirty(); saveSoon(); renderComments(); return; }
+  if (act && act.dataset.cact === 'reply') {
+    const inp = card.querySelector('.cin'), t = inp.value.trim(); if (!t) { inp.focus(); return; }
+    (c.replies = c.replies || []).push({ text: t, at: Date.now() }); markDirty(); saveSoon(); renderComments(); focusCard(id); return;
+  }
+  if (e.target.closest('input')) return;
+  for (const x of $$('#cmtList .cmtcard.act')) x.classList.remove('act');
+  card.classList.add('act'); showCommentPlace(id);
+});
+$('#cmtList').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList.contains('cin')) { e.preventDefault(); e.target.closest('.cmtcard').querySelector('[data-cact=reply]').click(); } });
+// a click on commented text / picture / cell: its comment in the panel
+editor.view.dom.addEventListener('click', e => {
+  const el = e.target.closest && e.target.closest('[data-cmt]'); if (!el) return;
+  const ids = []; let x = el; while (x && x !== editor.view.dom) { if (x.dataset && x.dataset.cmt) ids.push(x.dataset.cmt); x = x.parentElement; }
+  if (!ids.length) return;
+  if (panelView() !== 'cmt') panelVisible(true, 'cmt');
+  focusCard(ids[0]);
+});
 /* left panel: collapse / open */
 function pagesVisible(v) { mainEl.classList.toggle('nopages', !v); document.body.classList.toggle('nopages-on', !v); lsSet('matekosdoksi.pages', v ? '1' : '0'); applyZoom(); if (v) thumbsSoon(true); }
 $('#pagesX').addEventListener('click', () => pagesVisible(false));
@@ -1526,9 +1643,23 @@ function renderThumbs() {
     if (parts.length) {
       const c = document.createElement('div');
       c.className = 'ProseMirror docbody'; c.setAttribute('style', style);
-      c.style.left = g.leftOf(i) + 'px'; c.style.top = (parts[0].top - top) + 'px'; c.style.minHeight = '0';
+      c.style.position = 'absolute'; c.style.left = g.leftOf(i) + 'px'; c.style.top = (parts[0].top - top) + 'px'; c.style.minHeight = '0';
       for (const p of parts) c.appendChild(p.el.cloneNode(true));
+      // free pictures / tables are placed on their page below; working marks are not part of the page
+      for (const x of c.querySelectorAll('.pinned')) x.style.visibility = 'hidden';
+      for (const x of c.querySelectorAll('.spell-err,.find-hit,.tbl-active,.ProseMirror-selectednode')) x.classList.remove('spell-err', 'find-hit', 'cur', 'tbl-active', 'ProseMirror-selectednode');
       tp.appendChild(c);
+    }
+    // the free pictures / tables of this page, where they are on the page
+    for (const el of dom.querySelectorAll('.pinned')) {
+      if ((+el.dataset.pg || 0) !== i) continue;
+      const cl = el.cloneNode(true);
+      cl.classList.remove('ProseMirror-selectednode', 'tbl-active');
+      const holder = document.createElement('div');
+      holder.className = 'ProseMirror docbody'; holder.setAttribute('style', style);
+      holder.style.position = 'absolute'; holder.style.left = g.leftOf(i) + 'px'; holder.style.top = g.mt + 'px'; holder.style.minHeight = '0'; holder.style.height = '0';
+      cl.style.left = (+el.dataset.px || 0) + 'px'; cl.style.top = (+el.dataset.py || 0) + 'px'; cl.style.visibility = '';
+      holder.appendChild(cl); tp.appendChild(holder);
     }
     frag.appendChild(t);
   }
@@ -1762,7 +1893,7 @@ function confirmBox(msg, yes = 'Igen') {
   });
 }
 const docTitle = () => $('#docTitle').value.trim() || 'Névtelen dokumentum';
-function docData() { return { title: docTitle(), tpl, doc: editor.getJSON(), colors: docColors, ...(customTpl ? { customTpl } : {}) }; }
+function docData() { return { title: docTitle(), tpl, doc: editor.getJSON(), colors: docColors, ...(customTpl ? { customTpl } : {}), ...(docComments.length ? { comments: docComments } : {}) }; }
 const autoValue = () => ({ ...docData(), path: getCurrentPath(), dirty });
 function saveSoon() { clearTimeout(autoT); autoT = setTimeout(saveLocal, 900); }
 async function saveLocal() {
@@ -1798,6 +1929,7 @@ function loadData(d) {
   tpl = normalizeTpl(d.tpl || {});
   docColors = Array.isArray(d.colors) ? d.colors : []; refreshPickers();
   customTpl = d.customTpl && d.customTpl.tpl ? d.customTpl : null;
+  docComments = Array.isArray(d.comments) ? d.comments : [];
   $('#docTitle').value = d.title || 'Névtelen dokumentum';
   if (d.doc) editor.commands.setContent(d.doc, { emitUpdate: false });
   else if (typeof d.html === 'string') editor.commands.setContent(d.html, { emitUpdate: false });   // documents from the first prototype
@@ -1870,7 +2002,7 @@ async function openPath(p) {
 async function newDocument() {
   closePops();
   if (dirty && $('#home').hidden && !await confirmBox('Új dokumentumot kezdesz. A mostani nem mentett módosításai elvesznek. Folytatod?', 'Új dokumentum')) return false;
-  tpl = startTpl(); customTpl = null; $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
+  tpl = startTpl(); customTpl = null; docComments = []; $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
   editor.commands.setContent('<p></p>'); fillPanel(); applyTpl(true);
   dirty = false; sessionOpen = true; setStatus(); saveSoon();
   showHome(false); editor.commands.focus();

@@ -235,3 +235,8 @@ tools/                font verification
 - Wrapping: objects lying on each other count as one (one margin); only the lines beside an object make room, and the
   paragraph indents do not count there; list symbols keep clear of the object.
 - Arrow keys step over a free table. A list item with all-bold text gets a bold number / symbol.
+
+## 0.9.1
+- Comments: „Megjegyzések” button and panel; comments on selected text, a picture or table cells; purple marks on their
+  own layer (never printed / exported); listed in document order; reply, delete, resolved (greyed); saved in the .mdoksi.
+- Page miniatures: free pictures / tables at their real place; working marks (spelling, find, selection) left out.
