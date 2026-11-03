@@ -7,6 +7,7 @@ export const ICONS = {
   cellPadH: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M8 8v8M16 8v8" stroke-dasharray="2 2"/><path d="M4 12h3M17 12h3"/>',
   cols2: '<path d="M3 6h7.5M3 10h7.5M3 14h7.5M3 18h7.5M13.5 6H21M13.5 10H21M13.5 14H21M13.5 18H21"/>',
   comment: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
+  tick: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   alignL: '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>',

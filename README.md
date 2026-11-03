@@ -240,3 +240,17 @@ tools/                font verification
 - Comments: „Megjegyzések” button and panel; comments on selected text, a picture or table cells; purple marks on their
   own layer (never printed / exported); listed in document order; reply, delete, resolved (greyed); saved in the .mdoksi.
 - Page miniatures: free pictures / tables at their real place; working marks (spelling, find, selection) left out.
+
+## 0.9.2
+- Comments: the add box stays at the top of the panel; the selected text stays marked while the comment is typed;
+  only the chosen comment is purple in the panel; tick for "resolved"; marks as high as tall formulas; icon-only button;
+  eye button: hide the marks on the page while the panel is closed.
+
+### The comment feature in short (for porting to Matekos Prezi)
+- `src/editor/extensions.js`: `CommentMark` (mark `comment`, attribute `id`, `excludes: ''` so comments may overlap);
+  pictures (`image.attrs.cmt`) and table cells (`cellAttrs.cmt`) carry the id as an attribute.
+- `src/main.js`, section "Comments": `docComments` ([{id, text, at, done, replies}]) saved in the file (`comments`),
+  `renderComments()` (cards in document order), `drawComments()` (purple marks on `#cmtLayer` behind the text and
+  `#cmtTop` over pictures / cells – never in the PDF), `addComment()`, `removeCommentAnchors()`, `panelVisible(v, 'cmt')`.
+- `index.html`: `#bCmt` button, `#cmtView` in the right panel, `#cmtLayer` / `#cmtTop` in the page stack.
+- `src/doksi.css`: "comments" sections.

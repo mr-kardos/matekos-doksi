@@ -22,7 +22,7 @@
       <span id="status" class="status" aria-live="polite"></span>
     </div>
     <div class="b1right">
-      <button class="btn cmtbtn" id="bCmt" title="Megjegyzések (jobb oldali panel)"><span class="ico" data-icon="comment"></span><span>Megjegyzések</span></button>
+      <button class="btn cmtbtn" id="bCmt" title="Megjegyzések (jobb oldali panel)" aria-label="Megjegyzések"><span class="ico" data-icon="comment"></span></button>
       <button class="btn tplbtn" id="bTpl" title="Sablon: kész sablonok és a sablonszerkesztő (jobb oldali panel) – megnyitás / bezárás"><span class="tpll">Sablon:</span> <b id="tplName">Sima</b></button>
       <button class="btn menubtn zoombtn" data-pop="popZoom" id="bZoom" title="Nagyítás"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg><span id="zoomLabel"></span><svg class="ddi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
     </div>
@@ -134,10 +134,12 @@
   <div class="rsplit" id="rsplit" title="Húzd a panel szélességének állításához" role="separator" aria-orientation="vertical"></div>
   <aside id="props" aria-label="Sablonszerkesztő">
     <section class="cmtview" id="cmtView">
-      <div class="cmthead"><b>Megjegyzések</b><span class="phint" id="cmtCount"></span></div>
-      <div class="cmtnew">
-        <textarea id="cmtText" rows="3" placeholder="Jelölj ki szöveget, egy képet vagy táblázatcellát, írd ide a megjegyzést…"></textarea>
-        <button class="btn primary" id="cmtAdd">Megjegyzés hozzáadása</button>
+      <div class="cmtstick">
+        <div class="cmthead"><b>Megjegyzések</b><span class="phint" id="cmtCount"></span><button class="tb mini" id="cmtHide" data-icon="eyeOff" title="A megjegyzések jelölése a lapon akkor is látszik, ha a panel zárva van – kattints az elrejtéshez"></button></div>
+        <div class="cmtnew">
+          <textarea id="cmtText" rows="3" placeholder="Jelölj ki szöveget, egy képet vagy táblázatcellát, írd ide a megjegyzést…"></textarea>
+          <button class="btn primary" id="cmtAdd">Megjegyzés hozzáadása</button>
+        </div>
       </div>
       <div id="cmtList"></div>
     </section>

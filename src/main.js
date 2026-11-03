@@ -1490,6 +1490,7 @@ function panelVisible(v, view = 'tpl') {
   lsSet(LSK.panel, v && view !== 'cmt' ? '1' : '0'); applyZoom();
   if (v && view !== 'cmt') fillPanel();
   if (v && view === 'cmt') renderComments();
+  if (typeof drawComments === 'function') drawComments();
 }
 const panelView = () => mainEl.classList.contains('noprops') ? null : ($('#props').classList.contains('cmtmode') ? 'cmt' : 'tpl');
 $('#bTpl').addEventListener('click', () => panelVisible(panelView() !== 'tpl', 'tpl'));
@@ -1514,9 +1515,9 @@ function renderComments() {
   const at = commentPlaces();
   const list = [...docComments].sort((a, b) => (at[a.id] ?? 1e12) - (at[b.id] ?? 1e12));
   $('#cmtCount').textContent = docComments.length ? `${docComments.length} db` : '';
-  $('#cmtList').innerHTML = list.length ? list.map(c => `<div class="cmtcard${c.done ? ' done' : ''}${at[c.id] == null ? ' lost' : ''}" data-cid="${c.id}">
-      <div class="ctop"><span class="cdate">${cmtDate(c.at)}${at[c.id] == null ? ' · a megjegyzett rész már nincs meg' : ''}</span>
-        <button class="tb mini${c.done ? ' on' : ''}" data-cact="done" title="${c.done ? 'Mégsem megoldott' : 'Megoldva'}">👍</button>
+  $('#cmtList').innerHTML = list.length ? list.map(c => `<div class="cmtcard${c.done ? ' done' : ''}${c.id === activeCmt ? ' act' : ''}" data-cid="${c.id}">
+      <div class="ctop"><span class="cdate">${cmtDate(c.at)}</span>
+        <button class="tb mini${c.done ? ' on' : ''}" data-cact="done" title="${c.done ? 'Mégsem megoldott' : 'Megoldva'}">${svg('tick')}</button>
         <button class="tb mini" data-cact="del" title="Megjegyzés törlése">✕</button></div>
       <div class="ctext">${esc(c.text).replace(/\n/g, '<br>')}</div>
       ${(c.replies || []).map(r => `<div class="creply"><span class="cdate">${cmtDate(r.at)}</span><div>${esc(r.text).replace(/\n/g, '<br>')}</div></div>`).join('')}
@@ -1526,7 +1527,9 @@ function renderComments() {
 }
 function addComment() {
   const text = $('#cmtText').value.trim();
-  const st = editor.state, sel = st.selection;
+  const st = editor.state;
+  let sel = st.selection;
+  if (cmtSel && sel.empty) { try { sel = cmtSel.node ? NodeSelection.create(st.doc, cmtSel.from) : TextSelection.create(st.doc, cmtSel.from, cmtSel.to); } catch (e) { /* keep */ } }
   if (!text) { toast('Írd be a megjegyzés szövegét.'); $('#cmtText').focus(); return; }
   const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const tr = st.tr;
@@ -1536,8 +1539,8 @@ function addComment() {
   else { toast('Előbb jelölj ki szöveget, egy képet vagy táblázatcellát.'); return; }
   editor.view.dispatch(tr);
   docComments.push({ id, text, at: Date.now(), done: false, replies: [] });
-  $('#cmtText').value = '';
-  markDirty(); saveSoon(); renderComments(); focusCard(id);
+  $('#cmtText').value = ''; cmtSel = null;
+  markDirty(); saveSoon(); activeCmt = id; renderComments(); focusCard(id);
 }
 function removeCommentAnchors(id) {
   const st = editor.state, tr = st.tr, type = st.schema.marks.comment;
@@ -1561,24 +1564,47 @@ function showCommentPlace(id) {
   ws.scrollTo({ top: ws.scrollTop + r.top - wr.top - ws.clientHeight / 3, behavior: 'smooth' });
   activeCmt = id; drawComments();
 }
-let activeCmt = null, cmtRaf = 0;
+let activeCmt = null, cmtRaf = 0, cmtSel = null, cmtHidden = load('matekosdoksi.cmthide') === '1';
+/** Screen rectangles of a selection {from, to, node}. */
+function selRects(sel) {
+  try {
+    if (sel.node) { const d = editor.view.nodeDOM(sel.from); return d ? [d.getBoundingClientRect()] : []; }
+    const a = editor.view.domAtPos(sel.from), b = editor.view.domAtPos(sel.to), rg = document.createRange();
+    rg.setStart(a.node, a.offset); rg.setEnd(b.node, b.offset);
+    return [...rg.getClientRects()].filter(q => q.width > 0 && q.height > 0);
+  } catch (e) { return []; }
+}
+function setCmtHidden(v) {
+  cmtHidden = v; lsSet('matekosdoksi.cmthide', v ? '1' : '0');
+  $('#cmtHide').classList.toggle('on', v);
+  $('#cmtHide').title = v ? 'A megjegyzések jelölése el van rejtve a lapon, amíg a panel zárva van – kattints a megjelenítéshez' : 'A megjegyzések jelölése a lapon akkor is látszik, ha a panel zárva van – kattints az elrejtéshez';
+  drawComments();
+}
 function drawComments() {
   if (cmtRaf) return;
   cmtRaf = requestAnimationFrame(() => {
     cmtRaf = 0;
     const layer = $('#cmtLayer'), sr = stack.getBoundingClientRect(), out = [], top = [];
+    if (cmtHidden && panelView() !== 'cmt') { layer.innerHTML = ''; $('#cmtTop').innerHTML = ''; return; }
     const done = new Set(docComments.filter(c => c.done).map(c => c.id));
     for (const el of editor.view.dom.querySelectorAll('[data-cmt]')) {
       const id = el.dataset.cmt, cls = (done.has(id) ? ' done' : '') + (id === activeCmt ? ' act' : '');
       const text = el.tagName === 'SPAN' && !el.classList.contains('imgw');
-      const rects = text ? [...el.getClientRects()] : [el.getBoundingClientRect()];
+      // text: its line pieces, plus the full height of the formulas in it (a tall fraction is higher than the line)
+      const rects = text ? [...el.getClientRects(), ...[...el.querySelectorAll('.math')].map(m => m.getBoundingClientRect())] : [el.getBoundingClientRect()];
       // text: a band behind the letters; a picture / cell: a frame over it (a picture would hide a band)
       for (const q of rects) if (q.width && q.height) (text ? out : top).push(`<div class="cmt-hl${text ? '' : ' obj'}${cls}" style="left:${(q.left - sr.left) / scale}px;top:${(q.top - sr.top) / scale}px;width:${q.width / scale}px;height:${q.height / scale}px"></div>`);
     }
+    // the selection the new comment will go on, while typing it (the text itself has lost the focus)
+    if (cmtSel && panelView() === 'cmt') for (const q of selRects(cmtSel)) out.push(`<div class="cmt-sel" style="left:${(q.left - sr.left) / scale}px;top:${(q.top - sr.top) / scale}px;width:${q.width / scale}px;height:${q.height / scale}px"></div>`);
     layer.innerHTML = out.join(''); $('#cmtTop').innerHTML = top.join('');
   });
 }
 $('#cmtAdd').addEventListener('mousedown', e => e.preventDefault());     // keep the selection in the document
+$('#cmtText').addEventListener('focus', () => { const s0 = editor.state.selection; cmtSel = s0.empty && !(s0 instanceof NodeSelection) ? null : { from: s0.from, to: s0.to, node: s0 instanceof NodeSelection }; drawComments(); });
+$('#cmtText').addEventListener('blur', () => { setTimeout(() => { if (document.activeElement !== $('#cmtText')) { cmtSel = null; drawComments(); } }, 200); });
+$('#cmtHide').addEventListener('click', () => setCmtHidden(!cmtHidden));
+setCmtHidden(cmtHidden);
 $('#cmtAdd').addEventListener('click', addComment);
 $('#cmtText').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); addComment(); } });
 $('#cmtList').addEventListener('click', e => {
