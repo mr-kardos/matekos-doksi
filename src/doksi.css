@@ -528,3 +528,6 @@ body.painting .ProseMirror{ cursor:copy; }
 .cmtcard .ctop{ align-items:center; }
 .cmtcard .ctop .tb.mini{ width:26px; min-width:26px; height:26px; padding:0; display:inline-grid; place-items:center; }
 .cmtcard .ctop .tb.mini svg{ width:15px; height:15px; }
+
+/* a paragraph whose first line runs beside a free picture / table: no first-line or hanging indent there */
+.ProseMirror .wrap-flat{ text-indent:0 !important; padding-left:0 !important; }

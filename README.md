@@ -259,3 +259,11 @@ tools/                font verification
   `#cmtTop` over pictures / cells – never in the PDF), `addComment()`, `removeCommentAnchors()`, `panelVisible(v, 'cmt')`.
 - `index.html`: `#bCmt` button, `#cmtView` in the right panel, `#cmtLayer` / `#cmtTop` in the page stack.
 - `src/doksi.css`: "comments" sections.
+
+## 0.9.4
+- Line shading: hidden holder lines of lists no longer break a shaded band (no white stripe).
+- A right tab stop at the right margin ends exactly where justified text ends.
+- Moving a free picture never scrolls the view to its place in the text.
+- Wrapping: every paragraph beside an object gets its own float; the outermost paragraph starts at the object's margin,
+  the others keep only the difference of their indents; first-line / hanging indents are dropped there; a list symbol on
+  a line beside the object keeps its room.

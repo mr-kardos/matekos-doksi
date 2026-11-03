@@ -92,6 +92,12 @@ const editor = new Editor({
   content: '<p></p>',
   editorProps: {
     attributes: { spellcheck: 'false', lang: 'hu', class: 'docbody' },
+    // a freely placed picture / table lives at one place in the text but shows somewhere else on the page:
+    // selecting it must never scroll to its place in the text
+    handleScrollToSelection: view => {
+      const sel = view.state.selection;
+      return !!(sel.node && sel.node.attrs && sel.node.attrs.pin);
+    },
     handleKeyDown: (view, e) => {
       if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.shiftKey || !view.state.selection.empty) return false;
       const down = e.key === 'ArrowDown';
@@ -274,14 +280,14 @@ function updatePins() {
   // the floats are worked out again only when the text or a pinned element changed (at most twice per change) –
   // their own effect on the layout must not start a new round
   const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)].join(',')).join('|') + ':' + docVersion + ':' + pageCount + ':' + Math.round(dom.scrollHeight / 4)) : '';   // also when the layout changed (fonts, formulas drawn later)
-  if (inputs === pinInputs && pinRounds >= 2) return;                // at most twice per change: their own effect on the layout must not start new rounds
+  if (inputs === pinInputs && pinRounds >= 3) return;                // at most three rounds per change: their own effect on the layout must not start new rounds
   if (inputs !== pinInputs) { pinInputs = inputs; pinRounds = 0; pinLast = []; }
   pinRounds++;
   // 2. invisible floats in the text beside them (text on the side with more room) – measured on the text without the
   //    present floats (they would move the very lines they are anchored to). Objects lying on each other count as
   //    one (their outer outline, one margin); only the lines beside them make room, whatever the paragraph indents.
   const gap = (tpl.imgGap ?? 4) * MM, specs = [];
-  const old = [...dom.querySelectorAll('.pin-sp')]; for (const o of old) o.style.display = 'none';
+  const old = [];   // measured with the present floats: each paragraph's float only covers its own lines, so they do not chain
   const boxes = els.filter(el => !el.classList.contains('over') && !el.classList.contains('under')).map(el => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, el }; }).filter(x => x.r > x.l && x.b > x.t);
   const groups = [];
   for (const bx of boxes.sort((p, q) => p.t - q.t)) {
@@ -289,30 +295,53 @@ function updatePins() {
     if (hit) { hit.l = Math.min(hit.l, bx.l); hit.r = Math.max(hit.r, bx.r); hit.t = Math.min(hit.t, bx.t); hit.b = Math.max(hit.b, bx.b); hit.els.push(bx.el); }
     else groups.push({ ...bx, els: [bx.el] });
   }
+  const sr0 = stack.getBoundingClientRect();
   for (const [ei, G] of groups.entries()) {
-    const keepOld = () => { if (pinRounds > 1 && pinLast[ei]) specs.push(pinLast[ei]); };   // a second round never takes a float away
+    const keepOld = () => { if (pinRounds > 1 && pinLast[ei]) specs.push(...pinLast[ei]); };   // a second round never takes floats away
     const textLeft = (G.l - er.left) >= (er.right - G.r);
     const side = textLeft ? 'right' : 'left';
-    const found = lineAtY(G.t + 1, null);
-    let pos = found ? found.pos : null, lineTop = found ? found.top : null;
-    if (pos == null || lineTop >= G.b) { keepOld(); continue; }             // no text beside it
-    // the float sits in the paragraph of that line: its width is measured from that paragraph's own edge, so the text
-    // beside the object starts right at the object's margin (the paragraph's indent does not count there)
-    let blk = null; try { const d = editor.view.domAtPos(pos); blk = (d.node.nodeType === 1 ? d.node : d.node.parentElement).closest('p,h1,h2,h3'); } catch (e) { blk = null; }
-    if (!blk) { keepOld(); continue; }
-    const br = blk.getBoundingClientRect(), bcs = getComputedStyle(blk);
-    const cbL = br.left + (parseFloat(bcs.paddingLeft) || 0), cbR = br.right - (parseFloat(bcs.paddingRight) || 0);
-    const li = blk.closest('li'), markRoom = li ? (parseFloat(getComputedStyle(li).paddingLeft) || 0) * scale : 0;   // list symbols stay clear of the object
-    const wPx = textLeft ? cbR - (G.l - gap * scale) : (G.r + gap * scale) - cbL + markRoom;
-    if (wPx <= 1) { keepOld(); continue; }
-    const w = wPx / scale;
-    const dy = Math.max(0, (G.t - lineTop) / scale), h = (G.b - Math.max(G.t, lineTop)) / scale + gap;
-    // a line at the very top of a page comes after a page break: the float must come after that break too
-    const sr0 = stack.getBoundingClientRect(), pgOf = Math.floor((lineTop - sr0.top) / scale / g.P);
-    const atPageTop = (lineTop - (sr0.top + g.contentTop(pgOf) * scale)) / scale < 24;
-    const sp = { pos, side, after: atPageTop, w: Math.round(w), h: Math.round(h), dy: Math.round(dy), key: `pin${pos}${side}${atPageTop ? 'a' : 'b'}${Math.round(w)}x${Math.round(h)}+${Math.round(dy)}` };
-    if (pinRounds > 1 && pinLast[ei]) { specs.push(pinLast[ei]); continue; }   // second round: keep the first one (no flip-flop)
-    specs.push(sp); pinLast[ei] = sp;
+    // the paragraphs with lines beside the object: each gets its own invisible float, only over its own lines
+    const blocks = [...dom.querySelectorAll('p,h1,h2,h3')].filter(b0 => {
+      if (b0.closest('.pinned,td,th')) return false;
+      const r0 = b0.getBoundingClientRect(); return r0.height > 0 && r0.top < G.b && r0.bottom > G.t;
+    });
+    if (!blocks.length) { keepOld(); continue; }
+    // indents beside the object: the outermost paragraph starts right at the object's margin, the others keep only
+    // the difference of their indents (first-line and hanging indents do not count there)
+    const edgeL = b0 => b0.getBoundingClientRect().left, edgeR = b0 => b0.getBoundingClientRect().right;
+    const outerL = Math.min(...blocks.map(edgeL)), outerR = Math.max(...blocks.map(edgeR));
+    const mine = [];
+    blocks.forEach((blk, bi) => {
+      const br = blk.getBoundingClientRect(), bcs = getComputedStyle(blk);
+      const found = lineAtY(Math.max(G.t, br.top) + 1, null);
+      if (!found) return;
+      let pos = found.pos; const lineTop = found.top;
+      try { const d = editor.view.domAtPos(pos), host = (d.node.nodeType === 1 ? d.node : d.node.parentElement).closest('p,h1,h2,h3'); if (host !== blk) pos = editor.view.posAtDOM(blk, 0); } catch (e) { return; }
+      if (lineTop >= G.b) return;
+      const padL = parseFloat(bcs.paddingLeft) || 0, padR = parseFloat(bcs.paddingRight) || 0;
+      const cbL = br.left + padL * scale, cbR = br.right - padR * scale;
+      // the first line beside the object: no first-line / hanging indent there; a list symbol on such a line keeps its room
+      const firstLine = Math.abs(lineTop - (br.top + (parseFloat(bcs.paddingTop) || 0) * scale)) < 3;
+      const li = blk.closest('li'), symbolHere = !!li && firstLine && li.firstElementChild === blk;
+      // a list symbol on a line beside the object keeps its room (unless the indent difference already gives it)
+      const markRoom = symbolHere ? Math.max(0, (parseFloat(getComputedStyle(li).paddingLeft) || 0) * scale - (edgeL(blk) - outerL)) : 0;
+      const flat = firstLine && ((parseFloat(bcs.textIndent) || 0) !== 0 || blk.hasAttribute('data-hang'));   // its first-line / hanging indent is dropped there
+      const wPx = textLeft
+        ? cbR - (G.l - gap * scale) - (outerR - edgeR(blk))
+        : (G.r + gap * scale) + (edgeL(blk) - outerL) + markRoom - (flat ? br.left : cbL);
+      if (wPx <= 1) return;
+      const last = bi === blocks.length - 1;
+      // a float ends a little before the next paragraph starts: two floats must never touch (they would stand side by side)
+      const nextTop = last ? Infinity : blocks[bi + 1].getBoundingClientRect().top;
+      const top = Math.max(G.t, lineTop), bottom = last ? G.b + gap * scale : Math.min(G.b + gap * scale, br.bottom, nextTop) - 2;
+      const dy = Math.max(0, (G.t - lineTop) / scale), h = (bottom - top) / scale;
+      if (h <= 0) return;
+      const pgOf = Math.floor((lineTop - sr0.top) / scale / g.P);
+      const atPageTop = (lineTop - (sr0.top + g.contentTop(pgOf) * scale)) / scale < 24;
+      mine.push({ pos, side, after: atPageTop, flat: flat ? editor.view.posAtDOM(blk, 0) - 1 : null, w: Math.round(wPx / scale), h: Math.round(h), dy: Math.round(dy), key: `pin${pos}${side}${atPageTop ? 'a' : 'b'}${Math.round(wPx / scale)}x${Math.round(h)}+${Math.round(dy)}` });
+    });
+    if (!mine.length) { keepOld(); continue; }
+    specs.push(...mine); pinLast[ei] = mine; 
   }
   for (const o of old) o.style.display = '';
   const sig = JSON.stringify(specs);

@@ -647,6 +647,8 @@ export function setPinSpacers(view, specs) {
     d.style.cssText = `float:${sp.side};width:${sp.w}px;height:${sp.h}px;margin-top:${sp.dy}px;`;
     return d;
   }, { side: sp.after ? 0 : -2, key: sp.key, ignoreSelection: true }));   // before / after a page-break spacer at the same place
+  // paragraphs whose first line is beside a free object: no first-line / hanging indent (the text starts at the object's margin)
+  for (const sp of specs) if (sp.flat != null) { const n = view.state.doc.nodeAt(sp.flat); if (n && n.isTextblock) decos.push(Decoration.node(sp.flat, sp.flat + n.nodeSize, { class: 'wrap-flat' })); }
   view.dispatch(view.state.tr.setMeta(pinKey, DecorationSet.create(view.state.doc, decos)).setMeta('addToHistory', false));
 }
 

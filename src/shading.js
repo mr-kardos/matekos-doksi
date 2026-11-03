@@ -54,6 +54,7 @@ export function drawShadeBands(layer, editorDom, stackEl, scale, pageOf) {
     const cs = getComputedStyle(block);
     // shading of the whole paragraph: its own (paragraph setting) or its style's
     const blockShade = block.classList.contains('shaded') ? cs.getPropertyValue('--shade').trim() : cs.getPropertyValue('--style-shade').trim();
+    if (!block.getBoundingClientRect().height) continue;            // a hidden holder line (lists): it does not break a band
     if (!blockShade && !block.querySelector('span[data-lshade]')) { cur = null; prevBlock = null; continue; }
     const fs = parseFloat(cs.fontSize) || 16;
     const LH = cs.lineHeight === 'normal' ? fs * 1.2 : parseFloat(cs.lineHeight);
@@ -104,7 +105,8 @@ export function drawShadeBands(layer, editorDom, stackEl, scale, pageOf) {
 // true when no other text block sits between a and b in the document
 function followsDirectly(a, b) {
   const all = a.ownerDocument.createTreeWalker(a.closest('.ProseMirror'), NodeFilter.SHOW_ELEMENT, {
-    acceptNode: n => /^(P|H1|H2|H3)$/.test(n.tagName) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
+    // hidden holder lines of lists (no height) do not count
+    acceptNode: n => /^(P|H1|H2|H3)$/.test(n.tagName) && n.getBoundingClientRect().height > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP
   });
   all.currentNode = a;
   return all.nextNode() === b;

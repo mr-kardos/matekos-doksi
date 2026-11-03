@@ -7,7 +7,8 @@ function stopsOf(block, boxW) {
   const v = block.getAttribute('data-tabs');
   if (v === 'hf') return [{ pos: boxW / 2, align: 'center' }, { pos: boxW, align: 'right' }];
   if (!v) return [];
-  try { return JSON.parse(v).map(s => ({ pos: (+s.pos || 0) * CM, align: s.align || 'left', leader: s.leader || '' })).filter(s => s.pos > 0).sort((a, b) => a.pos - b.pos); }
+  // a right stop at (or a hair beyond) the right margin is the margin itself – it ends exactly where justified text ends
+  try { return JSON.parse(v).map(s => ({ pos: (+s.pos || 0) * CM, align: s.align || 'left', leader: s.leader || '' })).map(s => (s.align === 'right' && Math.abs(s.pos - boxW) < 0.3 * CM) ? { ...s, pos: boxW } : s).filter(s => s.pos > 0).sort((a, b) => a.pos - b.pos); }
   catch (e) { return []; }
 }
 /** Width of the content after a tab, up to the next tab or the end of its line. The content may sit in other
@@ -51,7 +52,7 @@ export function layoutTabs(root, scale = 1, originOf = null) {
       if (!stop) { endPos = nextDefault(x + 0.5); w = endPos - x; }
       t.dataset.stop = String(Math.round((stop ? stop.pos : endPos) / CM * 100) / 100);
       // a hair less than the exact width: rounding must never push the text over the margin
-      t.style.width = Math.max(0, stop && stop.align !== 'left' ? w - 0.5 : w) + 'px';
+      t.style.width = Math.max(0, stop && stop.align !== 'left' ? w - 0.15 : w) + 'px';
       if (stop && stop.leader) t.dataset.leader = stop.leader; else delete t.dataset.leader;
     }
   }
