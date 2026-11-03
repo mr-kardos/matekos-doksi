@@ -246,6 +246,11 @@ tools/                font verification
   only the chosen comment is purple in the panel; tick for "resolved"; marks as high as tall formulas; icon-only button;
   eye button: hide the marks on the page while the panel is closed.
 
+## 0.9.3
+- Comment marks: one band per place (also over formulas and where several comments overlap), as high as the formula;
+  several comments per text, picture or cell (pictures / cells keep the ids space-separated in `cmt`); deleting a comment
+  also removes its mark from formulas; aligned panel header and card buttons.
+
 ### The comment feature in short (for porting to Matekos Prezi)
 - `src/editor/extensions.js`: `CommentMark` (mark `comment`, attribute `id`, `excludes: ''` so comments may overlap);
   pictures (`image.attrs.cmt`) and table cells (`cellAttrs.cmt`) carry the id as an attribute.

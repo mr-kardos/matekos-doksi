@@ -1506,7 +1506,7 @@ const cmtDate = t => new Date(t).toLocaleString('hu-HU', { year: 'numeric', mont
 function commentPlaces() {
   const at = {};
   editor.state.doc.descendants((n, pos) => {
-    if (n.attrs && n.attrs.cmt && at[n.attrs.cmt] == null) at[n.attrs.cmt] = pos;
+    if (n.attrs && n.attrs.cmt) for (const id of String(n.attrs.cmt).split(' ')) if (id && at[id] == null) at[id] = pos;
     for (const m of n.marks || []) if (m.type.name === 'comment' && at[m.attrs.id] == null) at[m.attrs.id] = pos;
   });
   return at;
@@ -1518,7 +1518,7 @@ function renderComments() {
   $('#cmtList').innerHTML = list.length ? list.map(c => `<div class="cmtcard${c.done ? ' done' : ''}${c.id === activeCmt ? ' act' : ''}" data-cid="${c.id}">
       <div class="ctop"><span class="cdate">${cmtDate(c.at)}</span>
         <button class="tb mini${c.done ? ' on' : ''}" data-cact="done" title="${c.done ? 'Mégsem megoldott' : 'Megoldva'}">${svg('tick')}</button>
-        <button class="tb mini" data-cact="del" title="Megjegyzés törlése">✕</button></div>
+        <button class="tb mini" data-cact="del" title="Megjegyzés törlése">${svg('xmark')}</button></div>
       <div class="ctext">${esc(c.text).replace(/\n/g, '<br>')}</div>
       ${(c.replies || []).map(r => `<div class="creply"><span class="cdate">${cmtDate(r.at)}</span><div>${esc(r.text).replace(/\n/g, '<br>')}</div></div>`).join('')}
       <div class="crow"><input type="text" class="cin" placeholder="Válasz…"><button class="btn mini" data-cact="reply">Válasz</button></div>
@@ -1533,8 +1533,9 @@ function addComment() {
   if (!text) { toast('Írd be a megjegyzés szövegét.'); $('#cmtText').focus(); return; }
   const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const tr = st.tr;
-  if (sel instanceof NodeSelection && sel.node.type.name === 'image') tr.setNodeMarkup(sel.from, undefined, { ...sel.node.attrs, cmt: id });
-  else if (sel instanceof CellSelection) sel.forEachCell((cell, pos) => tr.setNodeMarkup(pos, undefined, { ...cell.attrs, cmt: id }));
+  const addId = v => (v ? v + ' ' : '') + id;
+  if (sel instanceof NodeSelection && sel.node.type.name === 'image') tr.setNodeMarkup(sel.from, undefined, { ...sel.node.attrs, cmt: addId(sel.node.attrs.cmt) });
+  else if (sel instanceof CellSelection) sel.forEachCell((cell, pos) => tr.setNodeMarkup(pos, undefined, { ...cell.attrs, cmt: addId(cell.attrs.cmt) }));
   else if (!sel.empty) tr.addMark(sel.from, sel.to, st.schema.marks.comment.create({ id }));
   else { toast('Előbb jelölj ki szöveget, egy képet vagy táblázatcellát.'); return; }
   editor.view.dispatch(tr);
@@ -1545,13 +1546,13 @@ function addComment() {
 function removeCommentAnchors(id) {
   const st = editor.state, tr = st.tr, type = st.schema.marks.comment;
   st.doc.descendants((n, pos) => {
-    if (n.attrs && n.attrs.cmt === id) tr.setNodeMarkup(pos, undefined, { ...n.attrs, cmt: null });
-    if (n.isText) for (const m of n.marks) if (m.type === type && m.attrs.id === id) tr.removeMark(pos, pos + n.nodeSize, m);
+    if (n.attrs && n.attrs.cmt && String(n.attrs.cmt).split(' ').includes(id)) { const rest = String(n.attrs.cmt).split(' ').filter(x => x && x !== id).join(' '); tr.setNodeMarkup(pos, undefined, { ...n.attrs, cmt: rest || null }); }
+    if (n.isInline) for (const m of n.marks) if (m.type === type && m.attrs.id === id) tr.removeMark(pos, pos + n.nodeSize, m);   // text and formulas
   });
   if (tr.docChanged) editor.view.dispatch(tr);
 }
 /** The page elements of a comment (text pieces, picture, cells). */
-const commentEls = id => [...editor.view.dom.querySelectorAll(`[data-cmt="${id}"]`)];
+const commentEls = id => [...editor.view.dom.querySelectorAll(`[data-cmt~="${id}"]`)];
 function focusCard(id) {
   const card = $(`#cmtList [data-cid="${id}"]`); if (!card) return;
   for (const c of $$('#cmtList .cmtcard.act')) c.classList.remove('act');
@@ -1587,14 +1588,31 @@ function drawComments() {
     const layer = $('#cmtLayer'), sr = stack.getBoundingClientRect(), out = [], top = [];
     if (cmtHidden && panelView() !== 'cmt') { layer.innerHTML = ''; $('#cmtTop').innerHTML = ''; return; }
     const done = new Set(docComments.filter(c => c.done).map(c => c.id));
+    const txt = [], obj = [];
     for (const el of editor.view.dom.querySelectorAll('[data-cmt]')) {
-      const id = el.dataset.cmt, cls = (done.has(id) ? ' done' : '') + (id === activeCmt ? ' act' : '');
+      const ids = el.dataset.cmt.split(' ').filter(Boolean);
       const text = el.tagName === 'SPAN' && !el.classList.contains('imgw');
-      // text: its line pieces, plus the full height of the formulas in it (a tall fraction is higher than the line)
-      const rects = text ? [...el.getClientRects(), ...[...el.querySelectorAll('.math')].map(m => m.getBoundingClientRect())] : [el.getBoundingClientRect()];
-      // text: a band behind the letters; a picture / cell: a frame over it (a picture would hide a band)
-      for (const q of rects) if (q.width && q.height) (text ? out : top).push(`<div class="cmt-hl${text ? '' : ' obj'}${cls}" style="left:${(q.left - sr.left) / scale}px;top:${(q.top - sr.top) / scale}px;width:${q.width / scale}px;height:${q.height / scale}px"></div>`);
+      if (!text) { const q = el.getBoundingClientRect(); if (q.width && q.height) obj.push({ l: q.left, t: q.top, r: q.right, b: q.bottom, ids }); continue; }
+      // a formula counts with its own drawing (not with the room around it), text with its line pieces
+      const maths = [...el.querySelectorAll('.math')].map(m => (m.querySelector('mjx-container') || m).getBoundingClientRect());
+      const own = [...el.getClientRects()].filter(q => !maths.some(m => q.left >= m.left - 1 && q.right <= m.right + 1));
+      for (const q of [...own, ...maths]) if (q.width && q.height) txt.push({ l: q.left, t: q.top, r: q.right, b: q.bottom, ids });
     }
+    // pieces on the same line that touch or overlap become one band (no doubled colour, the height of the tallest)
+    const merge = list => {
+      list.sort((p, q) => p.t - q.t || p.l - q.l);
+      const out2 = [];
+      for (const x of list) {
+        const m = out2.find(y => x.l <= y.r + 1 && x.r >= y.l - 1 && Math.min(x.b, y.b) - Math.max(x.t, y.t) > Math.min(x.b - x.t, y.b - y.t) * 0.4);
+        if (m) { m.l = Math.min(m.l, x.l); m.r = Math.max(m.r, x.r); m.t = Math.min(m.t, x.t); m.b = Math.max(m.b, x.b); for (const id of x.ids) if (!m.ids.includes(id)) m.ids.push(id); }
+        else out2.push({ ...x, ids: [...x.ids] });
+      }
+      return out2;
+    };
+    const cls = ids => (ids.every(id => done.has(id)) ? ' done' : '') + (ids.includes(activeCmt) ? ' act' : '');
+    const box = (q, extra) => `<div class="cmt-hl${extra}" style="left:${(q.l - sr.left) / scale}px;top:${(q.t - sr.top) / scale}px;width:${(q.r - q.l) / scale}px;height:${(q.b - q.t) / scale}px"></div>`;
+    for (const q of merge(txt)) out.push(box(q, cls(q.ids)));
+    for (const q of merge(obj)) top.push(box(q, ' obj' + cls(q.ids)));
     // the selection the new comment will go on, while typing it (the text itself has lost the focus)
     if (cmtSel && panelView() === 'cmt') for (const q of selRects(cmtSel)) out.push(`<div class="cmt-sel" style="left:${(q.left - sr.left) / scale}px;top:${(q.top - sr.top) / scale}px;width:${q.width / scale}px;height:${q.height / scale}px"></div>`);
     layer.innerHTML = out.join(''); $('#cmtTop').innerHTML = top.join('');
@@ -1625,7 +1643,7 @@ $('#cmtList').addEventListener('keydown', e => { if (e.key === 'Enter' && e.targ
 // a click on commented text / picture / cell: its comment in the panel
 editor.view.dom.addEventListener('click', e => {
   const el = e.target.closest && e.target.closest('[data-cmt]'); if (!el) return;
-  const ids = []; let x = el; while (x && x !== editor.view.dom) { if (x.dataset && x.dataset.cmt) ids.push(x.dataset.cmt); x = x.parentElement; }
+  const ids = []; let x = el; while (x && x !== editor.view.dom) { if (x.dataset && x.dataset.cmt) ids.push(...x.dataset.cmt.split(' ').filter(Boolean)); x = x.parentElement; }
   if (!ids.length) return;
   if (panelView() !== 'cmt') panelVisible(true, 'cmt');
   focusCard(ids[0]);

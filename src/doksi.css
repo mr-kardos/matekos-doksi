@@ -521,3 +521,10 @@ body.painting .ProseMirror{ cursor:copy; }
 .cmtcard .tb.mini.on{ color:#1e8449; background:transparent; }
 .cmtbtn{ min-width:34px; padding:0 8px; justify-content:center; }
 #cmtLayer .cmt-sel{ position:absolute; background:rgba(47,111,219,.25); border-radius:2px; }
+
+/* 0.9.3 */
+.cmthead{ display:flex; align-items:center; }
+.cmthead b, .cmthead .phint{ line-height:26px; margin-top:0; margin-bottom:0; }
+.cmtcard .ctop{ align-items:center; }
+.cmtcard .ctop .tb.mini{ width:26px; min-width:26px; height:26px; padding:0; display:inline-grid; place-items:center; }
+.cmtcard .ctop .tb.mini svg{ width:15px; height:15px; }

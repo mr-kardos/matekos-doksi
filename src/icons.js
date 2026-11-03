@@ -8,6 +8,7 @@ export const ICONS = {
   cols2: '<path d="M3 6h7.5M3 10h7.5M3 14h7.5M3 18h7.5M13.5 6H21M13.5 10H21M13.5 14H21M13.5 18H21"/>',
   comment: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
   tick: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  xmark: '<path d="M6 6l12 12M18 6 6 18"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   alignL: '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>',
