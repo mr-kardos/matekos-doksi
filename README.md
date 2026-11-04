@@ -275,3 +275,7 @@ tools/                font verification
 - Spaces at the end of a line hang past the right margin; a right tab ignores trailing spaces.
 - Tab stops for each paragraph style (template). Header / footer sizes and fonts at the top of their section.
 - Template files are „Matekos Doksi Sablon” files (own file type; opening one starts a document with it).
+
+## 0.9.6
+- Markdown: Fájl → Markdown importálása (.md), Exportálás → Markdown (.md). Headings, bold / italic / strike,
+  lists (nested), tables (GFM), formulas ($…$, $$…$$, \(…\), \[…\]); pictures are left out (`src/markdown.js`, uses `marked`).

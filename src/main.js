@@ -25,7 +25,8 @@ import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
-import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx, saveTemplateFile, openTemplateFile } from './files.js';
+import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx, saveTemplateFile, openTemplateFile, pickMarkdown, saveMarkdown } from './files.js';
+import { importMarkdown, exportMarkdown } from './markdown.js';
 import { importDocx } from './importDocx.js';
 import { SAMPLE_HTML } from './sample.js';
 import { svg } from './icons.js';
@@ -2185,6 +2186,28 @@ $('#fSaveAs').addEventListener('click', () => doSave(true));
 $('#fNew').addEventListener('click', newDocument);
 $('#fOpen').addEventListener('click', doOpen);
 $('#fImport').addEventListener('click', doImportDocx);
+/* Markdown: import (a new, unsaved document in the selected template) and export – without pictures */
+$('#fImportMd').addEventListener('click', async () => {
+  closePops();
+  if (dirty && $('#home').hidden && !await confirmBox('A nem mentett módosítások elvesznek. Importálsz egy Markdown-fájlt?', 'Importálás')) return;
+  let picked; try { picked = await pickMarkdown(); } catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); return; }
+  if (!picked) return;
+  try {
+    const r = importMarkdown(picked.text);
+    setCurrentPath(null); customTpl = null; docComments = [];
+    $('#docTitle').value = picked.name.replace(/\.(md|markdown|txt)$/i, '');
+    editor.commands.setContent(r.doc, { emitUpdate: false });
+    fillPanel(); applyTpl(true); dirty = true; sessionOpen = true; setStatus(); saveSoon(); showHome(false);
+    await infoBox(`Importálva: ${r.report.formulas} képlet, ${r.report.tables} táblázat.${r.report.images ? ` ${r.report.images} kép kimaradt.` : ''} A dokumentum még nincs elmentve.`);
+  } catch (e) { toast('Az importálás nem sikerült: ' + (e && e.message || e)); }
+});
+$('#expMd').addEventListener('click', async () => {
+  closePops();
+  try {
+    const r = exportMarkdown(editor.getJSON(), docTitle());
+    toast(await saveMarkdown(r.md, docTitle()) + (r.report.images ? ` (${r.report.images} kép kimaradt)` : ''));
+  } catch (e) { toast('A Markdown-export nem sikerült: ' + (e && e.message || e)); }
+});
 /* light / dark mode (Fájl menu); dark is the default */
 function themeLabel() { const dark = document.documentElement.dataset.theme !== 'light'; $('#fTheme').textContent = dark ? '☀  Világos mód' : '☾  Sötét mód'; }
 $('#fTheme').addEventListener('click', () => {
@@ -2303,4 +2326,4 @@ function quitBox() {
 })();
 
 // Hooks for automated layout/print tests
-window.mdoksi = { editor, editHF, closeHF, importDocx, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };
+window.mdoksi = { editor, editHF, closeHF, importDocx, importMarkdown, exportMarkdown, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };

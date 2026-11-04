@@ -172,3 +172,29 @@ export async function openTemplateFile() {
   if (!data || data.app !== 'matekos-doksi-sablon' || !data.tpl) throw new Error('Ez nem Matekos Doksi sablonfájl (.mdsab).');
   return { data, name };
 }
+
+/* ---------- Markdown ---------- */
+export async function pickMarkdown() {
+  if (isTauri()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const { readTextFile } = await import('@tauri-apps/plugin-fs');
+    const path = await open({ multiple: false, filters: [{ name: 'Markdown', extensions: ['md', 'markdown', 'txt'] }] });
+    if (!path) return null;
+    return { text: await readTextFile(path), name: baseName(path) };
+  }
+  const f = await new Promise(res => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.md,.markdown,.txt'; inp.onchange = () => res(inp.files[0] || null); inp.click(); });
+  return f ? { text: await f.text(), name: f.name } : null;
+}
+export async function saveMarkdown(text, title) {
+  if (isTauri()) {
+    const { save } = await import('@tauri-apps/plugin-dialog');
+    const { writeTextFile } = await import('@tauri-apps/plugin-fs');
+    const path = await save({ defaultPath: safeName(title) + '.md', filters: [{ name: 'Markdown', extensions: ['md'] }] });
+    if (!path) return 'Mentés megszakítva';
+    await writeTextFile(path, text);
+    return 'Markdown elmentve: ' + baseName(path);
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown' })), a = document.createElement('a');
+  a.href = url; a.download = safeName(title) + '.md'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  return 'Markdown elmentve';
+}
