@@ -49,7 +49,8 @@ export function merge(base, o) {
   return base;
 }
 export function normalizeTpl(t) {
-  const out = merge(clone(DEFAULT_TPL), t || {});
+  // copies only: a template that is changed in a document never changes the built-in defaults (or another document)
+  const out = merge(clone(DEFAULT_TPL), t ? clone(t) : {});
   // before 0.6: the normal text style lived in size/color/line/after
   if (t && !(t.styles && t.styles.p)) {
     const p = out.styles.p;

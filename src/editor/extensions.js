@@ -122,7 +122,7 @@ export const KvOrderedList = OrderedList.extend({
   }
 });
 
-function ordinal(n, style) {
+export function ordinal(n, style) {
   const alpha = (k, up) => { let s = ''; while (k > 0) { k--; s = String.fromCharCode(97 + k % 26) + s; k = Math.floor(k / 26); } return up ? s.toUpperCase() : s; };
   const roman = (k, up) => { const t = [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i']]; let s = ''; for (const [v, r] of t) while (k >= v) { s += r; k -= v; } return up ? s.toUpperCase() : s; };
   switch (style) {
@@ -753,7 +753,10 @@ export const KvImage = Node.create({
           if (size) size.textContent = '';
           if (bx) {
             const r = dom.getBoundingClientRect();
-            setAttrs({ width: Math.round(w), px: Math.round((r.left - bx.left) / scale * 10) / 10, py: Math.round((r.top - bx.top) / scale * 10) / 10, pg: bx.page });
+            // a picture that moves with its paragraph keeps its offset from that paragraph (not from the page)
+            const host = cur.attrs.rel && dom.parentElement && dom.parentElement.closest('p,h1,h2,h3');
+            const py = host ? (r.top - host.getBoundingClientRect().top) / scale : (r.top - bx.top) / scale;
+            setAttrs({ width: Math.round(w), px: Math.round((r.left - bx.left) / scale * 10) / 10, py: Math.round(py * 10) / 10, pg: bx.page });
           } else setAttrs({ width: Math.round(w) });
           reselect();
         };

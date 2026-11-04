@@ -25,7 +25,7 @@ import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
-import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx, saveTemplateFile, openTemplateFile, pickMarkdown, saveMarkdown } from './files.js';
+import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx, saveTemplateFile, openTemplateFile, pickMarkdown, saveMarkdown, templateFilePath, updateTemplateFile } from './files.js';
 import { importMarkdown, exportMarkdown } from './markdown.js';
 import { importDocx } from './importDocx.js';
 import { SAMPLE_HTML } from './sample.js';
@@ -193,7 +193,7 @@ const editor = new Editor({
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
   onFocus: () => { if (hfEd) { hfEd = null; updateToolbar(); } updateOverlays(); },
   onBlur: () => updateOverlays(),
-  onTransaction: ({ transaction }) => { if (transaction.docChanged) { docVersion++; if (panelView() === 'cmt') renderComments(); else drawComments(); } updateToolbar(); updateOverlays(); marksSoon(); }
+  onTransaction: ({ transaction }) => { if (transaction.docChanged) { docVersion++; statsSoon(); if (panelView() === 'cmt') renderComments(); else drawComments(); } updateToolbar(); updateOverlays(); marksSoon(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
 
@@ -233,6 +233,7 @@ function applyLayout(n) {
   marksSoon();
   pinsSoon();
   drawComments();
+  statsSoon();
 }
 /* ---- freely placed pictures / tables: their place on the page, and the text kept clear of them ---- */
 let pinRaf = 0, pinPrev = '', pinRounds = 0, pinInputs = '', docVersion = 0, pinLast = [];
@@ -322,7 +323,9 @@ function updatePins() {
     else groups.push({ ...bx, els: [bx.el] });
   }
   const sr0 = stack.getBoundingClientRect();
-  for (const [ei, G] of groups.entries()) {
+  for (const [ei, G0] of groups.entries()) {
+    // the margin around an object: the set value at the sides, half of it above and below
+    const vg = gap * scale * 0.5, G = { ...G0, t: G0.t - vg, b: G0.b + vg };
     const keepOld = () => { if (pinRounds > 1 && pinLast[ei]) specs.push(...pinLast[ei]); };   // a second round never takes floats away
     const textLeft = (G.l - er.left) >= (er.right - G.r);
     const side = textLeft ? 'right' : 'left';
@@ -372,7 +375,7 @@ function updatePins() {
       const last = bi === blocks.length - 1;
       // a float ends a little before the next paragraph starts: two floats must never touch (they would stand side by side)
       const nextTop = last ? Infinity : blocks[bi + 1].getBoundingClientRect().top;
-      const top = Math.max(G.t, lineTop), bottom = last ? G.b + gap * scale : Math.min(G.b + gap * scale, br.bottom, nextTop) - 2;
+      const top = Math.max(G.t, lineTop), bottom = last ? G.b : Math.min(G.b, br.bottom, nextTop) - 2;
       const dy = Math.max(0, (G.t - lineTop) / scale), h = (bottom - top) / scale;
       if (h <= 0) return;
       const pgOf = Math.floor((lineTop - sr0.top) / scale / g.P);
@@ -784,6 +787,145 @@ function twoColumns() {
   try { tr.setSelection(TextSelection.near(tr.doc.resolve(from + 4))); } catch (e) { /* keep */ }
   editor.view.dispatch(tr.scrollIntoView()); editor.view.focus();
 }
+
+/* ------------------------------------------------------------------ */
+/* Word count (bottom of the left panel) and statistics                */
+/* ------------------------------------------------------------------ */
+function docStats() {
+  const doc = editor.state.doc;
+  let text = '', images = 0, tables = 0;
+  doc.descendants((n, pos, parent) => {
+    if (n.type.name === 'image') { images++; return false; }
+    if (n.type.name === 'table') tables++;
+    if (n.isTextblock) { if (parent && parent.type.name === 'listItem' && parent.attrs.ghost && parent.firstChild === n) return false; text += '\n'; }
+    if (n.isText) text += n.text;
+    if (n.type.name === 'math') text += ' ' + 'ƒ' + ' ';          // a formula counts as one word / one character
+    if (n.type.name === 'tab' || n.type.name === 'hardBreak') text += ' ';
+    return true;
+  });
+  const words = (text.match(/\S+/g) || []).length;
+  const chars = text.replace(/\n/g, '').length, noSpace = text.replace(/\s/g, '').length;
+  // lines as they are on the pages (hidden holder lines and the app's own marks left out)
+  let lines = 0;
+  for (const b of editor.view.dom.querySelectorAll('p,h1,h2,h3')) {
+    if (!b.getBoundingClientRect().height || b.closest('.pinned') && false) continue;
+    const r = document.createRange(); r.selectNodeContents(b);
+    const tops = new Set();
+    for (const q of r.getClientRects()) if (q.width > 1 && q.height > 4) tops.add(Math.round(q.bottom / 4));
+    lines += Math.max(b.textContent.trim() ? 1 : 0, tops.size);
+  }
+  return { words, chars, noSpace, lines, images, tables };
+}
+let statsTimer = 0;
+function statsSoon() { clearTimeout(statsTimer); statsTimer = setTimeout(() => { const st = docStats(); $('#wordCount').textContent = `${st.words.toLocaleString('hu-HU')} szó`; }, 300); }
+$('#wordCount').addEventListener('click', e => {
+  const st = docStats(), f = n => n.toLocaleString('hu-HU');
+  $('#statsBody').innerHTML = [['Szavak', st.words], ['Karakterek (szóközökkel)', st.chars], ['Karakterek (szóközök nélkül)', st.noSpace], ['Sorok', st.lines], ['Képek', st.images], ['Táblázatok', st.tables]]
+    .map(([k, v]) => `<div class="srow"><span>${k}</span><b>${f(v)}</b></div>`).join('');
+  showPop('popStats', e.currentTarget);
+});
+
+/* ------------------------------------------------------------------ */
+/* The app's own right-click menu (the web view's menu is switched off) */
+/* ------------------------------------------------------------------ */
+function ctxItems(e) {
+  const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+  const st = editor.state, sel = st.selection, items = [];
+  const add = (label, fn, hint = '', on = true) => items.push({ label, fn, hint, on });
+  const sep = title => items.push({ sep: true, title });
+  // where was it clicked: formula, picture, table, list item
+  const mathEl = t.closest('.math'), imgEl = t.closest('.imgw') || (sel.node && sel.node.type.name === 'image' ? editor.view.nodeDOM(sel.from) : null);
+  const inTable = !!tableContext(st), inList = editor.isActive('listItem');
+  const nodePos = el => { let at = null; st.doc.descendants((n, p) => { if (at == null && editor.view.nodeDOM(p) === el) at = p; }); return at; };
+  if (mathEl) {
+    const p = nodePos(mathEl), n = p != null ? st.doc.nodeAt(p) : null;
+    sep('Képlet');
+    add('Szerkesztés…', () => mathEl.dispatchEvent(new MouseEvent('dblclick', { bubbles: true })), 'dupla kattintás');
+    add('TeX-kód másolása', () => n && navigator.clipboard.writeText(n.attrs.tex).then(() => toast('TeX-kód a vágólapon')));
+    add(n && n.attrs.wrap ? 'Egy sorban maradjon' : 'Sortörés a sor végén', () => { if (p != null) editor.view.dispatch(editor.state.tr.setNodeMarkup(p, undefined, { ...n.attrs, wrap: !n.attrs.wrap })); });
+    add('Képlet törlése', () => { if (p != null) editor.view.dispatch(editor.state.tr.delete(p, p + n.nodeSize)); });
+  } else if (imgEl && imgEl._kv) {
+    const k = imgEl._kv, w = k.node().attrs.wrap;
+    sep('Kép');
+    add('Körbefuttatás', () => k.setWrap('wl'), w === 'wl' || w === 'wr' ? '✓' : '');
+    add('Szöveg fölött', () => k.setWrap('over'), w === 'over' ? '✓' : '');
+    add('Szöveg mögött', () => k.setWrap('under'), w === 'under' ? '✓' : '');
+    add('Külön sorban', () => k.setWrap('ctr'), w === 'ctr' ? '✓' : '');
+    add('A szöveg sorában', () => k.setWrap('inl'), w === 'inl' ? '✓' : '');
+    add('Megjegyzés hozzáadása', () => { const p = nodePos(imgEl); if (p != null) editor.commands.setNodeSelection(p); openCommentBox(); });
+    add('Kép cseréje…', () => pickImage(1600, url => { const p = nodePos(imgEl); if (p != null) { const n = editor.state.doc.nodeAt(p); editor.view.dispatch(editor.state.tr.setNodeMarkup(p, undefined, { ...n.attrs, src: url })); } }));
+    add('Kép törlése', () => k.remove());
+  } else {
+    const hasSel = !sel.empty;
+    add('Kivágás', () => { editor.view.focus(); document.execCommand('cut'); }, 'Ctrl/⌘+X', hasSel);
+    add('Másolás', () => { editor.view.focus(); document.execCommand('copy'); }, 'Ctrl/⌘+C', hasSel);
+    add('Beillesztés', async () => {
+      editor.view.focus();
+      try {
+        const items2 = await navigator.clipboard.read();
+        for (const it of items2) if (it.types.includes('text/html')) { const h = await (await it.getType('text/html')).text(); editor.view.pasteHTML(h); return; }
+        const tx = await navigator.clipboard.readText(); editor.view.pasteText(tx);
+      } catch (err) { try { editor.view.pasteText(await navigator.clipboard.readText()); } catch (e2) { toast('A beillesztéshez használd a Ctrl/⌘+V-t.'); } }
+    }, 'Ctrl/⌘+V');
+    add('Beillesztés formázás nélkül', async () => { editor.view.focus(); try { editor.view.pasteText(await navigator.clipboard.readText()); } catch (err) { toast('A beillesztéshez használd a Ctrl/⌘+Shift+V-t.'); } });
+    add('Mindent kijelöl', () => { editor.view.focus(); editor.commands.selectAll(); }, 'Ctrl/⌘+A');
+    sep();
+    add('Megjegyzés hozzáadása', () => openCommentBox(), '', hasSel);
+    add('Bekezdés beállításai…', () => showPop('popPara', $('[data-pop="popPara"]')));
+    add('Formázás törlése', () => COMMANDS.clearFormat ? COMMANDS.clearFormat() : ch().unsetAllMarks().run());
+    add('Formátummásoló', () => COMMANDS.painter());
+    if (inList) {
+      sep('Lista');
+      add('Szint beljebb', () => changeListLevel(editor.view, 1), 'Tab');
+      add('Szint kijjebb', () => changeListLevel(editor.view, -1), 'Shift+Tab');
+      if (editor.isActive('orderedList')) {
+        add('Számozás újrakezdése', () => applyListAttrs('orderedList', { start: 1 }));
+        add('Kezdő szám…', () => showPop('popNum', $('[data-pop="popNum"]')));
+      }
+    }
+    if (inTable) {
+      const c = tableContext(st);
+      sep('Táblázat');
+      add('Sor beszúrása fölé', () => tableCmd('addRowBefore'));
+      add('Sor beszúrása alá', () => tableCmd('addRowAfter'));
+      add('Oszlop beszúrása balra', () => tableCmd('addColumnBefore'));
+      add('Oszlop beszúrása jobbra', () => tableCmd('addColumnAfter'));
+      add('Sor törlése', () => tableCmd('deleteRow'));
+      add('Oszlop törlése', () => tableCmd('deleteColumn'));
+      add('Cellák egyesítése / felosztása', () => tableCmd('mergeOrSplit'));
+      add(c && c.table.attrs.pin ? 'Vissza a szövegbe' : 'Szabad elhelyezés', () => { toggleTablePin(); updateToolbar(); });
+      add('Cella kitöltése…', () => showPop('popCell', $('[data-pop="popCell"]')));
+      add('Táblázat törlése', () => tableCmd('deleteTable'));
+    }
+  }
+  return items;
+}
+function openCommentBox() { if (panelView() !== 'cmt') panelVisible(true, 'cmt'); setTimeout(() => $('#cmtText').focus(), 50); }
+let ctxActions = [];
+document.addEventListener('contextmenu', e => {
+  const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
+  if (t && t.closest('input, textarea, select')) return;                    // text boxes keep the system's copy / paste menu
+  e.preventDefault();                                                       // never the web view's own (browser) menu
+  if (!t || !t.closest('#editorHost')) return;                              // panels, top bar: no menu
+  if (t.closest('.spell-err')) return;                                      // misspelled word: the spelling popup
+  // a right-click outside the selection moves the cursor there first
+  const hit = editor.view.posAtCoords({ left: e.clientX, top: e.clientY }), sel = editor.state.selection;
+  if (hit && !t.closest('.imgw,.math') && (sel.empty || hit.pos < sel.from || hit.pos > sel.to)) editor.commands.setTextSelection(hit.pos);
+  const items = ctxItems(e); ctxActions = items;
+  const m = $('#ctxMenu');
+  m.innerHTML = items.map((it, i) => it.sep ? (it.title ? `<div class="psep"></div><div class="ctitle">${it.title}</div>` : '<div class="psep"></div>') : `<button class="pitem" data-ci="${i}"${it.on ? '' : ' disabled'}><span>${it.label}</span><span class="phint">${it.hint || ''}</span></button>`).join('').replace(/^<div class="psep"><\/div>/, '');
+  closePops();
+  m.hidden = false;
+  const W = m.offsetWidth, H = m.offsetHeight;
+  m.style.left = Math.min(e.clientX, innerWidth - W - 6) + 'px'; m.style.top = Math.min(e.clientY, innerHeight - H - 6) + 'px';
+  openPop = m; openAnchor = null;
+}, true);
+$('#ctxMenu').addEventListener('mousedown', e => e.preventDefault());       // the selection stays
+$('#ctxMenu').addEventListener('click', e => {
+  const b = e.target.closest('[data-ci]'); if (!b) return;
+  const it = ctxActions[+b.dataset.ci]; closePops();
+  if (it && it.fn) it.fn();
+});
 
 /* format painter: applied when the mouse is released over a selection */
 function applyPainter() {
@@ -1885,7 +2027,24 @@ function styleRows() {
 { const fams = allFamilies(), o = list => list.map(([f, l]) => `<option value="${f}">${l}</option>`).join('');
   for (const sel of $$('.hffont')) sel.innerHTML = `<option value="">Alap betűtípus</option><optgroup label="Képletbarát betűtípusok">${o(fams.math)}</optgroup><optgroup label="Egyéb betűtípusok">${o(fams.other)}</optgroup>`; }
 $('#tplFont').innerHTML = Object.entries(FONT_SETS).map(([k, f]) => `<option value="${k}">${f.label} – ${f.note}</option>`).join('');
+/* every slider of the template panel shows its value beside it */
+function sliderValues() {
+  for (const r of $$('#props input[type=range]')) {
+    if (!r.parentElement.classList.contains('rvrow')) {
+      const row = document.createElement('span'); row.className = 'rvrow';
+      r.replaceWith(row); row.appendChild(r);
+      const v = document.createElement('span'); v.className = 'rv'; row.appendChild(v);
+      r.addEventListener('input', () => showRv(r));
+    }
+    showRv(r);
+  }
+}
+function showRv(r) {
+  const k = r.dataset.k || '', v = +r.value, out = r.parentElement.querySelector('.rv'); if (!out) return;
+  out.textContent = /opacity/.test(k) ? Math.round(v * 100) + ' %' : /angle|Angle/.test(k) ? v + '°' : /imgWidth/.test(k) ? v + ' %' : /size/.test(k) ? v + ' pt' : String(v).replace('.', ',');
+}
 function fillPanel() {
+  queueMicrotask(sliderValues);
   hfTabs(); styleRows(); presetName();
   for (const el of $$('#props [data-k]')) {
     const v = getPath(tpl, el.dataset.k);
@@ -1966,16 +2125,25 @@ function presetName() {
   const cards = PRESETS.map(([k, l, locked, a, b]) => `<button class="pbcard${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}" title="${locked ? 'Hamarosan' : l}"><i style="--a:${a};--b:${b}"></i><span>${locked ? svg('lock') : ''}${l}</span>${locked ? '<small>hamarosan</small>' : ''}</button>`);
   if (customTpl) cards.push(`<button class="pbcard custom${tpl.preset === 'custom' ? ' on' : ''}" data-preset="custom" title="Sablonfájlból: ${esc(customTpl.name)}"><i style="--a:#ffffff;--b:#2e4a9e"></i><span>${esc(customTpl.name)}</span><small>sablonfájlból</small></button>`);
   $('#presetBox').innerHTML = `<div class="pbhead"><b>Sablonok</b></div><div class="pbgrid">${cards.join('')}</div>
-    <div class="pbfile"><button class="btn" id="tplToFile" title="A jobb oldali panel minden beállítása – az élőfejjel és az élőlábbal együtt – egy Matekos Doksi Sablon fájlba">Sablon mentése fájlba…</button><button class="btn" id="tplFromFile" title="Egy Matekos Doksi Sablon fájl használata ebben a dokumentumban">Sablonfájl importálása…</button></div>`;
+    <div class="pbfile">${tpl.preset === 'custom' && customTpl ? `<button class="btn primary" id="tplUpdate" title="A sablonfájl felülírása a mostani beállításokkal (különben a változások csak ebbe a dokumentumba kerülnek)">Sablonfájl frissítése</button>` : ''}<button class="btn" id="tplToFile" title="A jobb oldali panel minden beállítása – az élőfejjel és az élőlábbal együtt – egy Matekos Doksi Sablon fájlba">Sablon mentése fájlba…</button><button class="btn" id="tplFromFile" title="Egy Matekos Doksi Sablon fájl használata ebben a dokumentumban">Sablonfájl importálása…</button></div>`;
 }
 $('#presetBox').addEventListener('click', async e => {
+  if (e.target.closest('#tplUpdate')) {
+    if (!customTpl) return;
+    try {
+      const t = JSON.parse(JSON.stringify(tpl)); delete t.preset;
+      const n = await updateTemplateFile(customTpl.path || null, { name: customTpl.name, tpl: t });
+      if (n) { customTpl.tpl = t; markDirty(); saveSoon(); toast('Sablonfájl frissítve: ' + n); }
+    } catch (err) { toast('A sablonfájl frissítése nem sikerült: ' + (err && err.message || err)); }
+    return;
+  }
   if (e.target.closest('#tplToFile')) {
     try {
       const t = JSON.parse(JSON.stringify(tpl)); delete t.preset;
       const n = await saveTemplateFile({ name: customTpl && tpl.preset === 'custom' ? customTpl.name : docTitle() + ' sablon', tpl: t }, (customTpl && tpl.preset === 'custom' ? customTpl.name : docTitle() + ' sablon'));
       if (n) {
         if (customTpl && tpl.preset !== 'custom' && !await confirmBox(`A dokumentumban már van egy sablonfájl („${customTpl.name}”). Egyszerre csak egy lehet – ez lép a helyére: „${n.replace(/\.mdsab$/i, '')}”?`, 'Csere')) { toast('Sablon elmentve: ' + n); return; }
-        customTpl = { name: n.replace(/\.mdsab$/i, ''), tpl: t }; tpl.preset = 'custom'; presetName(); markDirty(); saveSoon();
+        customTpl = { name: n.replace(/\.mdsab$/i, ''), tpl: t, path: templateFilePath() }; tpl.preset = 'custom'; presetName(); markDirty(); saveSoon();
         toast('Sablon elmentve és használatban: ' + n);
       }
     } catch (err) { toast('A sablon mentése nem sikerült: ' + (err && err.message || err)); }
@@ -1987,7 +2155,7 @@ $('#presetBox').addEventListener('click', async e => {
     if (!r) return;
     if (customTpl && !await confirmBox(`A dokumentumban már van egy sablonfájl („${customTpl.name}”). Egyszerre csak egy lehet – lecseréled erre: „${r.name.replace(/\.mdsab$/i, '')}”?`, 'Csere')) return;
     if (hfOpen) closeHF();
-    customTpl = { name: r.name.replace(/\.mdsab$/i, ''), tpl: r.data.tpl };
+    customTpl = { name: r.name.replace(/\.mdsab$/i, ''), tpl: r.data.tpl, path: templateFilePath() };
     tpl = normalizeTpl(JSON.parse(JSON.stringify(customTpl.tpl))); tpl.preset = 'custom';
     fillPanel(); markDirty(); applyTpl(true); saveSoon();
     toast('Sablonfájl használatban: ' + customTpl.name);
@@ -2144,7 +2312,7 @@ async function openPath(p) {
       if (!data || data.app !== 'matekos-doksi-sablon' || !data.tpl) throw new Error('Ez nem Matekos Doksi Sablon.');
       if (!await newDocument()) return false;
       const name = p.split(/[\\/]/).pop().replace(/\.mdsab$/i, '');
-      customTpl = { name, tpl: data.tpl }; tpl = normalizeTpl(JSON.parse(JSON.stringify(data.tpl))); tpl.preset = 'custom';
+      customTpl = { name, tpl: data.tpl, path: p }; tpl = normalizeTpl(JSON.parse(JSON.stringify(data.tpl))); tpl.preset = 'custom';
       fillPanel(); applyTpl(true); markDirty(); saveSoon(); toast('Új dokumentum a sablonnal: ' + name);
       return true;
     } catch (e) { toast('A sablon nem nyitható meg: ' + (e && e.message || e)); return false; }
@@ -2220,7 +2388,7 @@ $('#fImportMd').addEventListener('click', async () => {
 $('#expMd').addEventListener('click', async () => {
   closePops();
   try {
-    const r = exportMarkdown(editor.getJSON(), docTitle());
+    const r = exportMarkdown(editor.getJSON(), docTitle(), tpl.lists.num);
     toast(await saveMarkdown(r.md, docTitle()) + (r.report.images ? ` (${r.report.images} kép kimaradt)` : ''));
   } catch (e) { toast('A Markdown-export nem sikerült: ' + (e && e.message || e)); }
 });

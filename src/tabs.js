@@ -38,6 +38,22 @@ function segWidth(tab, scale) {
   const l = Math.min(...rects.map(q => q.left)), rr = Math.max(...rects.map(q => q.right));
   return (rr - l) / scale;
 }
+/** Width of the text after a wrapped tab, on the line of its spacer. */
+function segWidthAt(tab, sp, scale) {
+  const block = tab.closest('p,h1,h2,h3,li,td,th') || tab.parentElement;
+  const tabs = Array.from(block.querySelectorAll('span.tab')), next = tabs[tabs.indexOf(tab) + 1];
+  const r = document.createRange(); r.setStartAfter(tab);
+  if (next) r.setEndBefore(next); else r.setEnd(block, block.childNodes.length);
+  try {   // trailing spaces do not count
+    const tw = document.createTreeWalker(block, NodeFilter.SHOW_TEXT); let lastT = null;
+    while (tw.nextNode()) { const tn = tw.currentNode; if (r.intersectsNode(tn) && tn.data.trim()) lastT = tn; }
+    if (lastT) { const m = lastT.data.match(/\s+$/); if (m && r.comparePoint(lastT, lastT.data.length - m[0].length) <= 0) r.setEnd(lastT, lastT.data.length - m[0].length); }
+  } catch (e) { /* whole range */ }
+  const q = sp.getBoundingClientRect(), y = (q.top + q.bottom) / 2;
+  const rects = Array.from(r.getClientRects()).filter(x => x.width > 0 && y >= x.top - 3 && y <= x.bottom + 3);
+  if (!rects.length) return 0;
+  return (Math.max(...rects.map(x => x.right)) - q.right) / scale;
+}
 /** Lay out the tabs of every block inside root. originOf(block) -> client x of the column / box start. */
 export function layoutTabs(root, scale = 1, originOf = null) {
   const tabs = root.querySelectorAll('span.tab');
@@ -69,7 +85,9 @@ export function layoutTabs(root, scale = 1, originOf = null) {
         t.classList.add('wrapped');
         t.innerHTML = '<br><span class="tab-sp"></span>';
         const sp = t.lastChild, xs = (sp.getBoundingClientRect().left - x0) / scale;
-        const ww = wrapStop.align === 'right' ? wrapStop.pos - xs - wrapSeg : wrapStop.pos - xs - wrapSeg / 2;
+        // the text after the tab measured on its new line (with the spacer still empty, it all starts there)
+        const segNow = segWidthAt(t, sp, scale) || wrapSeg;
+        const ww = wrapStop.align === 'right' ? wrapStop.pos - xs - segNow : wrapStop.pos - xs - segNow / 2;
         sp.style.width = Math.max(0, ww - 0.15) + 'px';
         t.style.width = '';
         t.dataset.stop = String(Math.round(wrapStop.pos / CM * 100) / 100);

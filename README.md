@@ -1,4 +1,4 @@
-# Matekos Doksi 0.9.7
+# Matekos Doksi 0.9.8
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -47,12 +47,14 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   on the page (move handle), with the text wrapping around them.
 * Pictures: in the line, on their own line, or with text wrapping / over / behind the text; wrapped pictures move
   freely once selected, stay inside the margins and move with their paragraph (as in Word); resizing from any corner.
-* Templates (right panel): page, header and footer (edited on the page, three columns, fields for page number,
+* Templates (right panel; changes stay in the document, a template file is only changed by „Sablonfájl frissítése”): page, header and footer (edited on the page, three columns, fields for page number,
   page count, date, title; first page number; odd / even / first page), watermark, paragraph styles (Normál, Főcím,
   Cím, Alcím: font, size, colour, B/I/U, shading, alignment, spacing, indents, letter spacing, tabulators, keep with
   next, no space between same-style paragraphs), default list symbols. Built-in templates Sima and Feladatsor
   (`public/presets/*.mdsab`); any template can be saved as a **Matekos Doksi Sablon** (.mdsab) and used in other
   documents.
+* The app's own right-click menu (text, formulas, pictures, tables, lists); word count and statistics at the bottom
+  of the left panel.
 * Comments: on text, pictures or table cells; purple marks on the page (never printed); reply, resolve, delete;
   listed in document order; saved in the document.
 * Eye mode: spaces, paragraph ends, line breaks, tabs (with their stop), indents, space before / after, hidden

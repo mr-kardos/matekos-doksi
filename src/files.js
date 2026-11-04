@@ -140,6 +140,14 @@ export async function pickDocx() {
 }
 
 /* ---------- template files (.mdsab = Matekos Doksi SABlon) ---------- */
+let lastTplPath = null;                 // the path of the template file last saved / opened (desktop app)
+export const templateFilePath = () => lastTplPath;
+/** Overwrite a template file (desktop app: the given path; otherwise a download). */
+export async function updateTemplateFile(path, data) {
+  const json = JSON.stringify({ app: 'matekos-doksi-sablon', v: 1, ...data });
+  if (isTauri() && path) { const { writeTextFile } = await import('@tauri-apps/plugin-fs'); await writeTextFile(path, json); return baseName(path); }
+  return saveTemplateFile(data, data.name || 'sablon');
+}
 export async function saveTemplateFile(data, suggested) {
   const json = JSON.stringify({ app: 'matekos-doksi-sablon', v: 1, ...data });
   if (isTauri()) {
@@ -148,6 +156,7 @@ export async function saveTemplateFile(data, suggested) {
     const path = await save({ defaultPath: safeName(suggested) + '.mdsab', filters: [{ name: 'Matekos Doksi Sablon', extensions: ['mdsab'] }] });
     if (!path) return null;
     await writeTextFile(path, json);
+    lastTplPath = path;
     return baseName(path);
   }
   const url = URL.createObjectURL(new Blob([json], { type: 'application/json' })), a = document.createElement('a');
@@ -162,7 +171,7 @@ export async function openTemplateFile() {
     const { readTextFile } = await import('@tauri-apps/plugin-fs');
     const path = await open({ multiple: false, filters: [{ name: 'Matekos Doksi Sablon', extensions: ['mdsab'] }] });
     if (!path) return null;
-    text = await readTextFile(path); name = baseName(path);
+    text = await readTextFile(path); name = baseName(path); lastTplPath = path;
   } else {
     const f = await new Promise(res => { const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.mdsab'; inp.onchange = () => res(inp.files[0] || null); inp.click(); });
     if (!f) return null;

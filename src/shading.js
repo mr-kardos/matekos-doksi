@@ -39,8 +39,11 @@ function lineBoxes(block, toY, LH) {
   }
   return lines.map(L => {
     const tt = Number.isFinite(L.tTop) ? L.tTop : L.top, th = L.tH || (L.bottom - L.top);
-    const top = Math.min(toY(tt) - Math.max(0, (LH - toY(tt + th) + toY(tt)) / 2), toY(L.top));
-    return { top, bottom: Math.max(top + LH, toY(L.bottom)), color: L.color };
+    // the font's box has more room above the letters than below them: centre the band on the letters themselves
+    const shift = (toY(tt + th) - toY(tt)) * 0.07;
+    const top = Math.min(toY(tt) + shift - Math.max(0, (LH - toY(tt + th) + toY(tt)) / 2), toY(L.top));
+    const bottom = Math.max(top + LH, toY(L.bottom));
+    return { top, bottom, color: L.color, ext: Math.max(1, bottom - (toY(tt + th) + shift)) };
   });
 }
 
@@ -82,7 +85,8 @@ export function drawShadeBands(layer, editorDom, stackEl, scale, pageOf) {
       if (!L.color) { cur = null; return; }
       const joinable = cur && cur.color === L.color && pageOf(cur.bottom - 1) === pageOf(L.top + 1) && (k > 0 || sameFlow) && L.top - cur.bottom < LH * 2.5;
       if (joinable) { cur.bottom = Math.max(cur.bottom, L.bottom); cur.left = Math.min(cur.left, left); cur.right = Math.max(cur.right, right); }
-      else { cur = { top: L.top, bottom: L.bottom, left, right, color: L.color }; bands.push(cur); }
+      // a little past the margins (outside tables): as far as it reaches below the letters
+      else { const e2 = cellEl ? 0 : Math.min(8, L.ext || 0); cur = { top: L.top, bottom: L.bottom, left: left - e2, right: right + e2, color: L.color }; bands.push(cur); }
     });
     if (!lines[lines.length - 1].color) cur = null;
     prevBlock = block;

@@ -114,7 +114,7 @@
 </header>
 
 <div class="main" id="main">
-  <nav id="pagesNav" aria-label="Oldalak"><div class="phead2 lhead"><b>Oldalak</b><button class="tb" id="pagesX" data-icon="panelL" title="Bal oldali panel összecsukása"></button></div><div class="plist" id="plist"></div></nav>
+  <nav id="pagesNav" aria-label="Oldalak"><div class="phead2 lhead"><b>Oldalak</b><button class="tb" id="pagesX" data-icon="panelL" title="Bal oldali panel összecsukása"></button></div><div class="plist" id="plist"></div><button class="wcount" id="wordCount" title="Statisztika">0 szó</button></nav>
   <div class="lsplit" id="lsplit" title="Húzd a panel szélességének állításához" role="separator" aria-orientation="vertical"></div>
   <main class="ws" id="ws">
     <div class="outer" id="outer">
@@ -264,6 +264,8 @@
   <div class="ptitle">Egyéb betűtípusok<span class="phint">a képletek a sablon képletbetűjével készülnek</span></div><div id="fontOther"></div>
 </div>
 <div class="pop" id="popSpell" hidden><div class="ptitle">Helyesírás: <span id="spellWord"></span></div><div id="spellList"></div><div class="psep"></div><button class="pitem" id="spellAdd">Hozzáadás a szótárhoz</button><button class="pitem" id="spellIgnore">Kihagyás ebben a dokumentumban</button></div>
+<div class="pop" id="popStats" hidden><div class="ptitle">Statisztika</div><div id="statsBody"></div></div>
+<div class="pop ctxmenu" id="ctxMenu" hidden></div>
 <div class="pop" id="popFind" hidden>
   <div class="ptitle">Keresés és csere</div>
   <div class="frow"><input id="findIn" type="text" placeholder="Keresett szöveg" spellcheck="false"></div>

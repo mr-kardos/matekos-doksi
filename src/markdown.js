@@ -130,7 +130,74 @@ function inlineMd(nodes) {
   }
   return out;
 }
-function blockMd(n, indent, report) {
+/** Several blocks of one container; numbered lists count on as in Doksi (continuing lists, start numbers). */
+function blocksMd(nodes, indent, report, opts) {
+  const ends = {}, out = [];
+  for (const n of nodes || []) {
+    if (n.type === 'orderedList') {
+      const sty = (n.attrs && n.attrs.numStyle) || opts.num;
+      let realItems = 0; for (const it of n.content || []) if (!(it.attrs && it.attrs.ghost)) realItems++;
+      const start = n.attrs && n.attrs.cont ? (ends[sty] ?? 0) + 1 : ((n.attrs && n.attrs.start) ?? 1);
+      ends[sty] = start + realItems - 1;
+      out.push(listMd(n, indent, report, opts, start, sty));
+    } else if (n.type === 'bulletList') out.push(listMd(n, indent, report, opts, 1, null));
+    else out.push(blockMd(n, indent, report, opts));
+  }
+  return out.filter(Boolean).join('\n');
+}
+/** A list: "1." / "1)" are Markdown list markers; a) A. i. I. are written out in front of the text. */
+function listMd(n, indent, report, opts, start, sty) {
+  const pad = ' '.repeat(indent), ordered = n.type === 'orderedList';
+  const native = !ordered || sty === 'decimal' || sty === 'decimal-paren';
+  let k = start, out = '';
+  for (const it of n.content || []) {
+    const kids = it.content || [];
+    if (it.attrs && it.attrs.ghost) { out += blocksMd(kids.filter(c => /List$/.test(c.type)), indent, report, opts); continue; }
+    const label = ordered ? ordinal(k++, sty) : '-';
+    const mark = native ? label + ' ' : '';
+    const text = ordered && !native ? label + ' ' : '';
+    let first = true;
+    for (const c of kids) {
+      if (first && (c.type === 'paragraph' || c.type === 'heading')) {
+        out += pad + mark + text + inlineMd(c.content).replace(/\n/g, '\n' + pad + ' '.repeat(mark.length)) + (native ? '\n' : '\n\n');
+        first = false;
+      } else out += blocksMd([c], indent + (native ? mark.length : 3), report, opts).replace(/^\n+/, '') + (native ? '' : '\n');
+    }
+    if (first) out += pad + mark + text + '\n';
+  }
+  return out;
+}
+function ordinal(n, style) {
+  const alpha = (q, up) => { let s = ''; while (q > 0) { q--; s = String.fromCharCode(97 + q % 26) + s; q = Math.floor(q / 26); } return up ? s.toUpperCase() : s; };
+  const roman = (q, up) => { const t = [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, 'cd'], [100, 'c'], [90, 'xc'], [50, 'l'], [40, 'xl'], [10, 'x'], [9, 'ix'], [5, 'v'], [4, 'iv'], [1, 'i']]; let s = ''; for (const [v, r] of t) while (q >= v) { s += r; q -= v; } return up ? s.toUpperCase() : s; };
+  switch (style) {
+    case 'decimal-paren': return n + ')';
+    case 'lower-alpha': return alpha(n) + ')';
+    case 'upper-alpha': return alpha(n, true) + '.';
+    case 'lower-roman': return roman(n) + '.';
+    case 'upper-roman': return roman(n, true) + '.';
+    default: return n + '.';
+  }
+}
+/** The text of a table cell on one line (paragraphs and list items separated by <br>). */
+function cellMd(cell, opts) {
+  const parts = [];
+  const walk = (nodes, prefix) => {
+    const ends = {};
+    for (const c of nodes || []) {
+      if (c.type === 'paragraph' || c.type === 'heading') { const t = inlineMd(c.content); if (t.trim() || prefix) parts.push(prefix + t); prefix = ''; }
+      else if (c.type === 'bulletList' || c.type === 'orderedList') {
+        const sty = (c.attrs && c.attrs.numStyle) || opts.num;
+        let k = c.type === 'orderedList' ? (c.attrs && c.attrs.cont ? (ends[sty] ?? 0) + 1 : ((c.attrs && c.attrs.start) ?? 1)) : 0;
+        for (const it of c.content || []) { if (it.attrs && it.attrs.ghost) { walk(it.content, ''); continue; } walk(it.content, (c.type === 'orderedList' ? ordinal(k++, sty) : '•') + ' '); }
+        if (c.type === 'orderedList') ends[sty] = k - 1;
+      } else if (c.content) walk(c.content, prefix);
+    }
+  };
+  walk(cell.content, '');
+  return parts.join('<br>').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+function blockMd(n, indent, report, opts) {
   const pad = ' '.repeat(indent);
   switch (n.type) {
     case 'heading': return pad + '#'.repeat(n.attrs.level || 1) + ' ' + inlineMd(n.content) + '\n';
@@ -140,37 +207,26 @@ function blockMd(n, indent, report) {
       const t = only ? `$$${n.content[0].attrs.tex}$$` : inlineMd(n.content);
       return t.trim() ? pad + t.replace(/\n/g, '\n' + pad) + '\n' : '';
     }
-    case 'bulletList': case 'orderedList': {
-      let k = n.attrs && n.attrs.start != null ? n.attrs.start : 1, out = '';
-      for (const it of n.content || []) {
-        if (it.attrs && it.attrs.ghost) { for (const c of it.content || []) if (/List$/.test(c.type)) out += blockMd(c, indent, report); continue; }
-        const mark = n.type === 'orderedList' ? `${k++}. ` : '- ';
-        const kids = it.content || [];
-        let first = true;
-        for (const c of kids) {
-          if (first && (c.type === 'paragraph' || c.type === 'heading')) { out += pad + mark + inlineMd(c.content).replace(/\n/g, '\n' + pad + ' '.repeat(mark.length)) + '\n'; first = false; }
-          else out += blockMd(c, indent + mark.length, report).replace(/^\n+/, '');
-        }
-        if (first) out += pad + mark + '\n';
-      }
-      return out;
-    }
+    case 'bulletList': case 'orderedList': return blocksMd([n], indent, report, opts);
     case 'table': {
-      const rows = (n.content || []).map(r => (r.content || []).map(c => (c.content || []).map(p => inlineMd(p.content || [])).join(' ').replace(/\|/g, '\\|').replace(/\n/g, ' ')));
+      const cells = [];
+      for (const r of n.content || []) for (const c of r.content || []) cells.push(c);
+      // a borderless layout table (e.g. two columns): its contents one after the other
+      if (cells.length && cells.every(c => c.attrs && c.attrs.borderWidth === 0)) return cells.map(c => blocksMd(c.content, indent, report, opts)).filter(Boolean).join('\n');
+      const rows = (n.content || []).map(r => { const row = []; for (const c of r.content || []) { row.push(cellMd(c, opts)); for (let x = 1; x < ((c.attrs && c.attrs.colspan) || 1); x++) row.push(''); } return row; });
       if (!rows.length) return '';
       const w = Math.max(...rows.map(r => r.length));
-      const line = r => pad + '| ' + Array.from({ length: w }, (_, i) => r[i] || '').join(' | ') + ' |';
+      const line = r => pad + '| ' + Array.from({ length: w }, (_, i) => r[i] || ' ').join(' | ') + ' |';
       return [line(rows[0]), pad + '|' + Array.from({ length: w }, () => ' --- |').join(''), ...rows.slice(1).map(line)].join('\n') + '\n';
     }
     case 'pageBreak': return pad + '---\n';
-    default: return n.content ? n.content.map(c => blockMd(c, indent, report)).join('\n') : '';
+    default: return n.content ? blocksMd(n.content, indent, report, opts) : '';
   }
 }
 /** TipTap JSON -> {md, report} */
-export function exportMarkdown(doc, title) {
+export function exportMarkdown(doc, title, defaultNum = 'decimal') {
   const report = { images: 0 };
-  const parts = (doc.content || []).map(n => blockMd(n, 0, report)).filter(Boolean);
-  let md = parts.join('\n').replace(/\n{3,}/g, '\n\n');
+  let md = blocksMd(doc.content || [], 0, report, { num: defaultNum }).replace(/\n{3,}/g, '\n\n');
   if (title && !(doc.content || []).some(n => n.type === 'heading')) md = `# ${title}\n\n` + md;
   return { md: md.trim() + '\n', report };
 }

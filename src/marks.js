@@ -78,10 +78,14 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
       const ptOf = v => { const m = /^(-?[\d.]+)(pt|px)?$/.exec(String(v).trim()); if (!m) return 0; return m[2] === 'px' ? +m[1] * 0.75 : +m[1]; };
       const csb = ptOf(cs.getPropertyValue('--sb') || '0'), csa = ptOf(cs.getPropertyValue('--sa') || cs.getPropertyValue('--after') || '0');
       const fmt = v => String(Math.round(v * 10) / 10).replace('.', ',');
-      if (Math.abs(csb) > 0.05) notes.push('előtte ' + fmt(csb) + ' pt');
-      if (Math.abs(csa) > 0.05) notes.push('utána ' + fmt(csa) + ' pt');
+      // as the paragraph style says: white label; different from it: green label
+      const same = [];
+      const inList = !!b.closest('li');
+      const want = k => inList ? 0 : (+(st || {})[k] || 0);
+      if (Math.abs(csb) > 0.05) (Math.abs(csb - want('spaceBefore')) < 0.05 ? same : notes).push('előtte ' + fmt(csb) + ' pt');
+      if (Math.abs(csa) > 0.05) (Math.abs(csa - want('spaceAfter')) < 0.05 ? same : notes).push('utána ' + fmt(csa) + ' pt');
       void sb; void sa;
-      if (notes.length) out.push(`<span class="mk-dev par" style="left:${X(br.right) + 22}px;top:${Y(br.top) + 1}px">${notes.join(' · ')}</span>`);
+      if (notes.length || same.length) out.push(`<span class="mk-devs" style="left:${X(br.right) + 22}px;top:${Y(br.top) + 1}px">${notes.length ? `<span class="mk-dev">${notes.join(' · ')}</span>` : ''}${same.length ? `<span class="mk-same">${same.join(' · ')}</span>` : ''}</span>`);
       // text runs with their own font, size or letter spacing
       if (st) for (const sp of b.querySelectorAll('span[style]')) {
         if (sp.closest(SKIP)) continue;
