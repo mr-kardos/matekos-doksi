@@ -912,11 +912,11 @@ export const KvImage = Node.create({
         move(e);
       });
       // used by the selection frame (drawn outside the text so it can never move anything)
-      // press on the picture and drag straight away: select it and move it in one go (no native drag & drop)
+      // a click selects the picture; it can be moved by dragging only once it is selected (then its frame takes the drag)
       img.addEventListener('pointerdown', e => {
         if (e.button !== 0 || e.detail > 1) return;
         e.preventDefault(); e.stopPropagation();
-        reselect(); move(e);
+        if (selected) move(e); else reselect();
       });
       dom._kv = {
         img, move, resize, node: () => cur,

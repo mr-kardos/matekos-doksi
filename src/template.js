@@ -14,10 +14,10 @@ const ALIGN = { l: 'left', c: 'center', r: 'right' };
 const slot = (l = '', c = '', r = '') => ({ l: cellDoc(l, 'left'), c: cellDoc(c, 'center'), r: cellDoc(r, 'right'), img: { l: pic(), c: pic(), r: pic() } });
 /** A paragraph style (Normál, Főcím, Cím, Alcím). */
 const style = (o = {}) => ({ font: '', size: 12, color: '#111111', bold: false, italic: false, underline: false, shade: '', align: 'left',
-  line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 6, keepNext: false, contextual: false, tabs: [], ...o });
+  line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 0, keepNext: false, contextual: false, tabs: [], ...o });
 const LINE = { ruleBottom: '0.75 #000000' }, LINE_TOP = { ruleTop: '0.75 #000000' };
 export const DEFAULT_TPL = {
-  preset: 'ures',
+  preset: 'ures', startPage: 1,
   page: 'A4', pageW: 210, pageH: 297,
   margins: { top: 25, bottom: 25, left: 25, right: 25 },
   gutter: 0, mirror: false,
@@ -95,12 +95,13 @@ export function geometry(tpl) {
   const W = s[0] * MM, H = s[1] * MM;
   const g = (tpl.gutter || 0) * MM;
   const mt = m.top * MM, mb = m.bottom * MM;
-  const leftOf = i => {           // i = 0-based page index; page number = i + 1
-    if (tpl.mirror) return (i % 2 === 0) ? m.left * MM + g : m.right * MM;   // odd page: inside on left
+  const off = Math.max(1, Math.round(+tpl.startPage || 1)) - 1;   // the first page's number may be other than 1
+  const leftOf = i => {           // i = 0-based page index; page number = i + startPage
+    if (tpl.mirror) return ((i + off) % 2 === 0) ? m.left * MM + g : m.right * MM;   // odd page: inside on left
     return m.left * MM + g;
   };
   const rightOf = i => {
-    if (tpl.mirror) return (i % 2 === 0) ? m.right * MM : m.left * MM + g;
+    if (tpl.mirror) return ((i + off) % 2 === 0) ? m.right * MM : m.left * MM + g;
     return m.right * MM;
   };
   const colW = Math.max(60, W - leftOf(0) - rightOf(0));
@@ -115,6 +116,7 @@ export function geometry(tpl) {
 
 export function variantFor(tpl, i) {
   if (tpl.firstDiff && i === 0) return 'first';
-  if (tpl.oddEven && i % 2 === 1) return 'even';
+  const off = Math.max(1, Math.round(+tpl.startPage || 1)) - 1;
+  if (tpl.oddEven && (i + off) % 2 === 1) return 'even';
   return 'odd';
 }

@@ -65,7 +65,7 @@
       <button class="tb" data-cmd="indent" data-icon="indent" title="Behúzás növelése (listában Tab)"></button>
       <button class="tb" data-pop="popPara" data-icon="para" title="Bekezdés: behúzások és bekezdésköz"></button>
       <button class="tb" data-pop="popTabs" data-icon="tabstop" title="Tabulátorok"></button>
-      <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyék: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#dbe9ee"></i></button>
+      <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyék: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#d9d9d9"></i></button>
       <button class="tb" data-pop="popRule" data-icon="ruleLine" title="Elválasztó vonal a bekezdés fölött vagy alatt – margótól margóig"></button>
     </div>
     <div class="grp">
@@ -170,6 +170,7 @@
           <label class="fld">Kezdete a bal lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfLeft"></label>
           <label class="fld">Vége a jobb lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfRight"></label>
           <label class="fld full">Középső oszlop szélessége (%)<input type="number" min="10" max="80" step="1" data-k="hfMid"></label>
+          <label class="fld full">Kezdő oldalszám (az első oldal száma; páros / páratlan oldal és kötésmargó ehhez igazodik)<input type="number" min="1" step="1" data-k="startPage"></label>
         </div>
         <div class="strow" style="margin-top:10px"><div class="sthead"><b>Élőfej szövege</b></div>
           <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="headerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="headerColor" class="hidecolor"><i class="dot fill" id="hcDot"></i>Szín</label><label class="chk" style="margin-left:6px"><input type="checkbox" data-k="headerLine"> Vonal alatta</label></div>
@@ -229,7 +230,7 @@
   <div class="ptitle">Elválasztó vonal – margótól margóig</div>
   <div class="seg2"><button class="pitem" data-rule="top">A bekezdés fölött</button><button class="pitem" data-rule="bottom">A bekezdés alatt</button></div>
   <div class="ptitle" style="margin-top:8px">Vastagság</div>
-  <div class="seg2" id="ruleW"><button class="pitem" data-rw="0.5">0,5 pt</button><button class="pitem on" data-rw="0.75">0,75 pt</button><button class="pitem" data-rw="1.5">1,5 pt</button><button class="pitem" data-rw="2.25">2,25 pt</button></div>
+  <div class="lhgrid rwgrid" id="ruleW"><button class="pitem on" data-rw="0.5">0,5</button><button class="pitem" data-rw="0.75">0,75</button><button class="pitem" data-rw="1.5">1,5</button><button class="pitem" data-rw="2.25">2,25</button></div>
   <div class="ptitle" style="margin-top:8px">Szín</div>
   <div class="swg" id="swRule"></div>
   <div class="psep"></div>
@@ -295,8 +296,10 @@
 <div class="pop" id="popBullet" hidden>
   <div class="ptitle">Felsorolásjel</div>
   <div class="bulg" id="bulGrid"></div>
-  <div class="prow"><input id="bulCustom" maxlength="3" placeholder="✱" aria-label="Saját szimbólum"><button class="btn" id="bulCustomBtn">Szimbólum használata</button></div>
-  <div class="prow"><button class="btn" id="bulPicBtn">Kép mint felsorolásjel…</button><label class="mini-l">Méret <input type="number" id="bulPicSize" min="0.4" max="3" step="0.1" value="0.9"> em</label></div>
+  <div class="psep"></div>
+  <div class="ptitle">Egyedi listajel</div>
+  <div class="prow cbrow"><span class="cbl">Szimbólum:</span><input id="bulCustom" maxlength="3" placeholder="✱" aria-label="Saját szimbólum"><button class="btn" id="bulCustomBtn">OK</button></div>
+  <div class="prow cbrow"><span class="cbl">Kép:</span><button class="btn" id="bulPicBtn">Tallózás…</button><span class="bulpicprev" id="bulPicPrev"></span><input type="number" id="bulPicSize" min="0.4" max="3" step="0.1" value="0.9" title="Méret (em)" aria-label="Méret (em)"><button class="btn" id="bulPicOk" disabled>OK</button></div>
   <div class="psep"></div>
   <button class="pitem" data-bul="none">Lista megszüntetése</button>
 </div>
@@ -312,7 +315,9 @@
   <div class="prow numstart"><label>Kezdő szám <input type="number" id="numStart" min="0" step="1"></label><button class="btn" id="numStartOk">OK</button></div>
   <div class="psep"></div>
   <div class="ptitle">Belső lista ugyanabban a sorban <span class="phint" style="display:inline">(pl. 1. a) …)</span></div>
-  <div class="seg2 nestrow"><button class="pitem" data-nest="lower-alpha">a)</button><button class="pitem" data-nest="decimal">1.</button><button class="pitem" data-nest="lower-roman">i.</button><button class="pitem" data-nest="upper-alpha">A.</button></div>
+  <div class="prow nestrow"><button class="pitem" data-nest="lower-alpha">a)</button><select id="nestOther" aria-label="Más számozás"><option value="">más…</option><option value="decimal">1.</option><option value="decimal-paren">1)</option><option value="lower-roman">i.</option><option value="upper-alpha">A.</option><option value="upper-roman">I.</option></select></div>
+  <div class="psep"></div>
+  <button class="pitem" data-num="none">Lista megszüntetése</button>
 </div>
 <div class="pop" id="popPara" hidden>
   <div class="ptitle">Sorköz</div>
@@ -337,7 +342,7 @@
   <div id="tabList"></div>
   <div class="tabadd"><input type="number" id="tabPos" step="0.25" min="0.25" placeholder="cm" aria-label="Pozíció (cm)">
     <select id="tabAlign" aria-label="Igazítás"><option value="left">balra</option><option value="center">középre</option><option value="right">jobbra</option></select>
-    <select id="tabLeader" aria-label="Kitöltés"><option value="">üres</option><option value="dot">pontozott</option><option value="line">folytonos vonal</option></select>
+    <select id="tabLeader" aria-label="Kitöltés"><option value="">üres</option><option value="dot">pont</option><option value="line">vonal</option></select>
     <button class="btn" id="tabAdd">Hozzáadás</button></div>
   <button class="pitem" id="tabRightMargin">Jobbra igazított tabulátor a jobb margón</button>
 </div>

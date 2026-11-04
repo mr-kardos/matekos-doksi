@@ -17,7 +17,7 @@ import { loadFonts } from './fonts.js';
 import { FONT_SETS, fontSet, allFamilies, familyCSS, familyFromCSS, familyLabel, registerAllFamilies, loadTextFamily } from './fontsets.js';
 import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady } from './math.js';
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
-import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
+import { renderSheets, sheetHTML, esc, setHfHTML, setFirstPage } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
 import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP, setStyleTabs } from './tabs.js';
@@ -140,8 +140,11 @@ const editor = new Editor({
         const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
         if (!t || t.closest('.math,.imgw,.lm')) return false;
         const cellEl = t.closest('td,th');
-        const blk = t.closest('p,h1,h2,h3') || (cellEl && [...cellEl.querySelectorAll('p,h1,h2,h3')].find(p => { const r = p.getBoundingClientRect(); return e.clientY >= r.top && e.clientY <= r.bottom; }));
-        if (!blk || !blk.querySelector('.math')) return false;
+        // pressed on a list symbol (left of the item's text): the editor selects from there itself
+        const onSymbol = !t.closest('p,h1,h2,h3') && !!t.closest('li');
+        const liP = onSymbol ? [...t.closest('li').querySelectorAll(':scope > p, :scope > h1, :scope > h2, :scope > h3')].find(p => { const r = p.getBoundingClientRect(); return e.clientY >= r.top && e.clientY <= r.bottom; }) : null;
+        const blk = t.closest('p,h1,h2,h3') || liP || (cellEl && [...cellEl.querySelectorAll('p,h1,h2,h3')].find(p => { const r = p.getBoundingClientRect(); return e.clientY >= r.top && e.clientY <= r.bottom; }));
+        if (!blk || !(blk.querySelector('.math') || onSymbol)) return false;
         const hit = view.posAtCoords({ left: e.clientX, top: e.clientY }); if (!hit) return false;
         e.preventDefault();
         const anchor = hit.pos;
@@ -361,7 +364,7 @@ function updatePins() {
       // a list symbol on a line beside the object keeps its room – the same shift for every paragraph there, so list
       // levels keep their alignment to each other
       void symbolHere; const markRoom = shift;
-      const flat = firstLine && ((parseFloat(bcs.textIndent) || 0) !== 0 || blk.hasAttribute('data-hang'));   // its first-line / hanging indent is dropped there
+      const flat = firstLine && ((parseFloat(bcs.textIndent) || 0) < 0 || blk.hasAttribute('data-hang'));   // a hanging indent is dropped there (a first-line indent stays)
       const wPx = textLeft
         ? cbR - (G.l - gap * scale) - (outerR - edgeR(blk))
         : (G.r + gap * scale) + (edgeL(blk) - outerL) + markRoom - (flat ? br.left : cbL);
@@ -384,8 +387,11 @@ function updatePins() {
   if (sig === pinPrev) return;
   pinPrev = sig;
   setPinSpacers(editor.view, specs);
-  relayout(0);
+  // settle right away, before anything is painted: the next rounds run now (the layout is up to date after the
+  // dispatch), so the text does not visibly jump through the intermediate states
+  if (!pinNested) { pinNested = true; try { for (let k = 0; k < 2; k++) { const before = pinPrev; updatePins(); if (pinPrev === before) break; } } finally { pinNested = false; } relayout(0); }
 }
+let pinNested = false;
 setPinTop((pg, py) => pg * geometry(tpl).P + py);
 setStyleTabs(b => { const k = /^H[123]$/.test(b.tagName) ? b.tagName.toLowerCase() : 'p'; return (tpl.styles[k] || {}).tabs || null; });
 editor.view.dom.addEventListener('kv-pin', pinsSoon);
@@ -439,6 +445,7 @@ function repaintMath(all) {
   });
 }
 function applyTpl(rerenderMath) {
+  setFirstPage(tpl.startPage);
   const dom = editor.view.dom, P = tpl.styles.p;
   dom.style.fontSize = P.size + 'pt';
   dom.style.color = P.color;
@@ -620,7 +627,7 @@ $('#tblHandles').addEventListener('mousedown', e => {
 /* ------------------------------------------------------------------ */
 for (const b of $$('[data-icon]')) b.insertAdjacentHTML('afterbegin', svg(b.dataset.icon));
 for (const c of $$('.psec-h .chev')) c.innerHTML = svg('chev');
-const ch = () => AE().chain().focus();
+const ch = () => AE().chain().focus(null, { scrollIntoView: false });
 /** The computed look at the cursor (style + marks). */
 function lookAt(test) {
   const ed = AE(); let el = null;
@@ -967,18 +974,18 @@ function refreshPickers() {
 }
 swatches($('#swText'), ['#111111', '#5d6875', '#ffffff', '#da291c', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98'], c => ch().setColor(c).run());
 swatches($('#swHi'), ['#fff176', '#c5f0a4', '#b3ecf5', '#f8bbd0', '#ffd59e', '#e1bee7', '#e0e0e0'], c => c === 'none' ? ch().unsetHighlight().run() : ch().setHighlight({ color: c }).run(), 'Nincs kiemelés');
-swatches($('#swShade'), ['#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => {
+swatches($('#swShade'), ['#d9d9d9', '#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => {
   const empty = AE().state.selection.empty;
   if (c === 'none') return ch().unsetMark('lineShade').setParaAttrs({ shade: null }).run();
   if (empty) {                                                // cursor only: just the line the cursor is in
     const r = currentLineRange();
-    if (r) AE().chain().focus().setTextSelection(r).setMark('lineShade', { color: c }).setTextSelection(AE().state.selection.from).run();
+    if (r) AE().chain().focus(null, { scrollIntoView: false }).setTextSelection(r).setMark('lineShade', { color: c }).setTextSelection(AE().state.selection.from).run();
     else ch().setParaAttrs({ shade: c }).run();               // empty paragraph: shade its (single) line
   } else ch().setMark('lineShade', { color: c }).run();       // selection: exactly the lines it touches
 }, 'Nincs sorárnyék');
 /* colour settings of the template panel: the same palette as the ribbon (with the document's colours) */
 let anyColorCb = null;
-swatches($('#swAny'), ['#111111', '#5d6875', '#9aa3ad', '#ffffff', '#da291c', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98', '#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5', '#eeeeee'], c => anyColorCb && anyColorCb(c), 'Nincs');
+swatches($('#swAny'), ['#111111', '#5d6875', '#9aa3ad', '#ffffff', '#da291c', '#c0392b', '#d35400', '#b7950b', '#1e8449', '#117a65', '#1f5f74', '#2e4a9e', '#7d3c98', '#d9d9d9', '#dbe9ee', '#e8eef5', '#eaf4e4', '#fdf3d7', '#f9e1e1', '#ece6f5'], c => anyColorCb && anyColorCb(c), 'Nincs');
 $('#props').addEventListener('click', e => {
   const inp = e.target.closest('input[type=color]') || (e.target.closest('.colbtn') && e.target.closest('.colbtn').querySelector('input[type=color]'));
   if (!inp) return;
@@ -1071,15 +1078,24 @@ $('#popBullet').addEventListener('click', e => {
   setBullet({ bulletChar: b.dataset.bul, bulletImage: '' });
 });
 $('#popBullet').onopen = () => { const a = AE().isActive('bulletList') ? AE().getAttributes('bulletList') : null;
+  $('#bulPicOk').disabled = !(bulPicPending || (a && a.bulletImage)); if (a && a.bulletImage) $('#bulPicSize').value = a.bulletSize || 0.9;
   for (const b of $$('#popBullet [data-bul]')) b.classList.toggle('on', !!a && !a.bulletImage && b.dataset.bul === (a.bulletChar || '')); };
 $('#bulCustomBtn').addEventListener('click', () => { const v = $('#bulCustom').value.trim(); if (v) { closePops(); setBullet({ bulletChar: v, bulletImage: '' }); } });
-$('#bulPicBtn').addEventListener('click', () => pickImage(512, url => { closePops(); setBullet({ bulletImage: url, bulletChar: '', bulletSize: +$('#bulPicSize').value || 0.9 }); }));
-$('#bulPicSize').addEventListener('change', e => { if (AE().isActive('bulletList')) ch().updateAttributes('bulletList', { bulletSize: +e.target.value || 0.9 }).run(); });
+$('#bulCustom').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#bulCustomBtn').click(); } });
+let bulPicPending = null;          // a chosen picture, used only when OK is pressed
+$('#bulPicBtn').addEventListener('click', () => pickImage(512, url => { bulPicPending = url; $('#bulPicPrev').innerHTML = `<img src="${url}" alt="">`; $('#bulPicOk').disabled = false; }));
+$('#bulPicOk').addEventListener('click', () => {
+  const a = AE().isActive('bulletList') ? AE().getAttributes('bulletList') : {};
+  const url = bulPicPending || a.bulletImage; if (!url) return;
+  closePops(); setBullet({ bulletImage: url, bulletChar: '', bulletSize: +$('#bulPicSize').value || 0.9 }); bulPicPending = null; $('#bulPicPrev').innerHTML = '';
+});
 $('#popNum').addEventListener('click', e => {
   const n = e.target.closest('[data-nest]'); if (n) { closePops(); nestSameLine(n.dataset.nest); return; }
   const b = e.target.closest('[data-num]'); if (!b) return; closePops();
+  if (b.dataset.num === 'none') { if (AE().isActive('orderedList')) ch().toggleOrderedList().run(); return; }
   applyListAttrs('orderedList', { numStyle: b.dataset.num });
 });
+$('#nestOther').addEventListener('change', e => { const v = e.target.value; e.target.value = ''; if (v) { closePops(); nestSameLine(v); } });
 $('#numStartOk').addEventListener('click', () => { const v = parseInt($('#numStart').value, 10); if (!(v >= 0)) return; closePops(); applyListAttrs('orderedList', { start: v }); });
 $('#numStart').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#numStartOk').click(); } });
 $('#popNum').onopen = () => { const on = AE().isActive('orderedList'), a = on ? AE().getAttributes('orderedList') : {};
@@ -1175,7 +1191,7 @@ $('#tabRightMargin').addEventListener('click', () => {      // right tab exactly
 });
 $('#tabList').addEventListener('click', e => { const b = e.target.closest('[data-deltab]'); if (!b) return; const t = curTabs(); t.splice(+b.dataset.deltab, 1); setTabs(t); });
 /* margin-to-margin line above / below the paragraph */
-let ruleW = 0.75, ruleC = '#111111';
+let ruleW = 0.5, ruleC = '#111111';
 $('#ruleW').addEventListener('click', e => { const b = e.target.closest('[data-rw]'); if (!b) return; ruleW = +b.dataset.rw; for (const x of $$('#ruleW [data-rw]')) x.classList.toggle('on', x === b); });
 $('#popRule').addEventListener('click', e => {
   const b = e.target.closest('[data-rule]'); if (!b) return;
@@ -1739,7 +1755,7 @@ function renderThumbs() {
   for (let i = 0; i < pageCount; i++) {
     const t = document.createElement('div');
     t.className = 'thumb' + (i === curPage ? ' cur' : ''); t.dataset.i = i;
-    t.innerHTML = `<div class="no">${i + 1}</div><div class="frame"><div class="tpage" style="width:${g.W}px;height:${g.H}px">${sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0)}</div></div>`;
+    t.innerHTML = `<div class="no">${i + (+tpl.startPage || 1)}</div><div class="frame"><div class="tpage" style="width:${g.W}px;height:${g.H}px">${sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0)}</div></div>`;
     const tp = t.querySelector('.tpage');
     // line shading of this page
     const bands = document.createElement('div');

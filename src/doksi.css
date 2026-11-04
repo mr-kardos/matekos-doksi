@@ -543,3 +543,22 @@ body.painting .ProseMirror{ cursor:copy; }
 .sttabs .sttadd{ display:flex; gap:4px; width:100%; }
 .sttabs .sttadd input{ width:56px; height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 5px; }
 .sttabs .sttadd select{ height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); }
+
+/* list popups */
+#popBullet .cbrow{ display:flex; align-items:center; gap:6px; margin-top:6px; }
+#popBullet .cbl{ width:72px; flex:none; font-size:12.5px; color:var(--ink-2); }
+#popBullet #bulCustom{ width:56px; }
+#popBullet #bulPicSize{ width:56px; height:28px; }
+#popBullet .bulpicprev img{ height:18px; vertical-align:middle; }
+#popNum{ width:220px; }
+#popNum .nestrow{ display:flex; gap:6px; align-items:center; }
+#popNum .nestrow .pitem{ width:auto; padding:0 12px; }
+#popNum .nestrow select{ height:30px; flex:1; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); }
+#popTabs .tabadd{ flex-wrap:nowrap; }
+#popTabs .tabadd select{ width:auto; max-width:78px; }
+#popRule .rwgrid{ grid-template-columns:repeat(4, 1fr); }
+#popRule .rwgrid .pitem{ justify-content:flex-start; height:32px; padding:0 0 0 12px; }
+
+/* a tab whose text did not fit on the line: it continues on the next line, at its stop */
+span.tab.wrapped{ display:inline; width:auto !important; }
+span.tab .tab-sp{ display:inline-block; height:1px; }

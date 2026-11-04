@@ -74,9 +74,14 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
       const notes = [];
       const lh = b.getAttribute('data-lh'), sb = b.getAttribute('data-sb'), sa = b.getAttribute('data-sa');
       if (!blank && st && lh != null && Math.abs(+lh - (+st.line || 0)) > 0.001) notes.push('sorköz ' + String(+lh).replace('.', ','));
-      if (st && sb != null && Math.abs(+sb - (+st.spaceBefore || 0)) > 0.01) notes.push('előtte ' + String(+sb).replace('.', ',') + ' pt');
-      if (st && sa != null && Math.abs(+sa - (+st.spaceAfter || 0)) > 0.01) notes.push('utána ' + String(+sa).replace('.', ',') + ' pt');
-      if (notes.length) out.push(`<span class="mk-dev par" style="left:${X(br.right) + 4}px;top:${Y(br.top) + 1}px">${notes.join(' · ')}</span>`);
+      // space before / after: always shown when it is not 0 (whatever sets it: the paragraph, its style, a list…)
+      const ptOf = v => { const m = /^(-?[\d.]+)(pt|px)?$/.exec(String(v).trim()); if (!m) return 0; return m[2] === 'px' ? +m[1] * 0.75 : +m[1]; };
+      const csb = ptOf(cs.getPropertyValue('--sb') || '0'), csa = ptOf(cs.getPropertyValue('--sa') || cs.getPropertyValue('--after') || '0');
+      const fmt = v => String(Math.round(v * 10) / 10).replace('.', ',');
+      if (Math.abs(csb) > 0.05) notes.push('előtte ' + fmt(csb) + ' pt');
+      if (Math.abs(csa) > 0.05) notes.push('utána ' + fmt(csa) + ' pt');
+      void sb; void sa;
+      if (notes.length) out.push(`<span class="mk-dev par" style="left:${X(br.right) + 22}px;top:${Y(br.top) + 1}px">${notes.join(' · ')}</span>`);
       // text runs with their own font, size or letter spacing
       if (st) for (const sp of b.querySelectorAll('span[style]')) {
         if (sp.closest(SKIP)) continue;

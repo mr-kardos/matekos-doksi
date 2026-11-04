@@ -42,7 +42,7 @@ function segWidth(tab, scale) {
 export function layoutTabs(root, scale = 1, originOf = null) {
   const tabs = root.querySelectorAll('span.tab');
   if (!tabs.length) return;
-  for (const t of tabs) t.style.width = '0px';
+  for (const t of tabs) { t.style.width = '0px'; if (t.classList.contains('wrapped')) { t.classList.remove('wrapped'); t.textContent = ''; } }
   const blocks = new Set(); for (const t of tabs) { const b = t.closest('p,h1,h2,h3,li,td,th'); if (b) blocks.add(b); }
   for (const b of blocks) {
     const host = originOf ? originOf(b) : null;
@@ -55,12 +55,26 @@ export function layoutTabs(root, scale = 1, originOf = null) {
       // the first stop that really moves the text on (a right / centre stop the text already passed is skipped,
       // so two tabs can never end at the same place)
       const step = DEFAULT_STEP * CM, nextDefault = from => (Math.floor(from / step + 1e-6) + 1) * step;
-      let w = 0, stop = null, endPos = null;
+      let w = 0, stop = null, endPos = null, wrapStop = null, wrapSeg = 0;
       for (const s2 of stops) {
         if (s2.pos <= x + 0.5) continue;
         if (s2.align === 'left') { stop = s2; w = s2.pos - x; break; }
         const seg = segWidth(t, scale), ww = s2.align === 'right' ? s2.pos - x - seg : s2.pos - x - seg / 2;
         if (ww > 1) { stop = s2; w = ww; break; }
+        // a right / centre stop the line's text does not leave room for: the tab and its text go on to the next
+        // line, to exactly that stop (text wrapping, not a line break of the document)
+        if (!wrapStop && s2.pos <= boxW + 0.5) { wrapStop = s2; wrapSeg = seg; }
+      }
+      if (!stop && wrapStop) {
+        t.classList.add('wrapped');
+        t.innerHTML = '<br><span class="tab-sp"></span>';
+        const sp = t.lastChild, xs = (sp.getBoundingClientRect().left - x0) / scale;
+        const ww = wrapStop.align === 'right' ? wrapStop.pos - xs - wrapSeg : wrapStop.pos - xs - wrapSeg / 2;
+        sp.style.width = Math.max(0, ww - 0.15) + 'px';
+        t.style.width = '';
+        t.dataset.stop = String(Math.round(wrapStop.pos / CM * 100) / 100);
+        if (wrapStop.leader) t.dataset.leader = wrapStop.leader; else delete t.dataset.leader;
+        continue;
       }
       if (!stop) { endPos = nextDefault(x + 0.5); w = endPos - x; }
       t.dataset.stop = String(Math.round((stop ? stop.pos : endPos) / CM * 100) / 100);

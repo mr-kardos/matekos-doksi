@@ -6,14 +6,16 @@ export const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;',
 /** HTML of the header/footer texts (rendered from their small documents by the app). */
 let HF = {};
 export function setHfHTML(map) { HF = map || {}; }
-const fill = (html, i, n, title) => String(html || '').replace(/\{page\}/g, i + 1).replace(/\{pages\}/g, n)
+let PAGE0 = 1;                         // the number of the first page
+export function setFirstPage(n) { PAGE0 = Math.max(1, Math.round(+n || 1)); }
+const fill = (html, i, n, title) => String(html || '').replace(/\{page\}/g, i + PAGE0).replace(/\{pages\}/g, n + PAGE0 - 1)
   .replace(/\{date\}/g, esc(new Date().toLocaleDateString('hu-HU'))).replace(/\{title\}/g, esc(title));
 function hfHTML(kind, v, slot, i, n, tpl, title, g) {
   const im = slot.img || {};
   const cells = (HF[kind] || {})[v] || {};
   const isH = kind === 'header', key = isH ? 'hdr' : 'ftr';
   // measured from the paper's edges; the gutter is added on the inside edge (as for the main text)
-  const gut = (+tpl.gutter || 0) * MM, insideLeft = !tpl.mirror || i % 2 === 0;
+  const gut = (+tpl.gutter || 0) * MM, insideLeft = !tpl.mirror || (i + Math.max(1, Math.round(+tpl.startPage || 1)) - 1) % 2 === 0;
   const L = (+tpl.hfLeft || 0) * MM + (insideLeft ? gut : 0), R = (+tpl.hfRight || 0) * MM + (insideLeft ? 0 : gut);
   const size = isH ? tpl.headerSize : tpl.footerSize, color = isH ? tpl.headerColor : tpl.footerColor, fam = isH ? tpl.headerFont : tpl.footerFont;
   const anchor = isH ? `top:${tpl.headerDist * MM}px` : `bottom:${tpl.footerDist * MM}px`;
