@@ -267,3 +267,11 @@ tools/                font verification
 - Wrapping: every paragraph beside an object gets its own float; the outermost paragraph starts at the object's margin,
   the others keep only the difference of their indents; first-line / hanging indents are dropped there; a list symbol on
   a line beside the object keeps its room.
+
+## 0.9.5
+- Wrapped pictures move with the paragraph they are anchored in (as in Word); dropping one anchors it to the paragraph
+  at its new top edge. Wrap / over / under buttons keep the picture in place.
+- Wrapping: list items of different levels keep their alignment beside an object; floats never stand side by side.
+- Spaces at the end of a line hang past the right margin; a right tab ignores trailing spaces.
+- Tab stops for each paragraph style (template). Header / footer sizes and fonts at the top of their section.
+- Template files are „Matekos Doksi Sablon” files (own file type; opening one starts a document with it).

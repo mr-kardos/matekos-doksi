@@ -20,7 +20,7 @@ import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './temp
 import { renderSheets, sheetHTML, esc, setHfHTML } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
 import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
-import { layoutTabs, DEFAULT_STEP } from './tabs.js';
+import { layoutTabs, DEFAULT_STEP, setStyleTabs } from './tabs.js';
 import { drawMarks } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
 import { Pagination } from './editor/pagination.js';
@@ -79,6 +79,15 @@ const editor = new Editor({
     }),
     KvImage.configure({ getScale: () => scale, onChange: m => updateOverlays(m),
       // the area inside the margins of the page under a point (screen coordinates): pictures stay inside it
+      // the paragraph a picture dropped at this height belongs to: {pos (start of it), top (its top on screen)}
+      anchorAt: (clientY, skip) => {
+        const f = lineAtY(clientY, skip); if (!f) return null;
+        try {
+          const d = editor.view.domAtPos(f.pos), blk = (d.node.nodeType === 1 ? d.node : d.node.parentElement).closest('p,h1,h2,h3');
+          if (!blk || blk.closest('td,th,.pinned')) return null;
+          return { pos: editor.view.posAtDOM(blk, 0), top: blk.getBoundingClientRect().top };
+        } catch (e) { return null; }
+      },
       pageBox: clientY => {
         const g = geometry(tpl), sr = stack.getBoundingClientRect(), er = editor.view.dom.getBoundingClientRect();
         const i = Math.max(0, Math.min(pageCount - 1, Math.floor((clientY - sr.top) / scale / g.P)));
@@ -268,18 +277,31 @@ function updatePins() {
   // 0. pictures wrapped the older way (anchored in the text) become freely placed where they are
   const legacy = [...dom.querySelectorAll('.imgw.wl, .imgw.wr, .imgw.over')].filter(el => el._kv && !el.classList.contains('pinned'));
   if (legacy.length) { for (const el of legacy) el._kv.pinHere(); return; }       // the change brings us back here
+  // pictures fixed to a page (0.8.7 – 0.9.4): from now on they move with the paragraph they are in
+  const fixed = [...dom.querySelectorAll('.imgw.pinned')].filter(el => el._kv && !el.dataset.rel);
+  if (fixed.length) { for (const el of fixed) el._kv.makeRel(); return; }
   const els = [...dom.querySelectorAll('.pinned')];
   // 1. exact place: correct for whatever box the element is measured from
   for (const el of els) {
     const pg = +el.dataset.pg || 0, px = +el.dataset.px || 0, py = +el.dataset.py || 0;
-    const wantL = er.left + px * scale, wantT = er.top + (pg * g.P + py) * scale;
+    const wantL = er.left + px * scale;
+    let wantT = er.top + (pg * g.P + py) * scale;
+    if (el.dataset.rel) {                 // moves with its paragraph; kept inside the text area of that page
+      const host = el.parentElement && el.parentElement.closest('p,h1,h2,h3');
+      if (host) {
+        wantT = host.getBoundingClientRect().top + py * scale;
+        const sr1 = stack.getBoundingClientRect(), i = Math.max(0, Math.min(pageCount - 1, Math.floor((host.getBoundingClientRect().top - sr1.top) / scale / g.P)));
+        const cTop = sr1.top + g.contentTop(i) * scale, cBot = sr1.top + g.contentBottom(i) * scale, h = el.getBoundingClientRect().height;
+        wantT = Math.min(Math.max(wantT, cTop), Math.max(cTop, cBot - h));
+      }
+    }
     const r = el.getBoundingClientRect();
     if (Math.abs(r.left - wantL) > 0.5) el.style.left = (parseFloat(el.style.left) || 0) + (wantL - r.left) / scale + 'px';
     if (Math.abs(r.top - wantT) > 0.5) el.style.top = (parseFloat(el.style.top) || 0) + (wantT - r.top) / scale + 'px';
   }
   // the floats are worked out again only when the text or a pinned element changed (at most twice per change) –
   // their own effect on the layout must not start a new round
-  const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)].join(',')).join('|') + ':' + docVersion + ':' + pageCount + ':' + Math.round(dom.scrollHeight / 4)) : '';   // also when the layout changed (fonts, formulas drawn later)
+  const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().top), Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)].join(',')).join('|') + ':' + docVersion + ':' + pageCount + ':' + Math.round(dom.scrollHeight / 4)) : '';   // also when the layout changed (fonts, formulas drawn later)
   if (inputs === pinInputs && pinRounds >= 3) return;                // at most three rounds per change: their own effect on the layout must not start new rounds
   if (inputs !== pinInputs) { pinInputs = inputs; pinRounds = 0; pinLast = []; }
   pinRounds++;
@@ -311,6 +333,18 @@ function updatePins() {
     const edgeL = b0 => b0.getBoundingClientRect().left, edgeR = b0 => b0.getBoundingClientRect().right;
     const outerL = Math.min(...blocks.map(edgeL)), outerR = Math.max(...blocks.map(edgeR));
     const mine = [];
+    // room a paragraph's list symbols need left of its text (a same-line inner list carries the outer symbols too)
+    const liRoom = blk => {
+      const li = blk.closest('li'); if (!li || li.firstElementChild !== blk) return 0;
+      const pad = (parseFloat(getComputedStyle(li).paddingLeft) || 0) * scale;
+      const ups = [...blk.querySelectorAll(':scope > .lm')].map(m => (+m.style.getPropertyValue('--up') || 0) + 1);
+      return pad * Math.max(1, ...ups);
+    };
+    let shift = 0;
+    if (!textLeft) for (const blk of blocks) {
+      const br0 = blk.getBoundingClientRect(), f0 = lineAtY(Math.max(G.t, br0.top) + 1, null);
+      if (f0 && Math.abs(f0.top - (br0.top + (parseFloat(getComputedStyle(blk).paddingTop) || 0) * scale)) < 3) shift = Math.max(shift, liRoom(blk) - (edgeL(blk) - outerL));
+    }
     blocks.forEach((blk, bi) => {
       const br = blk.getBoundingClientRect(), bcs = getComputedStyle(blk);
       const found = lineAtY(Math.max(G.t, br.top) + 1, null);
@@ -323,8 +357,9 @@ function updatePins() {
       // the first line beside the object: no first-line / hanging indent there; a list symbol on such a line keeps its room
       const firstLine = Math.abs(lineTop - (br.top + (parseFloat(bcs.paddingTop) || 0) * scale)) < 3;
       const li = blk.closest('li'), symbolHere = !!li && firstLine && li.firstElementChild === blk;
-      // a list symbol on a line beside the object keeps its room (unless the indent difference already gives it)
-      const markRoom = symbolHere ? Math.max(0, (parseFloat(getComputedStyle(li).paddingLeft) || 0) * scale - (edgeL(blk) - outerL)) : 0;
+      // a list symbol on a line beside the object keeps its room – the same shift for every paragraph there, so list
+      // levels keep their alignment to each other
+      void symbolHere; const markRoom = shift;
       const flat = firstLine && ((parseFloat(bcs.textIndent) || 0) !== 0 || blk.hasAttribute('data-hang'));   // its first-line / hanging indent is dropped there
       const wPx = textLeft
         ? cbR - (G.l - gap * scale) - (outerR - edgeR(blk))
@@ -351,6 +386,7 @@ function updatePins() {
   relayout(0);
 }
 setPinTop((pg, py) => pg * geometry(tpl).P + py);
+setStyleTabs(b => { const k = /^H[123]$/.test(b.tagName) ? b.tagName.toLowerCase() : 'p'; return (tpl.styles[k] || {}).tabs || null; });
 editor.view.dom.addEventListener('kv-pin', pinsSoon);
 /* formatting marks (eye button) */
 let showMarks = load('matekosdoksi.marks') === '1', marksRaf = 0;
@@ -1725,13 +1761,16 @@ function renderThumbs() {
     }
     // the free pictures / tables of this page, where they are on the page
     for (const el of dom.querySelectorAll('.pinned')) {
-      if ((+el.dataset.pg || 0) !== i) continue;
+      const er0 = el.getBoundingClientRect(), sr0 = stack.getBoundingClientRect(), edr = dom.getBoundingClientRect();
+      const pgOf = Math.floor((er0.top - sr0.top) / scale / g.P);
+      if (pgOf !== i) continue;
       const cl = el.cloneNode(true);
+      el.dataset.tx = (er0.left - edr.left) / scale; el.dataset.ty = (er0.top - sr0.top) / scale - (i * g.P + g.mt);
       cl.classList.remove('ProseMirror-selectednode', 'tbl-active');
       const holder = document.createElement('div');
       holder.className = 'ProseMirror docbody'; holder.setAttribute('style', style);
       holder.style.position = 'absolute'; holder.style.left = g.leftOf(i) + 'px'; holder.style.top = g.mt + 'px'; holder.style.minHeight = '0'; holder.style.height = '0';
-      cl.style.left = (+el.dataset.px || 0) + 'px'; cl.style.top = (+el.dataset.py || 0) + 'px'; cl.style.visibility = '';
+      cl.style.left = (+el.dataset.tx || 0) + 'px'; cl.style.top = (+el.dataset.ty || 0) + 'px'; cl.style.visibility = '';
       holder.appendChild(cl); tp.appendChild(holder);
     }
     frag.appendChild(t);
@@ -1814,6 +1853,8 @@ function styleRows() {
           <label class="fld">Első sor<select data-flkind="${k}"><option value="none"${!+st.firstLine ? ' selected' : ''}>Nincs</option><option value="first"${+st.firstLine > 0 ? ' selected' : ''}>Első sor beljebb</option><option value="hang"${+st.firstLine < 0 ? ' selected' : ''}>Függő</option></select></label>
           <label class="fld">Mértéke<span class="unitin"><input type="number" step="0.25" min="0" max="5" data-flval="${k}" value="${Math.abs(+st.firstLine || 0) || ''}"><i>cm</i></span></label>
         </div>
+        <div class="sttabs"><span class="sttl">Tabulátorok</span>${(st.tabs || []).map((t, ti) => `<span class="stt">${String(t.pos).replace('.', ',')} cm ${{ left: 'balra', center: 'középre', right: 'jobbra' }[t.align] || 'balra'}${t.leader ? (t.leader === 'dot' ? ', pontozott' : ', vonallal') : ''}<button class="tb mini" data-sttabdel="${k}:${ti}" title="Törlés">✕</button></span>`).join('') || '<span class="phint" style="display:inline">nincs (1,25 cm-enként)</span>'}
+          <span class="sttadd"><input type="number" step="0.25" min="0.25" placeholder="cm" data-sttabpos="${k}"><select data-sttabal="${k}"><option value="left">balra</option><option value="center">középre</option><option value="right">jobbra</option></select><select data-sttablead="${k}"><option value="">üres</option><option value="dot">pontozott</option><option value="line">vonal</option></select><button class="btn mini" data-sttabadd="${k}">Hozzáadás</button></span></div>
         <label class="chk" style="margin-top:8px"><input type="checkbox" data-k="${b}.keepNext"> Együtt a következő bekezdéssel</label>
         <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="${b}.contextual"> Nincs térköz az azonos stílusú bekezdések között</label>
         ${k === 'p' ? `<label class="chk" style="margin-top:4px"><input type="checkbox" data-k="lists.contextual"> Nincs térköz a listaelemek között</label>` : ''}
@@ -1872,6 +1913,15 @@ function onPanelInput(e) {
 props.addEventListener('input', onPanelInput);
 props.addEventListener('change', onPanelInput);
 props.addEventListener('click', e => {
+  // tab stops of a paragraph style
+  const ta = e.target.closest('[data-sttabadd]'), td = e.target.closest('[data-sttabdel]');
+  if (ta) {
+    const k = ta.dataset.sttabadd, card = ta.closest('.stcard'), v = parseFloat(String(card.querySelector('[data-sttabpos]').value).replace(',', '.'));
+    if (!(v > 0 && v < 60)) return;
+    const st = tpl.styles[k]; st.tabs = [...(st.tabs || []).filter(t => t.pos !== v), { pos: v, align: card.querySelector('[data-sttabal]').value, ...(card.querySelector('[data-sttablead]').value ? { leader: card.querySelector('[data-sttablead]').value } : {}) }].sort((a, b) => a.pos - b.pos);
+    styleRows(); tplChanged(); relayout(0); return;
+  }
+  if (td) { const [k, i] = td.dataset.sttabdel.split(':'); tpl.styles[k].tabs.splice(+i, 1); styleRows(); tplChanged(); relayout(0); return; }
   const tg = e.target.closest('[data-sttoggle]');
   if (tg) { openStyle = openStyle === tg.dataset.sttoggle ? '' : tg.dataset.sttoggle; for (const c of $$('#styleRows .stcard')) c.classList.toggle('open', c.dataset.style === openStyle); return; }
   const al = e.target.closest('[data-stalign]');
@@ -1899,7 +1949,7 @@ function presetName() {
   const cards = PRESETS.map(([k, l, locked, a, b]) => `<button class="pbcard${tpl.preset === k ? ' on' : ''}${locked ? ' locked' : ''}" data-preset="${k}" title="${locked ? 'Hamarosan' : l}"><i style="--a:${a};--b:${b}"></i><span>${locked ? svg('lock') : ''}${l}</span>${locked ? '<small>hamarosan</small>' : ''}</button>`);
   if (customTpl) cards.push(`<button class="pbcard custom${tpl.preset === 'custom' ? ' on' : ''}" data-preset="custom" title="Sablonfájlból: ${esc(customTpl.name)}"><i style="--a:#ffffff;--b:#2e4a9e"></i><span>${esc(customTpl.name)}</span><small>sablonfájlból</small></button>`);
   $('#presetBox').innerHTML = `<div class="pbhead"><b>Sablonok</b></div><div class="pbgrid">${cards.join('')}</div>
-    <div class="pbfile"><button class="btn" id="tplToFile" title="A jobb oldali panel minden beállítása – az élőfejjel és az élőlábbal együtt – egy sablonfájlba (.mdsab)">Sablon mentése fájlba…</button><button class="btn" id="tplFromFile" title="Egy .mdsab sablonfájl használata ebben a dokumentumban">Sablonfájl importálása…</button></div>`;
+    <div class="pbfile"><button class="btn" id="tplToFile" title="A jobb oldali panel minden beállítása – az élőfejjel és az élőlábbal együtt – egy Matekos Doksi Sablon fájlba">Sablon mentése fájlba…</button><button class="btn" id="tplFromFile" title="Egy Matekos Doksi Sablon fájl használata ebben a dokumentumban">Sablonfájl importálása…</button></div>`;
 }
 $('#presetBox').addEventListener('click', async e => {
   if (e.target.closest('#tplToFile')) {
@@ -2069,6 +2119,19 @@ async function doOpen() {
   catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); return false; }
 }
 async function openPath(p) {
+  // a Matekos Doksi Sablon (.mdsab) opened from the system: a new document with that template
+  if (/\.mdsab$/i.test(p)) {
+    try {
+      const { readTextFile } = await import('@tauri-apps/plugin-fs');
+      const data = JSON.parse(await readTextFile(p));
+      if (!data || data.app !== 'matekos-doksi-sablon' || !data.tpl) throw new Error('Ez nem Matekos Doksi Sablon.');
+      if (!await newDocument()) return false;
+      const name = p.split(/[\\/]/).pop().replace(/\.mdsab$/i, '');
+      customTpl = { name, tpl: data.tpl }; tpl = normalizeTpl(JSON.parse(JSON.stringify(data.tpl))); tpl.preset = 'custom';
+      fillPanel(); applyTpl(true); markDirty(); saveSoon(); toast('Új dokumentum a sablonnal: ' + name);
+      return true;
+    } catch (e) { toast('A sablon nem nyitható meg: ' + (e && e.message || e)); return false; }
+  }
   try { return openedDocument(await openPathFile(p)); }
   catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); showHome(true); return false; }
 }

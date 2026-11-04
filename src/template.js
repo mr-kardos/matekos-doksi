@@ -14,7 +14,7 @@ const ALIGN = { l: 'left', c: 'center', r: 'right' };
 const slot = (l = '', c = '', r = '') => ({ l: cellDoc(l, 'left'), c: cellDoc(c, 'center'), r: cellDoc(r, 'right'), img: { l: pic(), c: pic(), r: pic() } });
 /** A paragraph style (Normál, Főcím, Cím, Alcím). */
 const style = (o = {}) => ({ font: '', size: 12, color: '#111111', bold: false, italic: false, underline: false, shade: '', align: 'left',
-  line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 6, keepNext: false, contextual: false, ...o });
+  line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 6, keepNext: false, contextual: false, tabs: [], ...o });
 const LINE = { ruleBottom: '0.75 #000000' }, LINE_TOP = { ruleTop: '0.75 #000000' };
 export const DEFAULT_TPL = {
   preset: 'ures',

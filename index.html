@@ -164,14 +164,7 @@
     <section class="psec" data-sec="hf">
       <button class="psec-h" data-sec-toggle="hf"><span class="chev"></span><span>Élőfej és élőláb</span></button>
       <div class="psec-b">
-        <label class="chk"><input type="checkbox" data-k="oddEven"> Eltérő páros és páratlan oldalakon</label>
-        <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="firstDiff"> Eltérő első oldal</label>
-        <div class="tabs" id="hfTabs"></div>
-        <div class="btnrow hfbtns"><button class="btn" data-edithf="header">Élőfej szerkesztése</button><button class="btn" data-edithf="footer">Élőláb szerkesztése</button></div>
-        <div class="phint" style="margin:6px 0 4px">A szöveget az oldalon írod, és a felső szalag gombjaival formázod. Három oszlop van (bal, közép, jobb); a Tab a következő oszlopba lép. A teljes szélességű vonalat lent állítod be; a felső szalag „Elválasztó vonal” gombja az adott oszlopban húz vonalat.</div>
-        <div class="fieldrow"><span>Mező beszúrása:</span><button class="btn mini" data-field="{page}">oldalszám</button><button class="btn mini" data-field="{pages}">oldalak száma</button><button class="btn mini" data-field="{date}">dátum</button><button class="btn mini" data-field="{title}">cím</button></div>
-        <div id="hfEditor"></div>
-        <div class="fgrid" style="margin-top:10px">
+        <div class="fgrid">
           <label class="fld">Élőfej távolsága a felső széltől (mm)<input type="number" min="0" step="1" data-k="headerDist"></label>
           <label class="fld">Élőláb távolsága az alsó széltől (mm)<input type="number" min="0" step="1" data-k="footerDist"></label>
           <label class="fld">Kezdete a bal lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfLeft"></label>
@@ -184,6 +177,14 @@
         <div class="strow"><div class="sthead"><b>Élőláb szövege</b></div>
           <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="footerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="footerColor" class="hidecolor"><i class="dot fill" id="fcDot"></i>Szín</label><label class="chk" style="margin-left:6px"><input type="checkbox" data-k="footerLine"> Vonal fölötte</label></div>
           <select class="hffont" data-k="footerFont" title="Az élőláb betűtípusa"></select></div>
+        <div style="height:10px"></div>
+        <label class="chk"><input type="checkbox" data-k="oddEven"> Eltérő páros és páratlan oldalakon</label>
+        <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="firstDiff"> Eltérő első oldal</label>
+        <div class="tabs" id="hfTabs"></div>
+        <div class="btnrow hfbtns"><button class="btn" data-edithf="header">Élőfej szerkesztése</button><button class="btn" data-edithf="footer">Élőláb szerkesztése</button></div>
+        <div class="phint" style="margin:6px 0 4px">A szöveget az oldalon írod, és a felső szalag gombjaival formázod. Három oszlop van (bal, közép, jobb); a Tab a következő oszlopba lép. A teljes szélességű vonalat lent állítod be; a felső szalag „Elválasztó vonal” gombja az adott oszlopban húz vonalat.</div>
+        <div class="fieldrow"><span>Mező beszúrása:</span><button class="btn mini" data-field="{page}">oldalszám</button><button class="btn mini" data-field="{pages}">oldalak száma</button><button class="btn mini" data-field="{date}">dátum</button><button class="btn mini" data-field="{title}">cím</button></div>
+        <div id="hfEditor"></div>
       </div>
     </section>
     <section class="psec" data-sec="styles">

@@ -602,7 +602,10 @@ export const PIN_ATTRS = {
   pin: { default: false, parseHTML: el => el.getAttribute('data-pin') === '1', renderHTML: a => a.pin ? { 'data-pin': '1' } : {} },
   pg: { default: 0, parseHTML: el => +(el.getAttribute('data-pg') || 0), renderHTML: a => a.pin ? { 'data-pg': a.pg } : {} },
   px: { default: 0, parseHTML: el => +(el.getAttribute('data-px') || 0), renderHTML: a => a.pin ? { 'data-px': a.px } : {} },
-  py: { default: 0, parseHTML: el => +(el.getAttribute('data-py') || 0), renderHTML: a => a.pin ? { 'data-py': a.py } : {} }
+  py: { default: 0, parseHTML: el => +(el.getAttribute('data-py') || 0), renderHTML: a => a.pin ? { 'data-py': a.py } : {} },
+  // rel: placed relative to the paragraph it is anchored in (moves with the text, as in Word): px from the left margin,
+  // py from the top of that paragraph
+  rel: { default: false, parseHTML: el => el.getAttribute('data-rel') === '1', renderHTML: a => a.rel ? { 'data-rel': '1' } : {} }
 };
 let pinTopFn = null;                     // (page, py) -> top in the editor's own coordinates (set by the app)
 export function setPinTop(fn) { pinTopFn = fn; }
@@ -611,6 +614,7 @@ export function placePinned(el, a, pinTop = pinTopFn) {
   if (!a.pin) { if (el.classList.contains('pinned')) { el.classList.remove('pinned'); el.style.position = ''; el.style.left = ''; el.style.top = ''; } return; }
   el.classList.add('pinned');
   el.dataset.pg = a.pg; el.dataset.px = a.px; el.dataset.py = a.py;
+  if (a.rel) el.dataset.rel = '1'; else delete el.dataset.rel;
   el.style.position = 'absolute';
   el.style.left = (a.px || 0) + 'px';
   el.style.top = (pinTop ? pinTop(a.pg || 0, a.py || 0) : (a.py || 0)) + 'px';
@@ -644,7 +648,7 @@ export function setPinSpacers(view, specs) {
   const decos = specs.map(sp => Decoration.widget(sp.pos, () => {
     const d = document.createElement('span');
     d.className = 'pin-sp'; d.contentEditable = 'false';
-    d.style.cssText = `float:${sp.side};width:${sp.w}px;height:${sp.h}px;margin-top:${sp.dy}px;`;
+    d.style.cssText = `float:${sp.side};clear:${sp.side};width:${sp.w}px;height:${sp.h}px;margin-top:${sp.dy}px;`;   // never beside another one
     return d;
   }, { side: sp.after ? 0 : -2, key: sp.key, ignoreSelection: true }));   // before / after a page-break spacer at the same place
   // paragraphs whose first line is beside a free object: no first-line / hanging indent (the text starts at the object's margin)
@@ -666,7 +670,7 @@ export const KvImage = Node.create({
   atom: true,
   selectable: true,
   draggable: false,
-  addOptions() { return { getScale: () => 1, onChange: null, pageBox: null, pinTop: null }; },
+  addOptions() { return { getScale: () => 1, onChange: null, pageBox: null, pinTop: null, anchorAt: null }; },
   addAttributes() {
     return {
       src: { default: '' },
@@ -807,8 +811,18 @@ export const KvImage = Node.create({
             const bx = ext.options.pageBox(gr.top + 1);
             if (bx) {
               const sc = ext.options.getScale() || 1;
-              const trp = v.state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, pin: true, pg: bx.page, px: Math.round((gr.left - bx.left) / sc * 10) / 10, py: Math.round((gr.top - bx.top) / sc * 10) / 10 });
-              trp.setSelection(NodeSelection.create(trp.doc, pos));
+              const px = Math.round((gr.left - bx.left) / sc * 10) / 10;
+              const anchor = ext.options.anchorAt ? ext.options.anchorAt(gr.top + 1, dom) : null;
+              let trp;
+              if (anchor) {                       // into the paragraph at that height: it moves with the text from now on
+                const nn = cur.type.create({ ...cur.attrs, pin: true, rel: true, pg: bx.page, px, py: Math.round((gr.top - anchor.top) / sc * 10) / 10 });
+                trp = v.state.tr.delete(pos, pos + cur.nodeSize);
+                const at = trp.mapping.map(anchor.pos);
+                trp.insert(at, nn); trp.setSelection(NodeSelection.create(trp.doc, at));
+              } else {
+                trp = v.state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, pin: true, rel: false, pg: bx.page, px, py: Math.round((gr.top - bx.top) / sc * 10) / 10 });
+                trp.setSelection(NodeSelection.create(trp.doc, pos));
+              }
               v.dispatch(trp);
               if (!v.hasFocus()) v.dom.focus({ preventScroll: true });
               return;
@@ -907,6 +921,13 @@ export const KvImage = Node.create({
       dom._kv = {
         img, move, resize, node: () => cur,
         // an older wrapped picture (text-anchored float): becomes freely placed where it is now
+        makeRel: () => {
+          if (!cur.attrs.pin || cur.attrs.rel) return;
+          const host = dom.parentElement && dom.parentElement.closest('p,h1,h2,h3'), pos = getPos();
+          if (!host || typeof pos !== 'number') return;
+          const sc = ext.options.getScale() || 1, r = dom.getBoundingClientRect(), ht = host.getBoundingClientRect().top;
+          view().dispatch(view().state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, rel: true, py: Math.round((r.top - ht) / sc * 10) / 10 }).setMeta('addToHistory', false));
+        },
         pinHere: () => {
           if (cur.attrs.pin || !(cur.attrs.wrap === 'wl' || cur.attrs.wrap === 'wr' || cur.attrs.wrap === 'over' || cur.attrs.wrap === 'under') || !ext.options.pageBox) return;
           const r = dom.getBoundingClientRect(); if (!r.width) return;
@@ -921,9 +942,11 @@ export const KvImage = Node.create({
           if ((w === 'wl' || w === 'wr' || w === 'over' || w === 'under') && ext.options.pageBox) {
             const r = dom.getBoundingClientRect(), bx = ext.options.pageBox(r.top + 1), sc = ext.options.getScale() || 1;
             if (bx) {
-              const px = w === 'wl' ? 0 : Math.max(0, (bx.right - bx.left - r.width) / sc);
+              const px = Math.min(Math.max(0, (r.left - bx.left) / sc), Math.max(0, (bx.right - bx.left - r.width) / sc));
               const py = Math.min(Math.max(0, (r.top - bx.top) / sc), Math.max(0, (bx.bottom - bx.top - r.height) / sc));
-              setAttrs({ wrap: w, dx: 0, dy: 0, pin: true, pg: bx.page, px: Math.round(px * 10) / 10, py: Math.round(py * 10) / 10 }); reselect(); return;
+              const host = dom.parentElement && dom.parentElement.closest('p,h1,h2,h3');
+              if (host) { const ht = host.getBoundingClientRect().top; setAttrs({ wrap: w, dx: 0, dy: 0, pin: true, rel: true, pg: bx.page, px: Math.round(px * 10) / 10, py: Math.round((r.top - ht) / sc * 10) / 10 }); reselect(); return; }
+              setAttrs({ wrap: w, dx: 0, dy: 0, pin: true, rel: false, pg: bx.page, px: Math.round(px * 10) / 10, py: Math.round(py * 10) / 10 }); reselect(); return;
             }
           }
           setAttrs({ wrap: w, dx: 0, dy: 0, pin: false }); reselect();

@@ -3,8 +3,11 @@
 const CM = 96 / 2.54;
 export const DEFAULT_STEP = 1.25;   // cm
 
+let styleTabsOf = null;                 // block -> the tab stops of its paragraph style (template), if any
+export function setStyleTabs(fn) { styleTabsOf = fn; }
 function stopsOf(block, boxW) {
-  const v = block.getAttribute('data-tabs');
+  let v = block.getAttribute('data-tabs');
+  if (!v && styleTabsOf) { const st = styleTabsOf(block); if (st && st.length) v = JSON.stringify(st); }
   if (v === 'hf') return [{ pos: boxW / 2, align: 'center' }, { pos: boxW, align: 'right' }];
   if (!v) return [];
   // a right stop at (or a hair beyond) the right margin is the margin itself – it ends exactly where justified text ends
@@ -19,6 +22,16 @@ function segWidth(tab, scale) {
   const r = document.createRange();
   r.setStartAfter(tab);
   if (next) r.setEndBefore(next); else r.setEnd(block, block.childNodes.length);
+  // spaces at the end do not count: the last real character ends at the stop (a space may run past the margin)
+  try {
+    const tw = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+    let lastT = null; tw.currentNode = block;
+    while (tw.nextNode()) { const tn = tw.currentNode; if (r.intersectsNode(tn) && tn.data.trim()) lastT = tn; }
+    if (lastT && !(next && lastT.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_PRECEDING)) {
+      const m = lastT.data.match(/\s+$/);
+      if (m) r.setEnd(lastT, lastT.data.length - m[0].length);
+    }
+  } catch (e) { /* keep the whole range */ }
   const t = tab.getBoundingClientRect(), y = (t.top + t.bottom) / 2;
   const rects = Array.from(r.getClientRects()).filter(q => q.width > 0 && y >= q.top - 2 && y <= q.bottom + 2);   // same line as the tab
   if (!rects.length) return 0;

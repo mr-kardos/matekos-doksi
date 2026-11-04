@@ -145,7 +145,7 @@ export async function saveTemplateFile(data, suggested) {
   if (isTauri()) {
     const { save } = await import('@tauri-apps/plugin-dialog');
     const { writeTextFile } = await import('@tauri-apps/plugin-fs');
-    const path = await save({ defaultPath: safeName(suggested) + '.mdsab', filters: [{ name: 'Matekos Doksi sablon', extensions: ['mdsab'] }] });
+    const path = await save({ defaultPath: safeName(suggested) + '.mdsab', filters: [{ name: 'Matekos Doksi Sablon', extensions: ['mdsab'] }] });
     if (!path) return null;
     await writeTextFile(path, json);
     return baseName(path);
@@ -160,7 +160,7 @@ export async function openTemplateFile() {
   if (isTauri()) {
     const { open } = await import('@tauri-apps/plugin-dialog');
     const { readTextFile } = await import('@tauri-apps/plugin-fs');
-    const path = await open({ multiple: false, filters: [{ name: 'Matekos Doksi sablon', extensions: ['mdsab'] }] });
+    const path = await open({ multiple: false, filters: [{ name: 'Matekos Doksi Sablon', extensions: ['mdsab'] }] });
     if (!path) return null;
     text = await readTextFile(path); name = baseName(path);
   } else {
