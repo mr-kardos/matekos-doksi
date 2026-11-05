@@ -5,7 +5,18 @@
 export const RULE_GAP = 8;
 const SKIP = ['tab', 'lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih'];
 
+// the letters' own extent (accented capitals to descenders) relative to the font's box, per font
+const inkCache = new Map();
+function inkOf(font) {
+  if (inkCache.has(font)) return inkCache.get(font);
+  const c = document.createElement('canvas').getContext('2d'); c.font = font;
+  const m = c.measureText('ÁŐÉŰHxpgyj');
+  const fa = m.fontBoundingBoxAscent, fd = m.fontBoundingBoxDescent;
+  const r = fa > 0 && fd >= 0 ? { base: fa / (fa + fd), asc: m.actualBoundingBoxAscent / (fa + fd), dsc: m.actualBoundingBoxDescent / (fa + fd) } : null;
+  inkCache.set(font, r); return r;
+}
 function lineBoxes(block, toY, LH) {
+  const ink = inkOf(getComputedStyle(block).font);
   const rects = [];
   const range = document.createRange();
   const add = (r, isText, color) => { if (r.height > 0) rects.push({ top: r.top, bottom: r.bottom, text: isText, color }); };
@@ -39,11 +50,14 @@ function lineBoxes(block, toY, LH) {
   }
   return lines.map(L => {
     const tt = Number.isFinite(L.tTop) ? L.tTop : L.top, th = L.tH || (L.bottom - L.top);
-    // the font's box has more room above the letters than below them: centre the band on the letters themselves
-    const shift = (toY(tt + th) - toY(tt)) * 0.07;
-    const top = Math.min(toY(tt) + shift - Math.max(0, (LH - toY(tt + th) + toY(tt)) / 2), toY(L.top));
-    const bottom = Math.max(top + LH, toY(L.bottom));
-    return { top, bottom, color: L.color, ext: Math.max(1, bottom - (toY(tt + th) + shift)) };
+    const y0 = toY(tt), hh = toY(tt + th) - y0;
+    // centred on the letters themselves (from the top of accented capitals to the bottom of descenders): the same
+    // room above and below them
+    const mid = ink && Number.isFinite(L.tTop) ? y0 + hh * (ink.base + (ink.dsc - ink.asc) / 2) : y0 + hh / 2;
+    const top = Math.min(mid - LH / 2, toY(L.top));
+    const bottom = Math.max(mid + LH / 2, toY(L.bottom));
+    const inkBottom = ink ? y0 + hh * (ink.base + ink.dsc) : y0 + hh;
+    return { top, bottom, color: L.color, ext: Math.max(1, Math.min(8, bottom - inkBottom)) };
   });
 }
 

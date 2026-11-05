@@ -80,6 +80,19 @@
       <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Rejtett formázás mutatása"></button>
     </div>
   </div>
+  <div class="ctxbar" id="imgBar" hidden>
+    <span class="ctxlabel">Kép</span>
+    <button class="tb wide" id="imgCrop" data-icon="crop" title="Körbevágás: húzd a keret szélét vagy sarkát. Kész: kattints ide újra, vagy Enter / Esc"><span class="lbl">Körbevágás</span></button>
+    <button class="tb wide" id="imgUncrop" data-icon="uncrop" title="A teljes kép visszaállítása"><span class="lbl">Eredeti kép</span></button>
+    <span class="ctxsep"></span>
+    <span class="ctxlbl">Átlátszatlanság</span><input type="range" id="imgOpR" min="5" max="100" step="1" aria-label="Átlátszatlanság"><input type="number" class="numin" id="imgOpN" min="5" max="100" step="5" aria-label="Átlátszatlanság (%)"><span class="ctxunit">%</span>
+    <span class="ctxsep"></span>
+    <span class="ctxlbl">Elhelyezés</span>
+    <select id="imgWrapSel" aria-label="Elhelyezés"><option value="wl">Körbefuttatás</option><option value="over">Szöveg fölött</option><option value="under">Szöveg mögött</option><option value="ctr">Külön sorban</option><option value="inl">A szöveg sorában</option></select>
+    <span class="ctxsep"></span>
+    <button class="tb wide" id="imgReplace" data-icon="image" title="Másik kép ugyanide, ugyanekkora szélességben"><span class="lbl">Kép cseréje…</span></button>
+    <button class="tb wide" id="imgDel" data-icon="trash" title="Kép törlése"><span class="lbl">Törlés</span></button>
+  </div>
   <div class="ctxbar" id="tableBar" hidden>
     <span class="ctxlabel">Táblázat</span>
     <button class="tb wide" data-pop="popTblIns" data-icon="tblAdd" title="Sorok vagy oszlopok beszúrása"><span class="lbl">Beszúrás ▾</span></button>
@@ -127,7 +140,7 @@
         <div id="tblHandles"></div>
         <div id="fcaret" hidden></div>
         <div id="marksLayer" aria-hidden="true"></div>
-        <div id="imgFrame" hidden><span class="ibar"><button class="tb" data-wrap="wl" title="Körbefuttatás: a kép szabadon mozgatható, a szöveg körbefut rajta" data-icon="wrapL"></button><button class="tb" data-wrap="over" title="Szöveg fölött: a kép szabadon mozgatható, a szöveg nem kerüli ki" data-icon="layers"></button><button class="tb" data-wrap="under" title="Szöveg mögött: a kép szabadon mozgatható, a szöveg rajta fut (kijelölés: Ctrl/⌘ + kattintás a képre)" data-icon="toBack"></button><button class="tb" data-wrap="ctr" title="Külön sorban, középen" data-icon="center"></button><button class="tb" data-wrap="inl" title="A szöveg sorában" data-icon="inline"></button><span class="sep"></span><button class="tb" data-act="del" title="Kép törlése" data-icon="trash"></button></span><i class="ih nw" data-h="nw"></i><i class="ih ne" data-h="ne"></i><i class="ih sw" data-h="sw"></i><i class="ih se" data-h="se"></i><span class="isize"></span></div>
+        <div id="imgFrame" hidden><i class="ih nw" data-h="nw"></i><i class="ih ne" data-h="ne"></i><i class="ih sw" data-h="sw"></i><i class="ih se" data-h="se"></i><i class="ih ce n" data-h="n"></i><i class="ih ce s" data-h="s"></i><i class="ih ce e" data-h="e"></i><i class="ih ce w" data-h="w"></i><span class="isize"></span></div>
       </div>
     </div>
   </main>

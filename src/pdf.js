@@ -236,7 +236,11 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       if (im.closest('.no-print,.wm') || !im.complete || !im.naturalWidth) continue;
       const r = im.getBoundingClientRect(); if (r.width < 0.5) continue;
       const a = loc(r.left, r.top), d = imageData(im, r.width / scale, r.height / scale);
-      L[a.p].img.push({ x: a.x, y: a.y, w: pt(r.width), h: pt(r.height), url: d.url, fmt: d.fmt });
+      // a cropped picture: only the part inside its frame; transparency as set
+      const fr = im.closest('.imgw.cropped'), op = parseFloat(im.style.opacity);
+      let clip = null;
+      if (fr) { const q = fr.getBoundingClientRect(), c = loc(q.left, q.top); clip = { x: c.x, y: c.y, w: pt(q.width), h: pt(q.height) }; }
+      L[a.p].img.push({ x: a.x, y: a.y, w: pt(r.width), h: pt(r.height), url: d.url, fmt: d.fmt, clip, op: op > 0 && op < 1 ? op : null });
     }
   }
   // ---- text ----
@@ -377,7 +381,16 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       doc.setGState(new doc.GState({ opacity: 1 }));
     }
     for (const b of pg.bg) { if (!fin(b.x, b.y, b.w, b.h)) continue; doc.setFillColor(b.c.r, b.c.g, b.c.b); doc.rect(b.x, b.y, b.w, b.h, 'F'); }
-    for (const im of pg.img) { if (!fin(im.x, im.y, im.w, im.h)) continue; try { doc.addImage(im.url, im.fmt, im.x, im.y, im.w, im.h, undefined, 'SLOW'); } catch (e) { /* skip */ } }
+    for (const im of pg.img) {
+      if (!fin(im.x, im.y, im.w, im.h)) continue;
+      try {
+        if (im.clip || im.op) doc.saveGraphicsState();
+        if (im.op) doc.setGState(new doc.GState({ opacity: im.op }));
+        if (im.clip) { doc.rect(im.clip.x, im.clip.y, im.clip.w, im.clip.h, null); doc.clip(); doc.discardPath(); }
+        doc.addImage(im.url, im.fmt, im.x, im.y, im.w, im.h, undefined, 'SLOW');
+        if (im.clip || im.op) doc.restoreGraphicsState();
+      } catch (e) { /* skip */ }
+    }
     for (const l of pg.line) {
       if (!fin(l.x1, l.y1, l.x2, l.y2, l.w)) continue;
       doc.setDrawColor(l.c.r, l.c.g, l.c.b); doc.setLineWidth(l.w);

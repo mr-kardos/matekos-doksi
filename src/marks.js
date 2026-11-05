@@ -69,25 +69,25 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
     if (Math.abs(ti) > 0.5) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left) + pl + Math.min(0, ti)}px;top:${mid}px;width:${Math.abs(ti)}px"><i>${ti < 0 ? 'függő ' : 'első sor '}${cm(Math.abs(ti))}</i></span>`);
     if (hang > 0) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left)}px;top:${mid2}px;width:${pl}px"><i>függő ${cm(pl)}</i></span>`);
     // differences from the template's paragraph style
-    if (styles && !b.closest('td,th')) {
+    if (styles) {
+      const inCell = !!b.closest('td,th');
       const st = styles[b.tagName === 'P' ? 'p' : b.tagName.toLowerCase()];
       const notes = [];
       const lh = b.getAttribute('data-lh'), sb = b.getAttribute('data-sb'), sa = b.getAttribute('data-sa');
-      if (!blank && st && lh != null && Math.abs(+lh - (+st.line || 0)) > 0.001) notes.push('sorköz ' + String(+lh).replace('.', ','));
+      if (!blank && !inCell && st && lh != null && Math.abs(+lh - (+st.line || 0)) > 0.001) notes.push('sorköz ' + String(+lh).replace('.', ','));
       // space before / after: always shown when it is not 0 (whatever sets it: the paragraph, its style, a list…)
       const ptOf = v => { const m = /^(-?[\d.]+)(pt|px)?$/.exec(String(v).trim()); if (!m) return 0; return m[2] === 'px' ? +m[1] * 0.75 : +m[1]; };
       const csb = ptOf(cs.getPropertyValue('--sb') || '0'), csa = ptOf(cs.getPropertyValue('--sa') || cs.getPropertyValue('--after') || '0');
       const fmt = v => String(Math.round(v * 10) / 10).replace('.', ',');
       // as the paragraph style says: white label; different from it: green label
+      // green only when the paragraph has its own value, different from its style; anything else comes from the template
       const same = [];
-      const inList = !!b.closest('li');
-      const want = k => inList ? 0 : (+(st || {})[k] || 0);
-      if (Math.abs(csb) > 0.05) (Math.abs(csb - want('spaceBefore')) < 0.05 ? same : notes).push('előtte ' + fmt(csb) + ' pt');
-      if (Math.abs(csa) > 0.05) (Math.abs(csa - want('spaceAfter')) < 0.05 ? same : notes).push('utána ' + fmt(csa) + ' pt');
-      void sb; void sa;
-      if (notes.length || same.length) out.push(`<span class="mk-devs" style="left:${X(br.right) + 22}px;top:${Y(br.top) + 1}px">${notes.length ? `<span class="mk-dev">${notes.join(' · ')}</span>` : ''}${same.length ? `<span class="mk-same">${same.join(' · ')}</span>` : ''}</span>`);
+      const own = (v, k) => v != null && st && Math.abs(+v - (+st[k] || 0)) > 0.01;
+      if (Math.abs(csb) > 0.05) (own(sb, 'spaceBefore') ? notes : same).push('előtte ' + fmt(csb) + ' pt');
+      if (Math.abs(csa) > 0.05) (own(sa, 'spaceAfter') ? notes : same).push('utána ' + fmt(csa) + ' pt');
+      if (notes.length || same.length) out.push(`<span class="mk-devs${inCell ? ' incell' : ''}" style="left:${inCell ? X(br.right) - 2 : X(br.right) + 22}px;top:${Y(br.top) + 1}px">${notes.length ? `<span class="mk-dev">${notes.join(' · ')}</span>` : ''}${same.length ? `<span class="mk-same">${same.join(' · ')}</span>` : ''}</span>`);
       // text runs with their own font, size or letter spacing
-      if (st) for (const sp of b.querySelectorAll('span[style]')) {
+      if (st && !inCell) for (const sp of b.querySelectorAll('span[style]')) {
         if (sp.closest(SKIP)) continue;
         const ss = sp.style, n2 = [];
         if (ss.fontSize && !blank) { const v = parseFloat(ss.fontSize); if (Math.abs(v - (+st.size || 0)) > 0.01) n2.push(String(v).replace('.', ',') + ' pt'); }

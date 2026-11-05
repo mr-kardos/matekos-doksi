@@ -193,7 +193,7 @@ const editor = new Editor({
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
   onFocus: () => { if (hfEd) { hfEd = null; updateToolbar(); } updateOverlays(); },
   onBlur: () => updateOverlays(),
-  onTransaction: ({ transaction }) => { if (transaction.docChanged) { docVersion++; statsSoon(); if (panelView() === 'cmt') renderComments(); else drawComments(); } updateToolbar(); updateOverlays(); marksSoon(); }
+  onTransaction: ({ transaction }) => { if (keptSel && transaction.selectionSet && editor.view.hasFocus()) { keptSel = null; drawComments(); } if (transaction.docChanged) { docVersion++; statsSoon(); if (panelView() === 'cmt') renderComments(); else drawComments(); } updateToolbar(); updateOverlays(); marksSoon(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
 
@@ -515,21 +515,41 @@ function drawImgFrame() {
   const r = toStack(d._kv.img.getBoundingClientRect());
   Object.assign(f.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
   const w0 = d._kv.node().attrs.wrap, w = w0 === 'wr' ? 'wl' : w0;
-  for (const b of f.querySelectorAll('[data-wrap]')) b.classList.toggle('on', b.dataset.wrap === w);
+  void w;
   f.hidden = false;
 }
 $('#imgFrame').addEventListener('pointerdown', e => {
-  if (e.button !== 0 || e.target.closest('.ibar')) return;
+  if (e.button !== 0) return;
   e.preventDefault(); e.stopPropagation();
   const d = selectedImageDom(); if (!d) return;
   const h = e.target.dataset && e.target.dataset.h;
+  if (cropMode) { if (h) d._kv.cropDrag(e, h); return; }            // cropping: the handles cut the picture
   if (h) d._kv.resize(e, h, $('#imgFrame .isize')); else d._kv.move(e);
 });
-$('#imgFrame .ibar').addEventListener('mousedown', e => e.preventDefault());
-$('#imgFrame .ibar').addEventListener('click', e => {
-  const b = e.target.closest('button'), d = selectedImageDom(); if (!b || !d) return;
-  if (b.dataset.wrap) d._kv.setWrap(b.dataset.wrap); else if (b.dataset.act === 'del') d._kv.remove();
-});
+/* picture row under the ribbon: crop, original picture, opacity, placement, replace, delete */
+let cropMode = false;
+const selImgDom = () => { const sel = editor.state.selection; return sel.node && sel.node.type.name === 'image' ? editor.view.nodeDOM(sel.from) : null; };
+function updateImgBar() {
+  const d = selImgDom(); $('#imgBar').hidden = !d;
+  if (!d) { if (cropMode) { cropMode = false; $('#imgFrame').classList.remove('cropping'); } return; }
+  const a = d._kv.node().attrs;
+  $('#imgCrop').classList.toggle('on', cropMode); $('#imgUncrop').disabled = !a.crop;
+  const op = Math.round((a.opacity ?? 1) * 100);
+  if (document.activeElement !== $('#imgOpN')) $('#imgOpN').value = op;
+  $('#imgOpR').value = op;
+  $('#imgWrapSel').value = a.wrap === 'wr' ? 'wl' : (a.wrap || 'wl');
+}
+const endCrop = () => { cropMode = false; $('#imgFrame').classList.remove('cropping'); updateImgBar(); updateOverlays(); };
+$('#imgCrop').addEventListener('click', () => { if (cropMode) return endCrop(); if (!selImgDom()) return; cropMode = true; $('#imgFrame').classList.add('cropping'); updateImgBar(); updateOverlays(); });
+$('#imgUncrop').addEventListener('click', () => { const d = selImgDom(); if (d) { d._kv.uncrop(); endCrop(); } });
+const setOp = v => { const d = selImgDom(); if (d && Number.isFinite(v)) d._kv.setOpacity(v / 100); };
+$('#imgOpR').addEventListener('input', e => { $('#imgOpN').value = e.target.value; const d = selImgDom(); if (d) d.querySelector('img').style.opacity = e.target.value / 100; });
+$('#imgOpR').addEventListener('change', e => setOp(+e.target.value));
+$('#imgOpN').addEventListener('change', e => setOp(+e.target.value));
+$('#imgWrapSel').addEventListener('change', e => { const d = selImgDom(); if (d) d._kv.setWrap(e.target.value); });
+$('#imgReplace').addEventListener('click', () => { const d = selImgDom(); if (d) pickImage(1600, url => d._kv.replace(url)); });
+$('#imgDel').addEventListener('click', () => { const d = selImgDom(); if (d) d._kv.remove(); });
+addEventListener('keydown', e => { if (cropMode && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); endCrop(); } }, true);
 
 function drawTableHandles() {
   const layer = $('#tblHandles');
@@ -719,7 +739,8 @@ function updateToolbar() {
     }
     { const f = currentFamily(); $('#fontLabel').textContent = familyLabel(f || fontSet(tpl.font).text).replace(/ \(.*\)$/, ''); }
     $('#styleSel').value = AE().isActive('heading', { level: 1 }) ? 'h1' : AE().isActive('heading', { level: 2 }) ? 'h2' : AE().isActive('heading', { level: 3 }) ? 'h3' : 'p';
-    $('#tableBar').hidden = !AE().isActive('table');
+    updateImgBar();
+    $('#tableBar').hidden = !AE().isActive('table') || !$('#imgBar').hidden;
     if (!$('#tableBar').hidden) fillTableFields();
     for (const b of $$('#tableBar [data-valign]')) b.classList.toggle('on', (AE().getAttributes('tableCell').vAlign || AE().getAttributes('tableHeader').vAlign || 'top') === b.dataset.valign);
   });
@@ -1789,6 +1810,14 @@ function showCommentPlace(id) {
   ws.scrollTo({ top: ws.scrollTop + r.top - wr.top - ws.clientHeight / 3, behavior: 'smooth' });
   activeCmt = id; drawComments();
 }
+var keptSel = null;                 // the text selection shown while a box of a popup / the panel has the focus
+document.addEventListener('focusin', e => {
+  const t = e.target;
+  if (editor.view.dom.contains(t)) { if (keptSel) { keptSel = null; drawComments(); } return; }
+  if (!t.matches || !t.matches('input, select, textarea')) return;
+  const s0 = editor.state.selection;
+  if (!s0.empty && !(s0 instanceof NodeSelection)) { keptSel = { from: s0.from, to: s0.to }; drawComments(); }
+});
 let activeCmt = null, cmtRaf = 0, cmtSel = null, cmtHidden = load('matekosdoksi.cmthide') === '1';
 /** Screen rectangles of a selection {from, to, node}. */
 function selRects(sel) {
@@ -1838,7 +1867,8 @@ function drawComments() {
     for (const q of merge(txt)) out.push(box(q, cls(q.ids)));
     for (const q of merge(obj)) top.push(box(q, ' obj' + cls(q.ids)));
     // the selection the new comment will go on, while typing it (the text itself has lost the focus)
-    if (cmtSel && panelView() === 'cmt') for (const q of selRects(cmtSel)) out.push(`<div class="cmt-sel" style="left:${(q.left - sr.left) / scale}px;top:${(q.top - sr.top) / scale}px;width:${q.width / scale}px;height:${q.height / scale}px"></div>`);
+    const shown = cmtSel && panelView() === 'cmt' ? cmtSel : keptSel;
+    if (shown) for (const q of selRects(shown)) out.push(`<div class="cmt-sel" style="left:${(q.left - sr.left) / scale}px;top:${(q.top - sr.top) / scale}px;width:${q.width / scale}px;height:${q.height / scale}px"></div>`);
     layer.innerHTML = out.join(''); $('#cmtTop').innerHTML = top.join('');
   });
 }
@@ -2027,21 +2057,33 @@ function styleRows() {
 { const fams = allFamilies(), o = list => list.map(([f, l]) => `<option value="${f}">${l}</option>`).join('');
   for (const sel of $$('.hffont')) sel.innerHTML = `<option value="">Alap betűtípus</option><optgroup label="Képletbarát betűtípusok">${o(fams.math)}</optgroup><optgroup label="Egyéb betűtípusok">${o(fams.other)}</optgroup>`; }
 $('#tplFont').innerHTML = Object.entries(FONT_SETS).map(([k, f]) => `<option value="${k}">${f.label} – ${f.note}</option>`).join('');
-/* every slider of the template panel shows its value beside it */
+/* every slider of the template panel has a number box (with arrows) beside it, one slider per row */
 function sliderValues() {
   for (const r of $$('#props input[type=range]')) {
     if (!r.parentElement.classList.contains('rvrow')) {
+      const lab = r.closest('label'); if (lab) lab.classList.add('full');
       const row = document.createElement('span'); row.className = 'rvrow';
       r.replaceWith(row); row.appendChild(r);
-      const v = document.createElement('span'); v.className = 'rv'; row.appendChild(v);
+      const pct = /opacity/.test(r.dataset.k || '');
+      const n = document.createElement('input'); n.type = 'number'; n.className = 'rvnum';
+      n.min = pct ? Math.round(+r.min * 100) : r.min; n.max = pct ? Math.round(+r.max * 100) : r.max; n.step = pct ? 1 : r.step;
+      const u = document.createElement('span'); u.className = 'rvu';
+      u.textContent = pct ? '%' : /angle|Angle/.test(r.dataset.k) ? '°' : /imgWidth/.test(r.dataset.k) ? '%' : /size/.test(r.dataset.k) ? 'pt' : '';
+      row.append(n, u);
       r.addEventListener('input', () => showRv(r));
+      n.addEventListener('change', () => {
+        let v = +String(n.value).replace(',', '.'); if (!Number.isFinite(v)) return;
+        if (pct) v = v / 100;
+        r.value = Math.min(+r.max, Math.max(+r.min, v));
+        r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true }));
+      });
     }
     showRv(r);
   }
 }
 function showRv(r) {
-  const k = r.dataset.k || '', v = +r.value, out = r.parentElement.querySelector('.rv'); if (!out) return;
-  out.textContent = /opacity/.test(k) ? Math.round(v * 100) + ' %' : /angle|Angle/.test(k) ? v + '°' : /imgWidth/.test(k) ? v + ' %' : /size/.test(k) ? v + ' pt' : String(v).replace('.', ',');
+  const n = r.parentElement.querySelector('.rvnum'); if (!n || document.activeElement === n) return;
+  n.value = /opacity/.test(r.dataset.k || '') ? Math.round(+r.value * 100) : r.value;
 }
 function fillPanel() {
   queueMicrotask(sliderValues);

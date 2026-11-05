@@ -680,6 +680,8 @@ export const KvImage = Node.create({
       dx: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dx')) || 0 },
       dy: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dy')) || 0 },
       cmt: { default: null },                // id of a comment attached to the picture
+      crop: { default: null },               // {l, t, r, b}: the parts cut off, as fractions of the whole picture
+      opacity: { default: 1 },
       ...PIN_ATTRS
     };
   },
@@ -697,17 +699,29 @@ export const KvImage = Node.create({
       const img = document.createElement('img');
       img.draggable = false;
       dom.appendChild(img);
+      // cropping: the frame (dom) shows only a part of the picture; the picture inside is larger and shifted
+      const applyCrop = (c = cur.attrs.crop, w = cur.attrs.width) => {
+        img.style.opacity = cur.attrs.opacity != null && cur.attrs.opacity < 1 ? cur.attrs.opacity : '';
+        if (!c || !w || !img.naturalWidth) { dom.classList.remove('cropped'); img.style.width = ''; img.style.maxWidth = ''; img.style.marginLeft = ''; img.style.marginTop = ''; if (!c) dom.style.height = ''; return; }
+        const fw = w / Math.max(0.05, 1 - c.l - c.r), fh = fw * img.naturalHeight / img.naturalWidth;
+        dom.classList.add('cropped');
+        img.style.width = fw + 'px'; img.style.maxWidth = 'none';
+        img.style.marginLeft = -c.l * fw + 'px'; img.style.marginTop = -c.t * fh + 'px';
+        dom.style.height = fh * Math.max(0.05, 1 - c.t - c.b) + 'px';
+      };
       const paint = () => {
         dom.className = 'imgw ' + (cur.attrs.pin ? 'pinned' + (cur.attrs.wrap === 'over' ? ' over' : cur.attrs.wrap === 'under' ? ' under' : '') : (cur.attrs.wrap || 'wl')) + (selected ? ' ProseMirror-selectednode' : '');
         if (cur.attrs.cmt) dom.dataset.cmt = cur.attrs.cmt; else delete dom.dataset.cmt;
         if (img.getAttribute('src') !== cur.attrs.src) img.src = cur.attrs.src;
         img.alt = cur.attrs.alt || '';
         dom.style.cssText = cur.attrs.pin ? (cur.attrs.width ? `width:${cur.attrs.width}px` : '') : imgStyle(cur.attrs);
+        applyCrop();
         placePinned(dom, cur.attrs);
         ext.options.onChange && ext.options.onChange();
       };
       paint();
       const view = () => editor.view;
+      img.addEventListener('load', () => { if (cur.attrs.crop) { applyCrop(); ext.options.onChange && ext.options.onChange(); } });
       img.addEventListener('load', () => {
         if (!cur.attrs.width && img.naturalWidth) {
           const col = view().dom.clientWidth || 600;
@@ -924,6 +938,46 @@ export const KvImage = Node.create({
       dom._kv = {
         img, move, resize, node: () => cur,
         // an older wrapped picture (text-anchored float): becomes freely placed where it is now
+        cropDrag: (e, h) => {
+          const sc = ext.options.getScale() || 1, c0 = { l: 0, t: 0, r: 0, b: 0, ...(cur.attrs.crop || {}) };
+          const w0 = cur.attrs.width || dom.getBoundingClientRect().width / sc;
+          const fw = w0 / (1 - c0.l - c0.r), fh = fw * (img.naturalHeight || 1) / (img.naturalWidth || 1);
+          const sx = e.clientX, sy = e.clientY;
+          const left0 = parseFloat(dom.style.left) || 0, top0 = parseFloat(dom.style.top) || 0;
+          let c = { ...c0 };
+          const mv = ev => {
+            const dx = (ev.clientX - sx) / sc, dy = (ev.clientY - sy) / sc, MIN = 0.05;
+            c = { ...c0 };
+            if (h.includes('w')) c.l = Math.min(Math.max(0, c0.l + dx / fw), 1 - c0.r - MIN);
+            if (h.includes('e')) c.r = Math.min(Math.max(0, c0.r - dx / fw), 1 - c0.l - MIN);
+            if (h.includes('n')) c.t = Math.min(Math.max(0, c0.t + dy / fh), 1 - c0.b - MIN);
+            if (h.includes('s')) c.b = Math.min(Math.max(0, c0.b - dy / fh), 1 - c0.t - MIN);
+            const w = fw * (1 - c.l - c.r);
+            dom.style.width = w + 'px'; applyCrop(c, w);
+            if (cur.attrs.pin) {             // the picture itself stays where it is: the frame edge moves over it
+              dom.style.left = left0 + (c.l - c0.l) * fw + 'px'; dom.style.top = top0 + (c.t - c0.t) * fh + 'px';
+            }
+            ext.options.onChange && ext.options.onChange();
+          };
+          const up = () => {
+            removeEventListener('pointermove', mv); removeEventListener('pointerup', up); removeEventListener('pointercancel', up);
+            const pos = getPos(); if (typeof pos !== 'number') return;
+            const w = Math.round(fw * (1 - c.l - c.r) * 10) / 10;
+            const crop = c.l + c.t + c.r + c.b > 0.0005 ? { l: c.l, t: c.t, r: c.r, b: c.b } : null;
+            const extra = cur.attrs.pin ? { px: Math.round(((cur.attrs.px || 0) + (c.l - c0.l) * fw) * 10) / 10, py: Math.round(((cur.attrs.py || 0) + (c.t - c0.t) * fh) * 10) / 10 } : {};
+            const trc = view().state.tr.setNodeMarkup(pos, undefined, { ...cur.attrs, crop, width: w, ...extra });
+            trc.setSelection(NodeSelection.create(trc.doc, pos)); view().dispatch(trc);
+          };
+          addEventListener('pointermove', mv); addEventListener('pointerup', up); addEventListener('pointercancel', up);
+        },
+        uncrop: () => {
+          const c = cur.attrs.crop; if (!c) return;
+          const fw = (cur.attrs.width || 0) / (1 - c.l - c.r), fh = fw * (img.naturalHeight || 1) / (img.naturalWidth || 1);
+          const extra = cur.attrs.pin ? { px: Math.max(0, (cur.attrs.px || 0) - c.l * fw), py: (cur.attrs.py || 0) - c.t * fh } : {};
+          setAttrs({ crop: null, width: Math.round(fw), ...extra }); reselect();
+        },
+        setOpacity: v => { setAttrs({ opacity: Math.min(1, Math.max(0.05, v)) }); reselect(); },
+        replace: url => { setAttrs({ src: url }); reselect(); },
         makeRel: () => {
           if (!cur.attrs.pin || cur.attrs.rel) return;
           const host = dom.parentElement && dom.parentElement.closest('p,h1,h2,h3'), pos = getPos();
