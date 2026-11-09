@@ -622,3 +622,13 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 #props .fld .rvrow input.rvnum{ width:62px; flex:none; }
 .wmop .rvrow input[type=range]{ width:auto !important; flex:1; }
 #marksLayer .mk-devs.incell{ transform:translateX(-100%); opacity:.92; }
+
+/* the picture row's sliders in the app's red */
+#imgBar input[type=range]{ accent-color:#da291c; }
+.ProseMirror .imgw.rounded{ overflow:hidden; }
+.md-pal .boxd, .boxd{ display:inline-block; border:1.5px solid currentColor; padding:0 4px; line-height:1.1; }
+
+.hfranges #hfRangeList{ display:flex; flex-direction:column; gap:5px; margin:6px 0; }
+.hfranges .hfr{ display:grid; grid-template-columns:46px 8px 46px 1fr 1fr 1fr 22px; gap:4px; align-items:center; }
+.hfranges .hfr input{ height:28px; width:100%; min-width:0; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 5px; font-size:12px; }
+.hfranges .hfr .tb.mini{ min-width:22px; height:22px; padding:0; }

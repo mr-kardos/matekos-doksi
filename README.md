@@ -1,4 +1,4 @@
-# Matekos Doksi 0.9.9
+# Matekos Doksi 0.10.0
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -47,9 +47,9 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   on the page (move handle), with the text wrapping around them.
 * Pictures: in the line, on their own line, or with text wrapping / over / behind the text; wrapped pictures move
   freely once selected, stay inside the margins and move with their paragraph (as in Word); resizing from any corner;
-  picture row under the ribbon: crop, original picture, opacity, placement, replace, delete.
+  picture row under the ribbon: crop, original picture, opacity, corner rounding, placement, replace, delete.
 * Templates (right panel; changes stay in the document, a template file is only changed by „Sablonfájl frissítése”): page, header and footer (edited on the page, three columns, fields for page number,
-  page count, date, title; first page number; odd / even / first page), watermark, paragraph styles (Normál, Főcím,
+  page count, date, title; first page number; odd / even / first page; own header texts for page ranges), watermark, paragraph styles (Normál, Főcím,
   Cím, Alcím: font, size, colour, B/I/U, shading, alignment, spacing, indents, letter spacing, tabulators, keep with
   next, no space between same-style paragraphs), default list symbols. Built-in templates Sima and Feladatsor
   (`public/presets/*.mdsab`); any template can be saved as a **Matekos Doksi Sablon** (.mdsab) and used in other

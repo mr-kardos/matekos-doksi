@@ -21,7 +21,7 @@ function textWithMath(text, marks, list) {
   while ((m = re.exec(text))) {
     if (m.index > last) out.push({ type: 'text', text: text.slice(last, m.index), ...(marks.length ? { marks } : {}) });
     const f = list[+m[1]];
-    if (f) out.push({ type: 'math', attrs: { tex: f.tex, display: f.display, wrap: !f.display }, ...(marks.filter(k => k.type === 'bold').length ? { marks: marks.filter(k => k.type === 'bold') } : {}) });
+    if (f) out.push({ type: 'math', attrs: { tex: f.tex, display: false, wrap: true }, ...(marks.filter(k => k.type === 'bold').length ? { marks: marks.filter(k => k.type === 'bold') } : {}) });
     last = re.lastIndex;
   }
   if (last < text.length) out.push({ type: 'text', text: text.slice(last), ...(marks.length ? { marks } : {}) });
@@ -67,7 +67,6 @@ function blocks(tokens, list, report) {
       case 'heading': out.push({ type: 'heading', attrs: { level: Math.min(3, t.depth) }, content: inline(t.tokens, [], list, report) }); break;
       case 'paragraph': {
         const p = para(t.tokens, list, report);
-        if (p.content && p.content.length === 1 && p.content[0].type === 'math' && p.content[0].attrs.display) p.attrs = { textAlign: 'center' };
         out.push(p); break;
       }
       case 'list': {

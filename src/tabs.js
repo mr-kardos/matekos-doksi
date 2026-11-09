@@ -82,6 +82,10 @@ export function layoutTabs(root, scale = 1, originOf = null) {
         if (!wrapStop && s2.pos <= boxW + 0.5) { wrapStop = s2; wrapSeg = seg; }
       }
       if (!stop && wrapStop) {
+        wrapTab(t, wrapStop, wrapSeg, x0, scale);
+        continue;
+      }
+      if (false) {
         t.classList.add('wrapped');
         t.innerHTML = '<br><span class="tab-sp"></span>';
         const sp = t.lastChild, xs = (sp.getBoundingClientRect().left - x0) / scale;
@@ -99,6 +103,25 @@ export function layoutTabs(root, scale = 1, originOf = null) {
       // a hair less than the exact width: rounding must never push the text over the margin
       t.style.width = Math.max(0, stop && stop.align !== 'left' ? w - 0.15 : w) + 'px';
       if (stop && stop.leader) t.dataset.leader = stop.leader; else delete t.dataset.leader;
+      // check: once widened, the line may break differently (e.g. the word before the tab moves back up) –
+      // if the text after a right / centre tab does not end at its stop, it goes on to the next line, to the stop
+      if (stop && stop.align !== 'left') {
+        const seg2 = segWidth(t, scale), x2 = (t.getBoundingClientRect().left - x0) / scale, w2 = parseFloat(t.style.width) || 0;
+        const end = x2 + w2 + (stop.align === 'right' ? seg2 : seg2 / 2);
+        if (Math.abs(end - stop.pos) > 1.5 || t.getClientRects().length > 1) { t.style.width = '0px'; wrapTab(t, stop, seg2, x0, scale); }
+      }
     }
   }
+}
+/** A right / centre tab whose text does not fit on the line: a line break inside the tab, then a spacer to the stop. */
+function wrapTab(t, wrapStop, wrapSeg, x0, scale) {
+  t.classList.add('wrapped');
+  t.innerHTML = '<br><span class="tab-sp"></span>';
+  const sp = t.lastChild, xs = (sp.getBoundingClientRect().left - x0) / scale;
+  const segNow = segWidthAt(t, sp, scale) || wrapSeg;
+  const ww = wrapStop.align === 'right' ? wrapStop.pos - xs - segNow : wrapStop.pos - xs - segNow / 2;
+  sp.style.width = Math.max(0, ww - 0.15) + 'px';
+  t.style.width = '';
+  t.dataset.stop = String(Math.round(wrapStop.pos / CM * 100) / 100);
+  if (wrapStop.leader) t.dataset.leader = wrapStop.leader; else delete t.dataset.leader;
 }

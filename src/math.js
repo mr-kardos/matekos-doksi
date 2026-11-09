@@ -115,6 +115,11 @@ export function renderSVG(tex, display, bold, wrap, font) {
     .then(node => {
       if (node && node.html !== undefined) return node;      // came back already finished (fallback above)
       if (node.querySelector('[data-mjx-error], merror, [data-mml-node="merror"]')) return { html: node.outerHTML, error: true };
+      // bold: large brackets and braces (\left \right \big…) have no bold shape – they get a thicker outline instead
+      if (bold) for (const g of node.querySelectorAll('g[data-mml-node="mo"]')) {
+        const l = g.getAttribute('data-latex') || '';
+        if (/^\\(left|right|[bB]igg?[lr]?)/.test(l)) { g.setAttribute('stroke', 'currentColor'); g.setAttribute('stroke-width', '36'); g.setAttribute('stroke-linejoin', 'round'); }
+      }
       return { html: node.outerHTML, error: false };
     })
     .catch(() => null)

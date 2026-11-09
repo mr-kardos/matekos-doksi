@@ -19,9 +19,9 @@ import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady }
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML, setFirstPage } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, ListJoin, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP, setStyleTabs } from './tabs.js';
-import { drawMarks } from './marks.js';
+import { drawMarks, setCellFilter } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
@@ -67,7 +67,7 @@ const editor = new Editor({
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
     ListItem, KvBulletList, KvOrderedList, ListMarkers,
-    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, Pins, ActiveTable, CommentMark, TabNode.configure({ getScale: () => scale }),
+    TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, Pins, ActiveTable, CommentMark, ListJoin, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
     Subscript, Superscript,
@@ -82,12 +82,19 @@ const editor = new Editor({
       // the area inside the margins of the page under a point (screen coordinates): pictures stay inside it
       // the paragraph a picture dropped at this height belongs to: {pos (start of it), top (its top on screen)}
       anchorAt: (clientY, skip) => {
-        const f = lineAtY(clientY, skip); if (!f) return null;
-        try {
-          const d = editor.view.domAtPos(f.pos), blk = (d.node.nodeType === 1 ? d.node : d.node.parentElement).closest('p,h1,h2,h3');
-          if (!blk || blk.closest('td,th,.pinned')) return null;
-          return { pos: editor.view.posAtDOM(blk, 0), top: blk.getBoundingClientRect().top };
-        } catch (e) { return null; }
+        const g = geometry(tpl), sr = stack.getBoundingClientRect();
+        const pageOf = y => Math.floor((y - sr.top) / scale / g.P);
+        const pg = pageOf(clientY);
+        let best = null, first = null;
+        for (const blk of editor.view.dom.querySelectorAll('p,h1,h2,h3')) {
+          if (blk.closest('td,th,.pinned') || (skip && skip.contains(blk))) continue;
+          const t = blk.getBoundingClientRect(); if (!t.height) continue;
+          if (pageOf(t.top) !== pg) { if (pageOf(t.top) > pg) break; continue; }
+          if (!first) first = { blk, t };
+          if (t.top <= clientY) best = { blk, t }; else break;
+        }
+        const pick = best || first; if (!pick) return null;
+        try { return { pos: editor.view.posAtDOM(pick.blk, 0), top: pick.t.top }; } catch (e) { return null; }
       },
       pageBox: clientY => {
         const g = geometry(tpl), sr = stack.getBoundingClientRect(), er = editor.view.dom.getBoundingClientRect();
@@ -109,6 +116,15 @@ const editor = new Editor({
       return !!(sel.node && sel.node.attrs && sel.node.attrs.pin);
     },
     handleKeyDown: (view, e) => {
+      // Enter / Backspace right after the free pictures anchored at the start of a paragraph: they stay with the text
+      // (the cursor goes before them first), so a new empty line above never takes them away
+      if ((e.key === 'Enter' || e.key === 'Backspace') && view.state.selection.empty) {
+        const $c = view.state.selection.$from;
+        if ($c.parent.isTextblock && $c.parentOffset > 0) {
+          let ok = true; $c.parent.forEach((ch, off) => { if (off < $c.parentOffset && !(ch.type.name === 'image' && ch.attrs.pin)) ok = false; });
+          if (ok) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, $c.start())));
+        }
+      }
       if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.shiftKey || !view.state.selection.empty) return false;
       const down = e.key === 'ArrowDown';
       if (!view.endOfTextblock(down ? 'down' : 'up')) return false;
@@ -145,7 +161,23 @@ const editor = new Editor({
         const liP = onSymbol ? [...t.closest('li').querySelectorAll(':scope > p, :scope > h1, :scope > h2, :scope > h3')].find(p => { const r = p.getBoundingClientRect(); return e.clientY >= r.top && e.clientY <= r.bottom; }) : null;
         const blk = t.closest('p,h1,h2,h3') || liP || (cellEl && [...cellEl.querySelectorAll('p,h1,h2,h3')].find(p => { const r = p.getBoundingClientRect(); return e.clientY >= r.top && e.clientY <= r.bottom; }));
         if (!blk || !(blk.querySelector('.math') || onSymbol)) return false;
-        const hit = view.posAtCoords({ left: e.clientX, top: e.clientY }); if (!hit) return false;
+        // a formula over several lines: the point is before it only left of its first line, after it right of its last
+        const posAt = (cx, cy) => {
+          const h = view.posAtCoords({ left: cx, top: cy }); if (!h) return null;
+          const node = h.inside >= 0 ? view.state.doc.nodeAt(h.inside) : null;
+          const near = node && node.type.name === 'math' ? h.inside : null;
+          const cand = near != null ? near : [h.pos, h.pos - 1].find(p => p >= 0 && view.state.doc.nodeAt(p) && view.state.doc.nodeAt(p).type.name === 'math');
+          if (cand == null) return h.pos;
+          const md = view.nodeDOM(cand); if (!md) return h.pos;
+          const lines = [...md.querySelectorAll('svg')].map(sv => sv.getBoundingClientRect()).filter(q => q.width > 1);
+          const rs = lines.length > 1 ? lines : [md.getBoundingClientRect()];
+          const firstL = rs[0], lastL = rs[rs.length - 1];
+          if (cy >= lastL.top && cx >= lastL.right - 1) return cand + 1;                   // right of its last line: after it
+          if (cy <= firstL.bottom && cx <= firstL.left + 1) return cand;                   // left of its first line: before it
+          return h.pos;
+        };
+        const hit0 = posAt(e.clientX, e.clientY); if (hit0 == null) return false;
+        const hit = { pos: hit0 };
         e.preventDefault();
         const anchor = hit.pos;
         view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor)));
@@ -153,7 +185,8 @@ const editor = new Editor({
         const cellOf = pos => { const $p = view.state.doc.resolve(pos); for (let d = $p.depth; d > 0; d--) { const r = $p.node(d).type.spec.tableRole; if (r === 'cell' || r === 'header_cell') return $p.before(d); } return null; };
         const aCell = cellOf(anchor);
         const mv = ev => {
-          const h = view.posAtCoords({ left: ev.clientX, top: ev.clientY }); if (!h) return;
+          const hp = posAt(ev.clientX, ev.clientY); if (hp == null) return;
+          const h = { pos: hp };
           const hCell = cellOf(h.pos);
           try {
             if (aCell != null && hCell != null && hCell !== aCell) view.dispatch(view.state.tr.setSelection(CellSelection.create(view.state.doc, aCell, hCell)));
@@ -396,6 +429,16 @@ function updatePins() {
 }
 let pinNested = false;
 setPinTop((pg, py) => pg * geometry(tpl).P + py);
+// eye mode in tables: the column of the cursor only
+setCellFilter(td => {
+  const c = tableContext(editor.state); if (!c) return false;
+  const tbl = editor.view.nodeDOM(c.pos); if (!tbl || !tbl.contains(td)) return false;
+  const $f = editor.state.selection.$from; let cellDom = null;
+  for (let d = $f.depth; d > 0; d--) if (/^table(Cell|Header)$/.test($f.node(d).type.name)) { cellDom = editor.view.nodeDOM($f.before(d)); break; }
+  if (!cellDom) return false;
+  const a = cellDom.getBoundingClientRect(), b = td.getBoundingClientRect();
+  return Math.abs(a.left - b.left) < 1 && Math.abs(a.right - b.right) < 1;
+});
 setStyleTabs(b => { const k = /^H[123]$/.test(b.tagName) ? b.tagName.toLowerCase() : 'p'; return (tpl.styles[k] || {}).tabs || null; });
 editor.view.dom.addEventListener('kv-pin', pinsSoon);
 /* formatting marks (eye button) */
@@ -432,7 +475,8 @@ function styleCSS() {
     css += `.docbody > ${tag} + ${tag}${on}{--sb:0pt !important}\n.docbody > ${tag}${on}:has(+ ${tag}){--sa:0pt !important}\n`;
   }
   const lon = tpl.lists.contextual ? ':not([data-ctx="0"])' : '[data-ctx="1"]';
-  css += `.docbody li > p${lon}{--sb:0pt !important;--sa:0pt !important}\n.docbody > :is(ul,ol) > li:last-child > p:last-child{--sa:var(--after,6pt) !important}\n`;
+  // the end of a list: the space after it is the normal text's (or what is set on that last item itself)
+  css += `.docbody li > p${lon}:not([data-sb]):not([data-sa]){--sb:0pt !important;--sa:0pt !important}\n.docbody > :is(ul,ol) > li:last-child > p:last-child:not([data-sa]){--sa:${+st.p.spaceAfter || 0}pt !important}\n`;
   return css;
 }
 /** Redraw formulas whose look (font, bold – from marks or the paragraph style) changed; all of them when forced. */
@@ -512,7 +556,7 @@ function selectedImageDom() {
 function drawImgFrame() {
   const f = $('#imgFrame'), d = imgMoving ? null : selectedImageDom();
   if (!d) { f.hidden = true; return; }
-  const r = toStack(d._kv.img.getBoundingClientRect());
+  const r = toStack((cropMode ? d._kv.img : d).getBoundingClientRect());   // the frame of a cropped picture: the visible part
   Object.assign(f.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
   const w0 = d._kv.node().attrs.wrap, w = w0 === 'wr' ? 'wl' : w0;
   void w;
@@ -537,6 +581,9 @@ function updateImgBar() {
   const op = Math.round((a.opacity ?? 1) * 100);
   if (document.activeElement !== $('#imgOpN')) $('#imgOpN').value = op;
   $('#imgOpR').value = op;
+  const rd = Math.round(a.radius || 0);
+  if (document.activeElement !== $('#imgRadN')) $('#imgRadN').value = rd;
+  $('#imgRadR').value = rd;
   $('#imgWrapSel').value = a.wrap === 'wr' ? 'wl' : (a.wrap || 'wl');
 }
 const endCrop = () => { cropMode = false; $('#imgFrame').classList.remove('cropping'); updateImgBar(); updateOverlays(); };
@@ -546,6 +593,10 @@ const setOp = v => { const d = selImgDom(); if (d && Number.isFinite(v)) d._kv.s
 $('#imgOpR').addEventListener('input', e => { $('#imgOpN').value = e.target.value; const d = selImgDom(); if (d) d.querySelector('img').style.opacity = e.target.value / 100; });
 $('#imgOpR').addEventListener('change', e => setOp(+e.target.value));
 $('#imgOpN').addEventListener('change', e => setOp(+e.target.value));
+const setRad = v => { const d = selImgDom(); if (d && Number.isFinite(v)) d._kv.setRadius(Math.min(50, Math.max(0, v))); };
+$('#imgRadR').addEventListener('input', e => { $('#imgRadN').value = e.target.value; const d = selImgDom(); if (d) d.style.borderRadius = e.target.value + '%'; });
+$('#imgRadR').addEventListener('change', e => setRad(+e.target.value));
+$('#imgRadN').addEventListener('change', e => setRad(+e.target.value));
 $('#imgWrapSel').addEventListener('change', e => { const d = selImgDom(); if (d) d._kv.setWrap(e.target.value); });
 $('#imgReplace').addEventListener('click', () => { const d = selImgDom(); if (d) pickImage(1600, url => d._kv.replace(url)); });
 $('#imgDel').addEventListener('click', () => { const d = selImgDom(); if (d) d._kv.remove(); });
@@ -2057,6 +2108,23 @@ function styleRows() {
 { const fams = allFamilies(), o = list => list.map(([f, l]) => `<option value="${f}">${l}</option>`).join('');
   for (const sel of $$('.hffont')) sel.innerHTML = `<option value="">Alap betűtípus</option><optgroup label="Képletbarát betűtípusok">${o(fams.math)}</optgroup><optgroup label="Egyéb betűtípusok">${o(fams.other)}</optgroup>`; }
 $('#tplFont').innerHTML = Object.entries(FONT_SETS).map(([k, f]) => `<option value="${k}">${f.label} – ${f.note}</option>`).join('');
+/* header texts for page ranges */
+function renderHfRanges() {
+  const box = $('#hfRangeList'); if (!box) return;
+  const rs = tpl.hfRanges || (tpl.hfRanges = []);
+  box.innerHTML = rs.map((r, k) => `<div class="hfr" data-r="${k}"><input type="number" min="1" data-f="from" value="${+r.from || 1}" title="Első oldal"><span>–</span><input type="number" min="1" data-f="to" value="${+r.to || ''}" title="Utolsó oldal"><input type="text" data-f="l" value="${esc(r.l || '')}" placeholder="bal"><input type="text" data-f="c" value="${esc(r.c || '')}" placeholder="közép"><input type="text" data-f="r" value="${esc(r.r || '')}" placeholder="jobb"><button class="tb mini" data-del title="Törlés">✕</button></div>`).join('');
+}
+document.addEventListener('change', e => {
+  const row = e.target.closest && e.target.closest('#hfRangeList .hfr'); if (!row) return;
+  const r = tpl.hfRanges[+row.dataset.r], f = e.target.dataset.f; if (!r || !f) return;
+  r[f] = f === 'from' || f === 'to' ? (+e.target.value || null) : e.target.value;
+  tplChanged(); applyTpl();
+});
+document.addEventListener('click', e => {
+  if (e.target.closest && e.target.closest('#hfRangeAdd')) { (tpl.hfRanges = tpl.hfRanges || []).push({ from: 1, to: pageCount, l: '', c: '', r: '' }); renderHfRanges(); tplChanged(); applyTpl(); return; }
+  const d = e.target.closest && e.target.closest('#hfRangeList [data-del]'); if (!d) return;
+  tpl.hfRanges.splice(+d.closest('.hfr').dataset.r, 1); renderHfRanges(); tplChanged(); applyTpl();
+});
 /* every slider of the template panel has a number box (with arrows) beside it, one slider per row */
 function sliderValues() {
   for (const r of $$('#props input[type=range]')) {
@@ -2086,6 +2154,7 @@ function showRv(r) {
   n.value = /opacity/.test(r.dataset.k || '') ? Math.round(+r.value * 100) : r.value;
 }
 function fillPanel() {
+  renderHfRanges();
   queueMicrotask(sliderValues);
   hfTabs(); styleRows(); presetName();
   for (const el of $$('#props [data-k]')) {

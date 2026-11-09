@@ -110,6 +110,7 @@ export const KvBulletList = BulletList.extend({
   }
 });
 export const KvOrderedList = OrderedList.extend({
+  addInputRules() { return []; },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -412,10 +413,10 @@ export const MathNode = Node.create({
       const dom = document.createElement('span');
       dom.contentEditable = 'false';
       const paint = () => {
-        dom.className = 'math' + (cur.attrs.display ? ' disp' : '') + (cur.attrs.wrap ? ' wrap' : '') + (dom._sel ? ' ProseMirror-selectednode' : '');
+        dom.className = 'math' + (cur.attrs.wrap || cur.attrs.display ? ' wrap' : '') + (dom._sel ? ' ProseMirror-selectednode' : '');
         dom.setAttribute('data-tex', cur.attrs.tex);
         const lk = lookOf(cur, dom); dom._lk = lk.font + '|' + lk.bold;
-        renderInto(dom, cur.attrs.tex, cur.attrs.display, () => ext.options.onRendered && ext.options.onRendered(), lk.bold, cur.attrs.wrap, lk.font);
+        renderInto(dom, cur.attrs.tex, false, () => ext.options.onRendered && ext.options.onRendered(), lk.bold, cur.attrs.wrap || cur.attrs.display, lk.font);
         // once on the page: take the font / weight of the paragraph style around it (e.g. a bold heading)
         if (!dom.isConnected) requestAnimationFrame(() => { const l2 = lookOf(cur, dom); if (dom.isConnected && l2.font + '|' + l2.bold !== dom._lk) paint(); });
       };
@@ -675,20 +676,21 @@ export const KvImage = Node.create({
     return {
       src: { default: '' },
       alt: { default: '' },
-      width: { default: null, parseHTML: el => parseFloat(el.style.width) || numOrNull(el.getAttribute('width')) },
+      width: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-w')) || parseFloat(el.style.width) || numOrNull(el.getAttribute('width')) },
       wrap: { default: 'wl', parseHTML: el => el.getAttribute('data-wrap') || WRAPS.find(w => el.classList.contains(w)) || 'wl' },
       dx: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dx')) || 0 },
       dy: { default: 0, parseHTML: el => numOrNull(el.getAttribute('data-dy')) || 0 },
       cmt: { default: null },                // id of a comment attached to the picture
-      crop: { default: null },               // {l, t, r, b}: the parts cut off, as fractions of the whole picture
-      opacity: { default: 1 },
+      crop: { default: null, parseHTML: el => { try { return el.getAttribute('data-crop') ? JSON.parse(el.getAttribute('data-crop')) : null; } catch (e) { return null; } } },   // {l, t, r, b}: the parts cut off, as fractions
+      opacity: { default: 1, parseHTML: el => el.hasAttribute('data-op') ? +el.getAttribute('data-op') : 1 },
+      radius: { default: 0, parseHTML: el => +(el.getAttribute('data-rad') || 0) },                // corner rounding, % of the smaller side
       ...PIN_ATTRS
     };
   },
   parseHTML() { return [{ tag: 'img[src]' }]; },
   renderHTML({ node }) {
     const a = node.attrs;
-    return ['img', { src: a.src, alt: a.alt || '', 'data-wrap': a.wrap, 'data-dx': a.dx || 0, 'data-dy': a.dy || 0, ...(a.pin ? { 'data-pin': '1', 'data-pg': a.pg, 'data-px': a.px, 'data-py': a.py } : {}), class: a.wrap, style: imgStyle(a) || null }];
+    return ['img', { src: a.src, alt: a.alt || '', 'data-wrap': a.wrap, 'data-dx': a.dx || 0, 'data-dy': a.dy || 0, ...(a.pin ? { 'data-pin': '1', 'data-pg': a.pg, 'data-px': a.px, 'data-py': a.py, ...(a.rel ? { 'data-rel': '1' } : {}) } : {}), ...(a.crop ? { 'data-crop': JSON.stringify(a.crop) } : {}), ...(a.opacity != null && a.opacity < 1 ? { 'data-op': a.opacity } : {}), ...(a.radius ? { 'data-rad': a.radius } : {}), ...(a.width ? { 'data-w': a.width } : {}), class: a.wrap, style: imgStyle(a) || null }];
   },
   addNodeView() {
     const ext = this;
@@ -702,6 +704,13 @@ export const KvImage = Node.create({
       // cropping: the frame (dom) shows only a part of the picture; the picture inside is larger and shifted
       const applyCrop = (c = cur.attrs.crop, w = cur.attrs.width) => {
         img.style.opacity = cur.attrs.opacity != null && cur.attrs.opacity < 1 ? cur.attrs.opacity : '';
+        // corner rounding: a share of the shorter side (the same in the PDF)
+        if (cur.attrs.radius && w && img.naturalWidth) {
+          const cc = c || { l: 0, t: 0, r: 0, b: 0 }, fw0 = w / Math.max(0.05, 1 - cc.l - cc.r), h0 = fw0 * img.naturalHeight / img.naturalWidth * Math.max(0.05, 1 - cc.t - cc.b);
+          dom.style.borderRadius = Math.min(w, h0) * cur.attrs.radius / 100 + 'px';
+        } else dom.style.borderRadius = cur.attrs.radius ? cur.attrs.radius + '%' : '';
+        dom.dataset.rad = cur.attrs.radius || 0;
+        dom.classList.toggle('rounded', !!cur.attrs.radius);
         if (!c || !w || !img.naturalWidth) { dom.classList.remove('cropped'); img.style.width = ''; img.style.maxWidth = ''; img.style.marginLeft = ''; img.style.marginTop = ''; if (!c) dom.style.height = ''; return; }
         const fw = w / Math.max(0.05, 1 - c.l - c.r), fh = fw * img.naturalHeight / img.naturalWidth;
         dom.classList.add('cropped');
@@ -721,7 +730,7 @@ export const KvImage = Node.create({
       };
       paint();
       const view = () => editor.view;
-      img.addEventListener('load', () => { if (cur.attrs.crop) { applyCrop(); ext.options.onChange && ext.options.onChange(); } });
+      img.addEventListener('load', () => { if (cur.attrs.crop || cur.attrs.radius) { applyCrop(); ext.options.onChange && ext.options.onChange(); } });
       img.addEventListener('load', () => {
         if (!cur.attrs.width && img.naturalWidth) {
           const col = view().dom.clientWidth || 600;
@@ -976,6 +985,7 @@ export const KvImage = Node.create({
           const extra = cur.attrs.pin ? { px: Math.max(0, (cur.attrs.px || 0) - c.l * fw), py: (cur.attrs.py || 0) - c.t * fh } : {};
           setAttrs({ crop: null, width: Math.round(fw), ...extra }); reselect();
         },
+        setRadius: v => { setAttrs({ radius: v }); reselect(); },
         setOpacity: v => { setAttrs({ opacity: Math.min(1, Math.max(0.05, v)) }); reselect(); },
         replace: url => { setAttrs({ src: url }); reselect(); },
         makeRel: () => {
@@ -1245,7 +1255,15 @@ export function changeListLevel(view, delta) {
   // a list cannot skip a level: an item is at most one level deeper than the one before it
   // the items after a moved one keep their level; holder items fill any gap above a deeper first item
   if (items.every(it => it.newLevel === it.level)) return true;
-  // an item moving to a level gets the format of its new neighbours there only if it has none of its own
+  // an item moving to another level takes the format (numbering / symbol) of the items already on that level
+  const moved = new Set(sel.filter(it => it.newLevel !== it.level));
+  for (const it of moved) {
+    const i = items.indexOf(it);
+    let nb = null;
+    for (let k = i - 1; k >= 0; k--) { const o = items[k]; if (o.newLevel < it.newLevel) break; if (o.newLevel === it.newLevel && !moved.has(o)) { nb = o; break; } }
+    if (!nb) for (let k = i + 1; k < items.length; k++) { const o = items[k]; if (o.newLevel < it.newLevel) break; if (o.newLevel === it.newLevel && !moved.has(o)) { nb = o; break; } }
+    if (nb) { it.type = nb.type; it.attrs = { ...nb.attrs }; }
+  }
   for (const it of items) it.level = it.newLevel;
   const nodes = rebuild(items, st.schema);
   // selection: same offset inside the same item
@@ -1299,4 +1317,41 @@ export const CommentMark = Mark.create({
   addAttributes() { return { id: { default: null, parseHTML: el => el.getAttribute('data-cmt'), renderHTML: a => ({ 'data-cmt': a.id }) } }; },
   parseHTML() { return [{ tag: 'span[data-cmt]' }]; },
   renderHTML({ HTMLAttributes }) { return ['span', HTMLAttributes, 0]; }
+});
+
+/* ------------------------------------------------------------------ */
+/* Lists that end up right next to each other (e.g. an item added in   */
+/* the middle and deleted again) become one list again – their        */
+/* numbering goes on instead of starting from 1                        */
+/* ------------------------------------------------------------------ */
+export const ListJoin = Extension.create({
+  name: 'listJoin',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      appendTransaction(trs, oldState, state) {
+        if (!trs.some(t => t.docChanged)) return null;
+        const joins = [];
+        const scan = (n, start) => {          // start: position of n's first child
+          let prev = null;
+          n.forEach((c, off) => {
+            const cp = start + off;
+            if (prev && /^(orderedList|bulletList)$/.test(c.type.name) && prev.type === c.type) {
+              const a = prev.attrs, b = c.attrs;
+              const same = c.type.name === 'orderedList'
+                ? (a.numStyle || null) === (b.numStyle || null) && (b.start == null || b.start === 1) && !b.cont
+                : (a.bulletChar || '') === (b.bulletChar || '') && (a.bulletImage || '') === (b.bulletImage || '');
+              if (same) joins.push(cp);
+            }
+            prev = c;
+            if (!c.isTextblock && !c.isLeaf) scan(c, cp + 1);
+          });
+        };
+        scan(state.doc, 0);
+        if (!joins.length) return null;
+        const tr = state.tr;
+        for (const j of joins.reverse()) { try { tr.join(tr.mapping.map(j)); } catch (e) { /* leave it */ } }
+        return tr.docChanged ? tr.setMeta('addToHistory', false) : null;
+      }
+    })];
+  }
 });

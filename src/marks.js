@@ -4,6 +4,8 @@ const SKIP = '.math,.lm,.pg-sp,.pg-spb,.ibar,.isize,.ih,.mpending,.pagebreak,.ta
 const CM = 96 / 2.54;
 const cm = px => (Math.round(px / CM * 100) / 100).toString().replace('.', ',');
 
+let cellFilter = null;                  // td -> is it in the column the cursor is in
+export function setCellFilter(fn) { cellFilter = fn; }
 export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLabel = f => f, blank = false) {
   const sr = stackEl.getBoundingClientRect();
   const X = v => (v - sr.left) / scale, Y = v => (v - sr.top) / scale;
@@ -59,6 +61,9 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
     if (last && b.textContent.length) { x = X(last.right) + 1; y = Y(last.top + last.height / 2); }
     else { x = X(br.left + (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.textIndent) || 0)); y = Y(br.top + (parseFloat(cs.paddingTop) || 0)) + (parseFloat(cs.lineHeight) || 20) / 2; }
     put('par', x, y, '¶');
+    // in a table: indents and spacing only in the column being worked in (otherwise they would cover the table)
+    const cellEl = b.closest('td,th');
+    if (cellEl && !(cellFilter && cellFilter(cellEl))) continue;
     // indentation: from the margin to where the text starts, at the height of the text; labels in the margins
     const ml = parseFloat(cs.marginLeft) || 0, mr = parseFloat(cs.marginRight) || 0, ti = parseFloat(cs.textIndent) || 0, hang = parseFloat(b.getAttribute('data-hang')) || 0;
     const pl = parseFloat(cs.paddingLeft) || 0;

@@ -21,7 +21,10 @@ function hfHTML(kind, v, slot, i, n, tpl, title, g) {
   const anchor = isH ? `top:${tpl.headerDist * MM}px` : `bottom:${tpl.footerDist * MM}px`;
   const mid = Math.max(10, Math.min(80, +tpl.hfMid || 34)), side = (100 - mid) / 2;
   const pic = p => im[p] && im[p].src ? `<img class="hfimg" src="${esc(im[p].src)}" alt="" style="height:${(+im[p].h || 10) * MM}px">` : '';
-  const cell = (p, w) => `<div class="hfc hfc-${p}" style="width:${w}%">${p === 'r' ? '' : pic(p)}<div class="hf-text" data-cell="${p}">${fill(cells[p], i, n, title)}</div>${p === 'r' ? pic(p) : ''}</div>`;
+  // pages with a header text of their own (page ranges in the template): that text instead of the usual one
+  const pno = i + PAGE0, rng = isH ? (tpl.hfRanges || []).find(r => pno >= (+r.from || 1) && pno <= (+r.to || 1e9)) : null;
+  const txt = p => rng ? (rng[p] ? fill(esc(rng[p]), i, n, title) : '') : fill(cells[p], i, n, title);
+  const cell = (p, w) => `<div class="hfc hfc-${p}" style="width:${w}%">${p === 'r' ? '' : pic(p)}<div class="hf-text" data-cell="${p}"${rng ? ' data-range="1"' : ''}>${txt(p)}</div>${p === 'r' ? pic(p) : ''}</div>`;
   const line = isH ? tpl.headerLine : tpl.footerLine;
   return `<div class="hf ${key}${line ? (isH ? ' rb' : ' rt') : ''}" data-hf="${kind}" data-v="${v}" data-i="${i}" style="left:${L}px;right:${R}px;${anchor};font-size:${+size || 9}pt;color:${esc(color || '#59616b')}${fam ? `;font-family:'MP ${esc(fam)}', var(--doc-font)` : ''}">`
     + cell('l', side) + cell('c', mid) + cell('r', side) + '</div>';

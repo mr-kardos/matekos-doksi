@@ -99,7 +99,7 @@ const CATS = [
     ['→', '\\to'], ['←', '\\leftarrow'], ['↔', '\\leftrightarrow'], ['⇒', '\\Rightarrow'], ['⇐', '\\Leftarrow'], ['⇔', '\\Leftrightarrow'], ['↦', '\\mapsto'], ['↑', '\\uparrow'], ['↓', '\\downarrow'], ['⟶', '\\longrightarrow'], ['⟹', '\\Longrightarrow']
   ]],
   ['Egyéb', [
-    ['kis köz', '\\,', 'Kis szóköz'], ['köz', '\\quad', 'Szóköz'], ['∝', '\\propto', 'Arányos'], ['≐', '\\doteq'], ['≙', '\\triangleq', 'Definíció szerint'], ['∗', '\\ast'], ['†', '\\dagger'], ['ℓ', '\\ell'], ['ℏ', '\\hbar'], ['∅', '\\varnothing']
+    ['kis köz', '\\,', 'Kis szóköz'], ['köz', '\\quad', 'Szóköz'], ['∝', '\\propto', 'Arányos'], ['≐', '\\doteq'], ['≙', '\\triangleq', 'Definíció szerint'], ['∗', '\\ast'], ['†', '\\dagger'], ['ℓ', '\\ell'], ['ℏ', '\\hbar'], ['∅', '\\varnothing'], ['<span class="boxd">x</span>', '\\boxed{#0}', 'Bekeretezés']
   ]]
 ];
 /* ---- the dialog ---- */
@@ -184,9 +184,10 @@ function build() {
     // the character the keyboard really produced (MathLive may guess the layout wrongly: on a Hungarian
     // keyboard Shift+7 is "=", which it took for "/" and turned into a fraction)
     // digits too: on a Mac with a Hungarian layout the 0 key (left of 1) was not understood by MathLive
-    if (e.key.length === 1 && (altGr || (!mod && !e.altKey)) && !/[\p{L}\s]/u.test(e.key)) {
+    // letters as well: on a Mac with a Hungarian layout MathLive guessed some keys wrongly (z / y, accented letters)
+    if (e.key.length === 1 && (altGr || (!mod && !e.altKey)) && !/\s/u.test(e.key)) {
       stop();
-      if (e.key === '/') mf.executeCommand(['insert', '\\frac{#@}{#?}']);
+      if (e.key === '/') mf.executeCommand(['insert', '/']);                 // a slash is a slash (fraction: the palette)
       else if (e.key === '*') mf.executeCommand(['insert', '\\cdot']);
       else if (e.key === '^') mf.executeCommand('moveToSuperscript');
       else if (e.key === '_') mf.executeCommand('moveToSubscript');

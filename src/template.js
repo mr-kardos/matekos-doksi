@@ -17,7 +17,7 @@ const style = (o = {}) => ({ font: '', size: 12, color: '#111111', bold: false, 
   line: 1.25, letter: 0, indentLeft: 0, indentRight: 0, firstLine: 0, spaceBefore: 0, spaceAfter: 0, keepNext: false, contextual: false, tabs: [], ...o });
 const LINE = { ruleBottom: '0.75 #000000' }, LINE_TOP = { ruleTop: '0.75 #000000' };
 export const DEFAULT_TPL = {
-  preset: 'ures', startPage: 1,
+  preset: 'ures', startPage: 1, hfRanges: [],
   page: 'A4', pageW: 210, pageH: 297,
   margins: { top: 25, bottom: 25, left: 25, right: 25 },
   gutter: 0, mirror: false,
