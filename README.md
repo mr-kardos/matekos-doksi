@@ -1,4 +1,4 @@
-# Matekos Doksi 0.10.0
+# Matekos Doksi 0.10.1
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**

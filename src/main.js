@@ -556,7 +556,7 @@ function selectedImageDom() {
 function drawImgFrame() {
   const f = $('#imgFrame'), d = imgMoving ? null : selectedImageDom();
   if (!d) { f.hidden = true; return; }
-  const r = toStack((cropMode ? d._kv.img : d).getBoundingClientRect());   // the frame of a cropped picture: the visible part
+  const r = toStack(d.getBoundingClientRect());   // the visible part of the picture (follows the cropping while dragging)
   Object.assign(f.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
   const w0 = d._kv.node().attrs.wrap, w = w0 === 'wr' ? 'wl' : w0;
   void w;

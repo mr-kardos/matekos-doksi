@@ -80,6 +80,30 @@ export function mathStyleOf(el, stop) {
 
 export function isReady() { return ready; }
 
+/** \boldsymbol does not reach into environments (cases, array, matrices): every cell gets its own. */
+function boldCells(src) {
+  const saved = [];
+  const env = /\\begin\{([a-zA-Z*]+)\}(\{[^{}]*\})?((?:(?!\\begin\{)[\s\S])*?)\\end\{\1\}/;
+  let s = src, m, guard = 0;
+  while ((m = env.exec(s)) && guard++ < 200) {
+    const body = m[3], cells = []; let depth = 0, cur = '', out = '';
+    for (let i = 0; i < body.length; i++) {
+      const ch = body[i];
+      if (ch === '\\' && body[i + 1] === '\\' && depth === 0) { cells.push(cur); out += wrapCells(cells) + '\\\\'; cells.length = 0; cur = ''; i++; continue; }
+      if (ch === '\\') { cur += ch + (body[i + 1] || ''); i++; continue; }
+      if (ch === '{') depth++; else if (ch === '}') depth--;
+      if (ch === '&' && depth === 0) { cells.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    cells.push(cur); out += wrapCells(cells);
+    saved.push(`\\begin{${m[1]}}${m[2] || ''}${out}\\end{${m[1]}}`);
+    s = s.slice(0, m.index) + '\u0001' + (saved.length - 1) + '\u0001' + s.slice(m.index + m[0].length);
+  }
+  let k = 0;
+  while (/\u0001\d+\u0001/.test(s) && k++ < 200) s = s.replace(/\u0001(\d+)\u0001/g, (x, n) => saved[+n]);
+  return s;
+}
+function wrapCells(cells) { return cells.map(c => c.trim() ? `\\boldsymbol{${c}}` : c).join('&'); }
 function hun(tex, display, bold) {
   let s = tex;
   if (opts.hunTrig) {
@@ -88,7 +112,7 @@ function hun(tex, display, bold) {
   }
   if (opts.decComma) s = s.replace(/(\d),(?=\d)/g, '$1{,}');
   // inline formulas in display size (full fractions, limits above/below) – but they stay in the line
-  if (bold) s = '\\boldsymbol{' + s + '}';
+  if (bold) s = '\\boldsymbol{' + boldCells(s) + '}';
   if (!display && opts.displayInline) s = '\\displaystyle ' + s;
   return s;
 }

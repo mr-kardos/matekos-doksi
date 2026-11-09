@@ -106,12 +106,30 @@ export function layoutTabs(root, scale = 1, originOf = null) {
       // check: once widened, the line may break differently (e.g. the word before the tab moves back up) –
       // if the text after a right / centre tab does not end at its stop, it goes on to the next line, to the stop
       if (stop && stop.align !== 'left') {
-        const seg2 = segWidth(t, scale), x2 = (t.getBoundingClientRect().left - x0) / scale, w2 = parseFloat(t.style.width) || 0;
-        const end = x2 + w2 + (stop.align === 'right' ? seg2 : seg2 / 2);
-        if (Math.abs(end - stop.pos) > 1.5 || t.getClientRects().length > 1) { t.style.width = '0px'; wrapTab(t, stop, seg2, x0, scale); }
+        // where the text after the tab really ends (its last character, trailing spaces left out)
+        const lastR = textEnd(t);
+        const tr = t.getBoundingClientRect();
+        const want = stop.align === 'right' ? x0 + stop.pos * scale : null;
+        const otherLine = lastR && lastR.top > tr.bottom - 2;                    // the text went on to a later line
+        const off = lastR && want != null && Math.abs(lastR.right - want) > 1.5 * scale;
+        if (otherLine || off || t.getClientRects().length > 1) { t.style.width = '0px'; wrapTab(t, stop, segWidth(t, scale), x0, scale); }
       }
     }
   }
+}
+/** The screen rectangle of the last character of the text after a tab (up to the next tab). */
+function textEnd(tab) {
+  const block = tab.closest('p,h1,h2,h3,li,td,th') || tab.parentElement;
+  const tabs = Array.from(block.querySelectorAll('span.tab')), next = tabs[tabs.indexOf(tab) + 1];
+  const r = document.createRange(); r.setStartAfter(tab);
+  if (next) r.setEndBefore(next); else r.setEnd(block, block.childNodes.length);
+  try {
+    const tw = document.createTreeWalker(block, NodeFilter.SHOW_TEXT); let lastT = null;
+    while (tw.nextNode()) { const tn = tw.currentNode; if (r.intersectsNode(tn) && tn.data.trim()) lastT = tn; }
+    if (lastT) { const m = lastT.data.match(/\s+$/); if (m && r.comparePoint(lastT, lastT.data.length - m[0].length) <= 0) r.setEnd(lastT, lastT.data.length - m[0].length); }
+  } catch (e) { /* whole range */ }
+  const rs = Array.from(r.getClientRects()).filter(q => q.width > 0.5);
+  return rs.length ? rs[rs.length - 1] : null;
 }
 /** A right / centre tab whose text does not fit on the line: a line break inside the tab, then a spacer to the stop. */
 function wrapTab(t, wrapStop, wrapSeg, x0, scale) {

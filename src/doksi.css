@@ -602,7 +602,7 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 
 /* picture row */
 #imgBar .ctxlbl{ font:12px var(--ui); color:var(--ink-2); margin:0 6px 0 2px; }
-#imgBar input[type=range]{ width:110px; }
+
 #imgBar .numin{ width:58px; height:28px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 4px 0 7px; margin-left:6px; }
 #imgBar .ctxunit{ font:12px var(--ui); color:var(--ink-2); margin-left:3px; }
 #imgBar select{ height:28px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 6px; }
@@ -624,7 +624,7 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 #marksLayer .mk-devs.incell{ transform:translateX(-100%); opacity:.92; }
 
 /* the picture row's sliders in the app's red */
-#imgBar input[type=range]{ accent-color:#da291c; }
+#imgBar input[type=range]{ width:77px; accent-color:var(--accent); }
 .ProseMirror .imgw.rounded{ overflow:hidden; }
 .md-pal .boxd, .boxd{ display:inline-block; border:1.5px solid currentColor; padding:0 4px; line-height:1.1; }
 
