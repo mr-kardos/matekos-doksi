@@ -267,6 +267,16 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       const off = baselineOffset(cs), size = parseFloat(cs.fontSize) * PT, st = styleOf(cs), col = rgb(cs.color) || { r: 0, g: 0, b: 0 };
       const ofam = outlineFam(cs), ot = ofam ? OT.get(ofam + '|' + st) : null;
       const caps = cs.textTransform === 'uppercase' ? (t => t.toLocaleUpperCase('hu')) : (t => t);
+      if (el.classList.contains('shy')) {                      // a hyphenation point: drawn only where the line really breaks there
+        range.selectNodeContents(node);
+        const r = Array.from(range.getClientRects()).find(q => q.width > 0.05);
+        if (r) {
+          const a = loc(r.left, r.top), g = ot ? ot.charToGlyph('-') : null;
+          if (g && g.index) L[a.p].path.push({ ops: pathOps(g.getPath(a.x, a.y + off * PT, size)), c: col });
+          else L[a.p].text.push({ s: '-', x: a.x, y: a.y + off * PT, size, st, c: col });
+        }
+        continue;
+      }
       const re = /[^\s\u200B\uFEFF]+/g; let m;
       while ((m = re.exec(node.data))) {
         const word = caps(m[0]);

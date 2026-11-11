@@ -632,3 +632,75 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 .hfranges .hfr{ display:grid; grid-template-columns:46px 8px 46px 1fr 1fr 1fr 22px; gap:4px; align-items:center; }
 .hfranges .hfr input{ height:28px; width:100%; min-width:0; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 5px; font-size:12px; }
 .hfranges .hfr .tb.mini{ min-width:22px; height:22px; padding:0; }
+
+/* home screen: continue, recoverable unsaved documents and recently used files */
+.home{ overflow:auto; }
+.home-list{ margin:22px auto 0; max-width:456px; text-align:left; }
+.home-list h2{ margin:0 0 6px; font:600 12.5px/1.3 var(--ui); letter-spacing:.04em; text-transform:uppercase; color:var(--ink-2); }
+.home-list .hrow{ display:flex; align-items:center; gap:4px; }
+.home-list .hitem{ flex:1; min-width:0; display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:7px 10px; border:0; border-radius:8px; background:none; color:var(--ink); font-size:14.5px; cursor:pointer; text-align:left; }
+.home-list .hitem:hover{ background:var(--chrome-2); }
+.home-list .hitem b{ font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.home-list .hitem span{ flex:none; color:var(--ink-2); font-size:12.5px; }
+.home-list .hx{ flex:none; width:26px; height:26px; display:grid; place-items:center; border:0; border-radius:6px; background:none; color:var(--ink-2); cursor:pointer; opacity:0; }
+.home-list .hrow:hover .hx, .home-list .hx:focus-visible{ opacity:1; }
+.home-list .hx:hover{ background:var(--chrome-2); color:var(--accent); }
+.home-list .hx svg{ width:14px; height:14px; }
+#homeDrafts .hitem b::before, #homeResumeBox.unsaved .hitem b::before{ content:"●"; color:var(--accent); font-size:9px; margin-right:7px; vertical-align:2px; }
+/* the "new version" notice: it must not be missed */
+.cfm-card.upd{ max-width:420px; outline:5px solid #ff1f1f; outline-offset:0; box-shadow:0 0 0 1px #ff1f1f, 0 18px 50px rgba(255,31,31,.35); }
+.cfm-card.upd .updhead{ font-weight:600; margin-bottom:6px; }
+.cfm-card.upd .updmsg{ color:var(--ink-2); line-height:1.45; margin-bottom:14px; }
+
+/* comments: reviewer name and icon, open / all filter, stepping through open comments, marks on the page miniatures */
+.cmtbar{ display:flex; align-items:center; gap:4px; margin-bottom:8px; }
+.cmtbar .seg2{ margin-right:auto; }
+.cmtbar .seg2 .pitem{ width:auto; padding:3px 10px; font-size:12.5px; border-radius:6px; }
+.cmtbar .tb.mini{ min-width:26px; height:26px; padding:0; font-size:11px; }
+.cmtbar .tb.mini:disabled{ opacity:.35; cursor:default; }
+.cmtwho{ display:flex; align-items:center; gap:6px; }
+.cav{ flex:none; display:inline-grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--c, var(--ink-2)); color:#fff; vertical-align:-5px; }
+.cav svg{ width:13px; height:13px; }
+.cmtcard .cav{ width:18px; height:18px; margin-right:5px; vertical-align:-4px; }
+.cmtcard .cav svg{ width:12px; height:12px; }
+.cmtnew #cmtAuthor{ flex:1; min-width:0; width:100%; height:28px; border:1px solid var(--line); border-radius:8px; background:var(--chrome-2); color:var(--ink); padding:0 8px; font:13px var(--ui); box-sizing:border-box; }
+.cmtcard .cby{ color:var(--ink); font-weight:600; margin-right:6px; }
+.thumb .frame{ position:relative; }
+.thumb .frame .cmtmark{ position:absolute; top:3px; right:3px; z-index:2; display:flex; align-items:center; gap:2px; padding:1px 5px 1px 4px; border-radius:9px; background:#8e44ad; color:#fff; font:600 10.5px/1.3 var(--ui); box-shadow:0 1px 3px rgba(0,0,0,.35); }
+.thumb .frame .cmtmark svg{ width:10px; height:10px; }
+/* a found formula */
+.ProseMirror .math.find-hit{ outline:2px solid rgba(200,150,0,.8); background:rgba(255,213,0,.4); }
+.ProseMirror .math.find-hit.cur{ outline-color:#e65100; background:#ffb74d; }
+
+/* pictures: the picture in its own clipping box; captions above / below it, centred to it */
+.imgw > .imgclip{ display:block; width:100%; height:100%; border-radius:inherit; }
+.ProseMirror .imgw.cropped, .ProseMirror .imgw.rounded{ overflow:visible; }
+.imgw.cropped > .imgclip, .imgw.rounded > .imgclip{ overflow:hidden; }
+.imgw .icap{ position:absolute; left:0; width:100%; box-sizing:border-box; text-align:center; text-indent:0; letter-spacing:normal; text-transform:none; white-space:normal; overflow-wrap:anywhere;
+  font-size:var(--cap-size, 9pt); line-height:1.25; color:var(--cap-color, #59616b); font-style:var(--cap-style, italic); font-weight:var(--cap-weight, 400); cursor:move; user-select:none; }
+.imgw .icap[hidden]{ display:none; }
+.imgw .icap.top{ bottom:100%; padding-bottom:3px; }
+.imgw .icap.bot{ top:100%; padding-top:3px; }
+.imgw.ctr{ margin-top:calc(var(--img-gap, 4mm) + var(--capT, 0px)); margin-bottom:calc(var(--img-gap, 4mm) + var(--capB, 0px)); }
+.imgw.inl{ margin-top:var(--capT, 0px); margin-bottom:var(--capB, 0px); }
+.capstyle-h{ font-size:12.5px; font-weight:600; color:var(--ink-2); margin-bottom:4px; }
+.capstyle .capcol{ margin:0 0 0 6px; }
+.capstyle .capcol input{ width:34px; height:28px; padding:0; }
+#popImgCap{ width:300px; }
+#popImgCap input[type=text]{ width:100%; box-sizing:border-box; }
+
+/* left panel: pages / headings */
+.navseg .pitem{ width:auto; padding:3px 9px; font-size:12.5px; font-weight:600; border-radius:6px; }
+#pagesNav .plist[hidden]{ display:none; }
+.hlist{ flex:1; min-height:0; overflow:auto; padding:4px 6px 10px; }
+.hlist[hidden]{ display:none; }
+.hlist .hl{ display:flex; align-items:baseline; gap:8px; width:100%; border:0; background:none; color:var(--ink); text-align:left; padding:5px 8px; border-radius:6px; cursor:pointer; font:13px/1.3 var(--ui); }
+.hlist .hl:hover{ background:var(--hover); }
+.hlist .hl span{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hlist .hl i{ flex:none; font-style:normal; font-size:11.5px; color:var(--ink-2); }
+.hlist .hl.l1{ font-weight:700; }
+.hlist .hl.l2{ padding-left:18px; font-weight:600; }
+.hlist .hl.l3{ padding-left:30px; color:var(--ink-2); }
+
+/* hyphenation points (soft hyphens shown by the app): never selectable, never part of the text */
+.ProseMirror .shy{ user-select:none; }

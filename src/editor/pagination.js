@@ -14,7 +14,7 @@ import { layoutTabs } from '../tabs.js';
 
 export const pgKey = new PluginKey('pagination');
 
-const SKIP_CLASSES = ['pin-sp', 'pinned', 'tab', 'lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih', 'fcaret', 'column-resize-handle'];
+const SKIP_CLASSES = ['shy', 'pin-sp', 'pinned', 'tab', 'lm', 'pg-sp', 'pg-spb', 'ibar', 'isize', 'ih', 'fcaret', 'column-resize-handle'];
 
 function lineBoxes(dom, Y, LH) {
   const groups = [];
@@ -32,7 +32,13 @@ function lineBoxes(dom, Y, LH) {
       } else if (n.nodeType === 1) {
         const c = n.classList;
         if (SKIP_CLASSES.some(k => c.contains(k))) continue;
-        if (c.contains('imgw')) { if (c.contains('inl') || c.contains('ctr')) for (const r of n.getClientRects()) add(r, false); continue; }
+        if (c.contains('imgw')) {
+          if (c.contains('inl') || c.contains('ctr')) for (const r of n.getClientRects()) {
+            const k = n.offsetWidth ? r.width / n.offsetWidth : 1, ct = (+n.dataset.capT || 0) * k, cb = (+n.dataset.capB || 0) * k;   // captions above / below
+            add(ct || cb ? { top: r.top - ct, bottom: r.bottom + cb, left: r.left, width: r.width, height: r.height + ct + cb } : r, false);
+          }
+          continue;
+        }
         if (c.contains('math')) { for (const r of n.getClientRects()) add(r, false); continue; }
         if (n.tagName === 'BR') continue;
         walk(n);

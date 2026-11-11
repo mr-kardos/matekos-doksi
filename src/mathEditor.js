@@ -99,7 +99,7 @@ const CATS = [
     ['→', '\\to'], ['←', '\\leftarrow'], ['↔', '\\leftrightarrow'], ['⇒', '\\Rightarrow'], ['⇐', '\\Leftarrow'], ['⇔', '\\Leftrightarrow'], ['↦', '\\mapsto'], ['↑', '\\uparrow'], ['↓', '\\downarrow'], ['⟶', '\\longrightarrow'], ['⟹', '\\Longrightarrow']
   ]],
   ['Egyéb', [
-    ['kis köz', '\\,', 'Kis szóköz'], ['köz', '\\quad', 'Szóköz'], ['∝', '\\propto', 'Arányos'], ['≐', '\\doteq'], ['≙', '\\triangleq', 'Definíció szerint'], ['∗', '\\ast'], ['†', '\\dagger'], ['ℓ', '\\ell'], ['ℏ', '\\hbar'], ['∅', '\\varnothing'], ['<span class="boxd">x</span>', '\\boxed{#0}', 'Bekeretezés']
+    ['Space', '\\ ', 'Szóköz'], ['Nagy space', '\\quad', 'Nagy szóköz (\\quad)'], ['Óriás space', '\\qquad', 'Óriás szóköz (\\qquad)'], ['<span style="border:1.5px solid currentColor;padding:0 4px">x</span>', '\\boxed{#0}', 'Bekeretezés (\\boxed)']
   ]]
 ];
 /* ---- the dialog ---- */

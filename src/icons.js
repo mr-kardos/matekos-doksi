@@ -9,6 +9,8 @@ export const ICONS = {
   comment: '<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>',
   tick: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   xmark: '<path d="M6 6l12 12M18 6 6 18"/>',
+  toc: '<path d="M4 6h10M4 12h7M4 18h9"/><path d="M19 6h1M19 12h1M19 18h1"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5c0-4 3.4-6.5 7.5-6.5s7.5 2.5 7.5 6.5"/>',
   undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
   redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
   alignL: '<path d="M4 6h16M4 10h10M4 14h16M4 18h10"/>',

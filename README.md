@@ -1,4 +1,4 @@
-# Matekos Doksi 0.10.1
+# Matekos Doksi 0.10.6
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -65,6 +65,44 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   Export: exact PDF (text stays text, formulas as vectors), printing, Markdown.
 * Saving: "Mentés" writes the document's own `.mdoksi` file (asks only the first time), "Mentés másként" writes a new
   file; autosave keeps your work if the app closes unexpectedly. Light and dark mode.
+
+## Changes
+
+* 0.10.2 – safety (as in Matekos Prezi): every window keeps its own automatic draft, pictures are stored once (not
+  with every change); unsaved documents of windows that are no longer running can be restored from the home screen;
+  new / open / import and a double-clicked file never discard unsaved work silently; saving writes a temporary file
+  first and then swaps it in; the home screen lists the recently used documents; a "new version" notice at start-up
+  (`src/updates.js`, `update.json`); automated tests (`npm test`).
+
+* 0.10.3 – checking and editing (as in Matekos Prezi):
+  * comments: the reviewer's name and icon (typed once, kept by the app), open / all filter, stepping to the next /
+    previous open comment, the number of open comments on the page miniatures;
+  * pasted text arrives without the look of its source – paragraphs, headings, lists (also Word's), tables, bold,
+    italic, underline, super- / subscript and links stay (`src/paste.js`);
+  * list symbols take the size and colour their item's text starts with; only `- ` starts a list while typing;
+    `"` becomes „ or ”, `--` becomes – (not inside a `$…` formula; Backspace undoes the correction);
+  * find: also across formatting changes inside a paragraph, and in the TeX code of formulas (search only);
+  * zoom with Ctrl/⌘ + wheel, a touchpad pinch and Ctrl/⌘ + plus / minus / 0;
+  * formula editor: the "Egyéb" tab holds Space, Nagy space, Óriás space and the frame (`\boxed`).
+
+* 0.10.4 – picture captions: a text above and / or below a picture ("Felirat…" in the picture row), centred to the
+  picture and moving with it (also with freely placed pictures: the text keeps clear of the captions); their look
+  (size, colour, italic, bold) is part of the template: Szövegstílusok → Képfelirat. Stored on the picture
+  (`capTop`, `capBot`).
+
+* 0.10.5 – undo / redo also cover the template (page, margins, styles, header and footer, template files), in the
+  order the changes were made; page miniatures are drawn again only for the pages that changed (and each takes only
+  its own line shading); the left panel can list the document's headings with their page ("Címsorok") – a click
+  goes there.
+
+* 0.10.6:
+  * table of contents (ribbon, next to the page break): written from the headings (Főcím, Cím, Alcím) as ordinary
+    paragraphs – text, dotted right tab, page number; the same button refreshes it, and it is refreshed before a
+    PDF / printing;
+  * automatic hyphenation (template → Szövegstílusok → "Automatikus elválasztás", off by default): Hungarian rules
+    (the TeX patterns `hyph-hu`, through the `hyphen` package – loaded only when switched on). The text is not
+    changed: the words at the start of a line get invisible break points as decorations, so the result is the same
+    on Windows, on the Mac and in the PDF.
 
 ## File format
 

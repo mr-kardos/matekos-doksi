@@ -9,6 +9,7 @@ import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import { ListItem } from '@tiptap/extension-list';
 import { NodeSelection, TextSelection, Plugin, PluginKey } from '@tiptap/pm/state';
+import { undoDepth, redoDepth, closeHistory } from '@tiptap/pm/history';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { CellSelection, TableMap } from '@tiptap/pm/tables';
 import { drawShadeBands } from './shading.js';
@@ -19,17 +20,19 @@ import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady }
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML, setFirstPage } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, ListJoin, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, ListJoin, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel, HunTyping, Hyphens, hyphenKey } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP, setStyleTabs } from './tabs.js';
 import { drawMarks, setCellFilter } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
 import { Pagination } from './editor/pagination.js';
 import { buildPDF } from './pdf.js';
-import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, pickDocx, saveTemplateFile, openTemplateFile, pickMarkdown, saveMarkdown, templateFilePath, updateTemplateFile } from './files.js';
+import { isTauri, saveDocument, openDocumentFile, openPathFile, watchOpenedFiles, savePdfBlob, printPdfBlob, setCurrentPath, getCurrentPath, currentFileName, titleOfFile, renameCurrentFile, currentFileExists, autosave, loadAutosave, recoverableDrafts, takeDraft, dropDraft, shelveDraft, recentFiles, forgetRecent, pickDocx, saveTemplateFile, openTemplateFile, pickMarkdown, saveMarkdown, templateFilePath, updateTemplateFile } from './files.js';
 import { importMarkdown, exportMarkdown } from './markdown.js';
 import { importDocx } from './importDocx.js';
 import { SAMPLE_HTML } from './sample.js';
 import { svg } from './icons.js';
+import { checkForUpdate, openLink } from './updates.js';
+import { cleanPastedHTML } from './paste.js';
 import APP_ICON from '../public/app-icon.png?inline';
 import MATEKOS_BULLET from './matekos-vegtelen.png?inline';
 import { openMathEditor, isMathEditorOpen, applyMathEditor } from './mathEditor.js';
@@ -58,6 +61,10 @@ const stack = $('#stack'), outer = $('#outer'), ws = $('#ws'), pagesEl = $('#pag
 /* Editor                                                              */
 /* ------------------------------------------------------------------ */
 startMathJax();
+/* Undo / redo also cover the template (page, margins, styles, header / footer, template files): template changes
+   are kept in their own list, and each remembers how many text steps existed when it was made – so Ctrl+Z walks
+   back through text and template changes in the order they happened. */
+let tplSaved = '', tplUndo = [], tplRedo = [], tplRestoring = false;
 const editor = new Editor({
   element: $('#editorHost'),
   extensions: [
@@ -66,7 +73,7 @@ const editor = new Editor({
       link: false, bulletList: false, orderedList: false, listItem: false, trailingNode: false,   // no extra empty line under a final list
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
-    ListItem, KvBulletList, KvOrderedList, ListMarkers,
+    ListItem, KvBulletList, KvOrderedList, ListMarkers, HunTyping, Hyphens,
     TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, Pins, ActiveTable, CommentMark, ListJoin, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -116,6 +123,10 @@ const editor = new Editor({
       return !!(sel.node && sel.node.attrs && sel.node.attrs.pin);
     },
     handleKeyDown: (view, e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {             // undo / redo: text and template in one history
+        const k = e.key.toLowerCase();
+        if (k === 'z' || k === 'y') { e.preventDefault(); if (k === 'y' || e.shiftKey) unifiedRedo(); else unifiedUndo(); return true; }
+      }
       // Enter / Backspace right after the free pictures anchored at the start of a paragraph: they stay with the text
       // (the cursor goes before them first), so a new empty line above never takes them away
       if ((e.key === 'Enter' || e.key === 'Backspace') && view.state.selection.empty) {
@@ -205,6 +216,8 @@ const editor = new Editor({
       },
       drop: (view, e) => { const t = e.target && (e.target.nodeType === 1 ? e.target : e.target.parentElement); if (t && t.closest('td,th') && !(e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length)) { e.preventDefault(); return true; } return false; }
     },
+    // text from other programs arrives without the look of its source (paragraphs, headings, lists, tables stay)
+    transformPastedHTML: html => { try { return cleanPastedHTML(html); } catch (e) { return html; } },
     handlePaste(view, event) {
       const files = Array.from((event.clipboardData && event.clipboardData.files) || []).filter(f => f.type.startsWith('image/'));
       if (!files.length) return false;
@@ -226,7 +239,7 @@ const editor = new Editor({
   onSelectionUpdate: () => { if (editor.view.hasFocus()) tblCtx = null; updateToolbar(); },
   onFocus: () => { if (hfEd) { hfEd = null; updateToolbar(); } updateOverlays(); },
   onBlur: () => updateOverlays(),
-  onTransaction: ({ transaction }) => { if (keptSel && transaction.selectionSet && editor.view.hasFocus()) { keptSel = null; drawComments(); } if (transaction.docChanged) { docVersion++; statsSoon(); if (panelView() === 'cmt') renderComments(); else drawComments(); } updateToolbar(); updateOverlays(); marksSoon(); }
+  onTransaction: ({ transaction }) => { if (transaction.docChanged && tpl && tpl.hyphenate) hyphenSoon(300); if (transaction.docChanged && transaction.getMeta('addToHistory') !== false && !transaction.getMeta('history$')) tplRedo = []; if (keptSel && transaction.selectionSet && editor.view.hasFocus()) { keptSel = null; drawComments(); } if (transaction.docChanged) { docVersion++; statsSoon(); if (panelView() === 'cmt') renderComments(); else drawComments(); } updateToolbar(); updateOverlays(); marksSoon(); }
 });
 const relayout = (d = 60) => editor.storage.pagination.relayout(d);
 
@@ -329,7 +342,8 @@ function updatePins() {
       if (host) {
         wantT = host.getBoundingClientRect().top + py * scale;
         const sr1 = stack.getBoundingClientRect(), i = Math.max(0, Math.min(pageCount - 1, Math.floor((host.getBoundingClientRect().top - sr1.top) / scale / g.P)));
-        const cTop = sr1.top + g.contentTop(i) * scale, cBot = sr1.top + g.contentBottom(i) * scale, h = el.getBoundingClientRect().height;
+        const capT = (+el.dataset.capT || 0) * scale, capB = (+el.dataset.capB || 0) * scale;       // captions above / below a picture
+        const cTop = sr1.top + g.contentTop(i) * scale + capT, cBot = sr1.top + g.contentBottom(i) * scale - capB, h = el.getBoundingClientRect().height;
         wantT = Math.min(Math.max(wantT, cTop), Math.max(cTop, cBot - h));
       }
     }
@@ -339,7 +353,7 @@ function updatePins() {
   }
   // the floats are worked out again only when the text or a pinned element changed (at most twice per change) –
   // their own effect on the layout must not start a new round
-  const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().top), Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height)].join(',')).join('|') + ':' + docVersion + ':' + pageCount + ':' + Math.round(dom.scrollHeight / 4)) : '';   // also when the layout changed (fonts, formulas drawn later)
+  const inputs = editor.state.doc.toJSON ? (editor.state.doc.content.size + ':' + els.map(e => [e.dataset.pg, e.dataset.px, e.dataset.py, Math.round(e.getBoundingClientRect().top), Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().height), e.dataset.capT || 0, e.dataset.capB || 0].join(',')).join('|') + ':' + docVersion + ':' + pageCount + ':' + Math.round(dom.scrollHeight / 4)) : '';   // also when the layout changed (fonts, formulas drawn later)
   if (inputs === pinInputs && pinRounds >= 3) return;                // at most three rounds per change: their own effect on the layout must not start new rounds
   if (inputs !== pinInputs) { pinInputs = inputs; pinRounds = 0; pinLast = []; }
   pinRounds++;
@@ -348,7 +362,7 @@ function updatePins() {
   //    one (their outer outline, one margin); only the lines beside them make room, whatever the paragraph indents.
   const gap = (tpl.imgGap ?? 4) * MM, specs = [];
   const old = [];   // measured with the present floats: each paragraph's float only covers its own lines, so they do not chain
-  const boxes = els.filter(el => !el.classList.contains('over') && !el.classList.contains('under')).map(el => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, el }; }).filter(x => x.r > x.l && x.b > x.t);
+  const boxes = els.filter(el => !el.classList.contains('over') && !el.classList.contains('under')).map(el => { const r = el.getBoundingClientRect(); return { l: r.left, t: r.top - (+el.dataset.capT || 0) * scale, r: r.right, b: r.bottom + (+el.dataset.capB || 0) * scale, el }; }).filter(x => x.r > x.l && x.b > x.t);
   const groups = [];
   for (const bx of boxes.sort((p, q) => p.t - q.t)) {
     const gp = gap * scale, hit = groups.find(G => bx.l < G.r + gp && bx.r > G.l - gp && bx.t < G.b + gp && bx.b > G.t - gp);
@@ -499,6 +513,10 @@ function applyTpl(rerenderMath) {
   dom.style.lineHeight = String(P.line);
   dom.style.setProperty('--after', (+P.spaceAfter || 0) + 'pt');
   dom.style.setProperty('--img-gap', (tpl.imgGap ?? 4) + 'mm');
+  const cap = tpl.cap || {};                                           // the look of the picture captions
+  dom.style.setProperty('--cap-size', (+cap.size || 9) + 'pt'); dom.style.setProperty('--cap-color', cap.color || '#59616b');
+  dom.style.setProperty('--cap-style', cap.italic ? 'italic' : 'normal'); dom.style.setProperty('--cap-weight', cap.bold ? '700' : '400');
+  queueMicrotask(syncHyphenation);
   // font set of the template: text font + its matching math font
   const fs = fontSet(tpl.font);
   document.documentElement.style.setProperty('--doc-font', fs.text === 'bonum' ? "'TeX Gyre Bonum', Georgia, serif" : `${familyCSS(fs.text)}, 'TeX Gyre Bonum', Georgia, serif`);
@@ -585,6 +603,7 @@ function updateImgBar() {
   if (document.activeElement !== $('#imgRadN')) $('#imgRadN').value = rd;
   $('#imgRadR').value = rd;
   $('#imgWrapSel').value = a.wrap === 'wr' ? 'wl' : (a.wrap || 'wl');
+  $('#imgCap').classList.toggle('on', !!(a.capTop || a.capBot));
 }
 const endCrop = () => { cropMode = false; $('#imgFrame').classList.remove('cropping'); updateImgBar(); updateOverlays(); };
 $('#imgCrop').addEventListener('click', () => { if (cropMode) return endCrop(); if (!selImgDom()) return; cropMode = true; $('#imgFrame').classList.add('cropping'); updateImgBar(); updateOverlays(); });
@@ -598,6 +617,20 @@ $('#imgRadR').addEventListener('input', e => { $('#imgRadN').value = e.target.va
 $('#imgRadR').addEventListener('change', e => setRad(+e.target.value));
 $('#imgRadN').addEventListener('change', e => setRad(+e.target.value));
 $('#imgWrapSel').addEventListener('change', e => { const d = selImgDom(); if (d) d._kv.setWrap(e.target.value); });
+/* captions: a text above and / or below the picture (centred to it, moving with it; their look is in the template) */
+$('#imgCap').addEventListener('mousedown', e => e.preventDefault());       // the picture stays selected
+$('#imgCap').addEventListener('click', e => showPop('popImgCap', e.currentTarget));
+$('#popImgCap').onopen = () => { const d = selImgDom(), a = d ? d._kv.node().attrs : {}; $('#capTopIn').value = a.capTop || ''; $('#capBotIn').value = a.capBot || ''; setTimeout(() => $('#capTopIn').focus(), 0); };
+function setCaptions() {
+  const sel = editor.state.selection; if (!(sel.node && sel.node.type.name === 'image')) return;
+  const capTop = $('#capTopIn').value.trim(), capBot = $('#capBotIn').value.trim();
+  if (capTop === (sel.node.attrs.capTop || '') && capBot === (sel.node.attrs.capBot || '')) return;
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(sel.from, undefined, { ...sel.node.attrs, capTop, capBot }));
+}
+for (const id of ['#capTopIn', '#capBotIn']) {
+  $(id).addEventListener('input', setCaptions);
+  $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); setCaptions(); closePops(); } });
+}
 $('#imgReplace').addEventListener('click', () => { const d = selImgDom(); if (d) pickImage(1600, url => d._kv.replace(url)); });
 $('#imgDel').addEventListener('click', () => { const d = selImgDom(); if (d) d._kv.remove(); });
 addEventListener('keydown', e => { if (cropMode && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); endCrop(); } }, true);
@@ -719,8 +752,8 @@ function toggleLook(mark, prop, offValue, test) {
 }
 const isUpper = () => AE().getAttributes('textStyle').textTransform === 'uppercase';
 const COMMANDS = {
-  undo: () => ch().undo().run(),
-  redo: () => ch().redo().run(),
+  undo: () => hfEd ? ch().undo().run() : unifiedUndo(),
+  redo: () => hfEd ? ch().redo().run() : unifiedRedo(),
   bold: () => toggleLook('bold', 'fontWeight', '400', cs => (parseInt(cs.fontWeight, 10) || 400) >= 600),
   italic: () => toggleLook('italic', 'fontStyle', 'normal', cs => cs.fontStyle === 'italic'),
   underline: () => toggleLook('underline', 'textDecoration', 'none', cs => /underline/.test(cs.textDecorationLine)),
@@ -739,6 +772,7 @@ const COMMANDS = {
   outdent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, -1), AE().view.focus()) : ch().shiftIndent(-0.8).run(),
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
+  toc: () => updateTOC(true),
   math: () => openMath(null, null),
   painter: () => {
     if (painter) { painter = null; document.body.classList.remove('painting'); updateToolbar(); return; }
@@ -801,7 +835,7 @@ for (const bar of [$('#ribbon'), $('#tableBar'), $('.b1left')]) {
   bar.addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     if (b.dataset.pop) return showPop(b.dataset.pop, b);
-    if (hfEd && (['math', 'image', 'pageBreak', 'bulletList', 'orderedList', 'indent', 'outdent'].includes(b.dataset.cmd) || ['popTable', 'popShade', 'popBullet', 'popNum'].includes(b.dataset.pop)))
+    if (hfEd && (['math', 'image', 'pageBreak', 'toc', 'bulletList', 'orderedList', 'indent', 'outdent'].includes(b.dataset.cmd) || ['popTable', 'popShade', 'popBullet', 'popNum'].includes(b.dataset.pop)))
       return toast('Az élőfejben és az élőlábban ez nem használható.');
     if (b.dataset.cmd && COMMANDS[b.dataset.cmd]) return COMMANDS[b.dataset.cmd]();
     if (b.dataset.tbl) return tableCmd(b.dataset.tbl);
@@ -815,13 +849,25 @@ $('#styleSel').addEventListener('change', e => {
 });
 /* find and replace (as in Matekos Prezi) – in the document text */
 function findRegex() { const q = $('#findIn').value; if (!q) return null; return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $('#findCase').checked ? 'g' : 'gi'); }
-/** All matches as document ranges (inside one text node each). */
+/** All matches as document ranges, in reading order: {from, to} inside one paragraph (also across bold / italic /
+ *  colour changes), and {from, to, math: true} for a formula whose TeX code matches (found, never replaced). */
 function findMatches(re) {
   const out = [];
   editor.state.doc.descendants((n, pos) => {
-    if (!n.isText) return;
-    re.lastIndex = 0; let m;
-    while ((m = re.exec(n.text))) { if (!m[0]) { re.lastIndex++; continue; } out.push({ from: pos + m.index, to: pos + m.index + m[0].length }); }
+    if (n.type.name === 'math') { if (String(n.attrs.tex ?? '').search(re) >= 0) out.push({ from: pos, to: pos + n.nodeSize, math: true }); return false; }
+    if (!n.isTextblock) return;
+    // the paragraph's text in runs of neighbouring text nodes (a formula, picture or tab ends a run)
+    let run = '', at = 0;
+    const flush = () => {
+      if (run) { re.lastIndex = 0; let m; while ((m = re.exec(run))) { if (!m[0]) { re.lastIndex++; continue; } out.push({ from: at + m.index, to: at + m.index + m[0].length }); } }
+      run = '';
+    };
+    n.forEach((c, off) => {
+      if (c.isText) { if (!run) at = pos + 1 + off; run += c.text; }
+      else { flush(); if (c.type.name === 'math' && String(c.attrs.tex ?? '').search(re) >= 0) out.push({ from: pos + 1 + off, to: pos + 1 + off + c.nodeSize, math: true }); }
+    });
+    flush();
+    return false;
   });
   return out;
 }
@@ -1058,7 +1104,7 @@ const findKey = new PluginKey('find');
 queueMicrotask(() => editor.registerPlugin(new Plugin({
   key: findKey,
   state: { init: () => DecorationSet.empty,
-    apply(tr, old) { const m = tr.getMeta(findKey); if (m) return m.clear ? DecorationSet.empty : DecorationSet.create(tr.doc, m.all.map((x, i) => Decoration.inline(x.from, x.to, { class: i === m.cur ? 'find-hit cur' : 'find-hit' }))); return tr.docChanged ? DecorationSet.empty : old; } },
+    apply(tr, old) { const m = tr.getMeta(findKey); if (m) return m.clear ? DecorationSet.empty : DecorationSet.create(tr.doc, m.all.map((x, i) => (x.math ? Decoration.node : Decoration.inline)(x.from, x.to, { class: i === m.cur ? 'find-hit cur' : 'find-hit' }))); return tr.docChanged ? DecorationSet.empty : old; } },
   props: { decorations(st) { return findKey.getState(st); } }
 })));
 function showFind(all, cur) {
@@ -1080,23 +1126,23 @@ function findNext() {
   const from = findAt >= 0 ? findAt : editor.state.selection.from;
   let i = all.findIndex(x => x.from > from); if (i < 0) i = 0;
   findAt = all[i].from;
-  editor.view.dispatch(editor.state.tr.setSelection(TextSelection.create(editor.state.doc, all[i].from, all[i].to)));
+  editor.view.dispatch(editor.state.tr.setSelection(all[i].math ? NodeSelection.create(editor.state.doc, all[i].from) : TextSelection.create(editor.state.doc, all[i].from, all[i].to)));
   showFind(all, i);
-  $('#findInfo').textContent = `${i + 1}. / ${all.length} találat`;
+  $('#findInfo').textContent = `${i + 1}. / ${all.length} találat` + (all[i].math ? ' – képletben (a csere a képleteket nem módosítja)' : '');
 }
 function replaceOne() {
   const re = findRegex(); if (!re) return;
-  const { from, to } = editor.state.selection, sel = editor.state.doc.textBetween(from, to);
+  const { from, to } = editor.state.selection, sel = editor.state.selection instanceof NodeSelection ? '' : editor.state.doc.textBetween(from, to);
   re.lastIndex = 0;
   if (from !== to && re.test(sel) && sel.match(re)[0] === sel) { editor.chain().insertContentAt({ from, to }, $('#replIn').value).run(); findAt = from - 1 + $('#replIn').value.length; }
   findNext();
 }
 function replaceAll() {
   const re = findRegex(); if (!re) return;
-  const all = findMatches(re), tr = editor.state.tr, rep = $('#replIn').value;
+  const found = findMatches(re), all = found.filter(m => !m.math), inMath = found.length - all.length, tr = editor.state.tr, rep = $('#replIn').value;
   for (const m of all.reverse()) { const marks = editor.state.doc.resolve(m.from + 1).marks(); if (rep) tr.replaceWith(m.from, m.to, editor.state.schema.text(rep, marks)); else tr.delete(m.from, m.to); }
   if (all.length) editor.view.dispatch(tr);
-  $('#findInfo').textContent = all.length ? `${all.length} csere` : 'Nincs találat.';
+  $('#findInfo').textContent = (all.length ? `${all.length} csere.` : inMath ? 'A szövegben nincs találat.' : 'Nincs találat.') + (inMath ? ` ${inMath} képlet változatlan maradt (bennük csak keresni lehet).` : '');
 }
 $('#findNext').onclick = findNext; $('#findRepl').onclick = replaceOne; $('#findAll').onclick = replaceAll;
 $('#findIn').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); findNext(); } });
@@ -1688,6 +1734,7 @@ function closeHF() {
   hfEds.length = 0; hfOpen = null; hfEd = null;
   stack.classList.remove('hfmode');
   markDirty(); applyTpl(); renderSheets(pagesEl, pageCount, tpl, docTitle(), true); hfRules(); saveSoon(); updateToolbar(); fillPanel();
+  noteTplChange();
 }
 $('#props').addEventListener('click', e => {
   const ed = e.target.closest('[data-edithf]');
@@ -1807,19 +1854,41 @@ function commentPlaces() {
   });
   return at;
 }
+let cmtFilter = load('matekosdoksi.cmtfilter') === 'open' ? 'open' : 'all';      // 'open': resolved comments are not listed
+/** Every reviewer has a colour of their own (from the name), shown behind the profile icon. */
+function avatarColor(name) { let h = 0; for (const ch of String(name).trim().toLowerCase()) h = (h * 31 + ch.codePointAt(0)) % 360; return `hsl(${h} 55% 45%)`; }
+/** The name written on new comments and replies (asked once, kept by the app). Null (and a hint) while it is missing. */
+function cmtAuthor() {
+  const inp = $('#cmtAuthor'), name = inp.value.trim().slice(0, 40);
+  if (!name) { toast('Írd be a neved – ez kerül a megjegyzéseidre.'); inp.focus(); return null; }
+  store('matekosdoksi.author', name); return name;
+}
+const orderedComments = (at = commentPlaces()) => [...docComments].sort((a, b) => (at[a.id] ?? 1e12) - (at[b.id] ?? 1e12));
+/** Jump to the next / previous unresolved comment (dir = 1 / -1), going round at the ends. */
+function stepOpenComment(dir) {
+  const open = orderedComments().filter(c => !c.done);
+  if (!open.length) { toast('Nincs nyitott megjegyzés.'); return; }
+  const i = open.findIndex(c => c.id === activeCmt);
+  const c = open[i < 0 ? (dir > 0 ? 0 : open.length - 1) : (i + dir + open.length) % open.length];
+  showCommentPlace(c.id); renderComments(); focusCard(c.id);
+}
 function renderComments() {
   const at = commentPlaces();
-  const list = [...docComments].sort((a, b) => (at[a.id] ?? 1e12) - (at[b.id] ?? 1e12));
-  $('#cmtCount').textContent = docComments.length ? `${docComments.length} db` : '';
+  const all = orderedComments(at), nOpen = all.filter(c => !c.done).length;
+  const list = cmtFilter === 'open' ? all.filter(c => !c.done) : all;
+  $('#cmtCount').textContent = all.length ? `${nOpen} nyitott / ${all.length}` : '';
+  for (const b of $$('#cmtView [data-cflt]')) b.classList.toggle('on', b.dataset.cflt === cmtFilter);
+  $('#cmtPrev').disabled = $('#cmtNext').disabled = !nOpen;
+  const who = x => x.by ? `<span class="cav" style="--c:${avatarColor(x.by)}">${svg('user')}</span><b class="cby">${esc(x.by)}</b>` : '';
   $('#cmtList').innerHTML = list.length ? list.map(c => `<div class="cmtcard${c.done ? ' done' : ''}${c.id === activeCmt ? ' act' : ''}" data-cid="${c.id}">
-      <div class="ctop"><span class="cdate">${cmtDate(c.at)}</span>
+      <div class="ctop"><span class="cdate">${who(c)}${cmtDate(c.at)}</span>
         <button class="tb mini${c.done ? ' on' : ''}" data-cact="done" title="${c.done ? 'Mégsem megoldott' : 'Megoldva'}">${svg('tick')}</button>
         <button class="tb mini" data-cact="del" title="Megjegyzés törlése">${svg('xmark')}</button></div>
       <div class="ctext">${esc(c.text).replace(/\n/g, '<br>')}</div>
-      ${(c.replies || []).map(r => `<div class="creply"><span class="cdate">${cmtDate(r.at)}</span><div>${esc(r.text).replace(/\n/g, '<br>')}</div></div>`).join('')}
+      ${(c.replies || []).map(r => `<div class="creply"><span class="cdate">${who(r)}${cmtDate(r.at)}</span><div>${esc(r.text).replace(/\n/g, '<br>')}</div></div>`).join('')}
       <div class="crow"><input type="text" class="cin" placeholder="Válasz…"><button class="btn mini" data-cact="reply">Válasz</button></div>
-    </div>`).join('') : '<div class="phint" style="padding:6px 2px">Még nincs megjegyzés. Jelölj ki valamit a dokumentumban, írd be a megjegyzést fent, és kattints a „Megjegyzés hozzáadása” gombra.</div>';
-  drawComments();
+    </div>`).join('') : all.length ? '<div class="phint" style="padding:6px 2px">Nincs nyitott megjegyzés – minden meg van oldva. A „Mind” gombbal a megoldottak is látszanak.</div>' : '<div class="phint" style="padding:6px 2px">Még nincs megjegyzés. Jelölj ki valamit a dokumentumban, írd be a megjegyzést fent, és kattints a „Megjegyzés hozzáadása” gombra.</div>';
+  drawComments();  thumbsSoon();                       // the comment counts on the page miniatures
 }
 function addComment() {
   const text = $('#cmtText').value.trim();
@@ -1827,6 +1896,7 @@ function addComment() {
   let sel = st.selection;
   if (cmtSel && sel.empty) { try { sel = cmtSel.node ? NodeSelection.create(st.doc, cmtSel.from) : TextSelection.create(st.doc, cmtSel.from, cmtSel.to); } catch (e) { /* keep */ } }
   if (!text) { toast('Írd be a megjegyzés szövegét.'); $('#cmtText').focus(); return; }
+  const by = cmtAuthor(); if (!by) return;
   const id = 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const tr = st.tr;
   const addId = v => (v ? v + ' ' : '') + id;
@@ -1835,7 +1905,7 @@ function addComment() {
   else if (!sel.empty) tr.addMark(sel.from, sel.to, st.schema.marks.comment.create({ id }));
   else { toast('Előbb jelölj ki szöveget, egy képet vagy táblázatcellát.'); return; }
   editor.view.dispatch(tr);
-  docComments.push({ id, text, at: Date.now(), done: false, replies: [] });
+  docComments.push({ id, text, by, at: Date.now(), done: false, replies: [] });
   $('#cmtText').value = ''; cmtSel = null;
   markDirty(); saveSoon(); activeCmt = id; renderComments(); focusCard(id);
 }
@@ -1938,12 +2008,21 @@ $('#cmtList').addEventListener('click', e => {
   if (act && act.dataset.cact === 'done') { c.done = !c.done; markDirty(); saveSoon(); renderComments(); return; }
   if (act && act.dataset.cact === 'reply') {
     const inp = card.querySelector('.cin'), t = inp.value.trim(); if (!t) { inp.focus(); return; }
-    (c.replies = c.replies || []).push({ text: t, at: Date.now() }); markDirty(); saveSoon(); renderComments(); focusCard(id); return;
+    const by = cmtAuthor(); if (!by) return;
+    (c.replies = c.replies || []).push({ text: t, by, at: Date.now() }); markDirty(); saveSoon(); renderComments(); focusCard(id); return;
   }
   if (e.target.closest('input')) return;
   for (const x of $$('#cmtList .cmtcard.act')) x.classList.remove('act');
   card.classList.add('act'); showCommentPlace(id);
 });
+const paintAvatar = () => { const a = $('#cmtAvatar'), n = $('#cmtAuthor').value.trim(); a.innerHTML = svg('user'); a.style.setProperty('--c', n ? avatarColor(n) : 'var(--ink-2)'); };
+$('#cmtAuthor').value = load('matekosdoksi.author') || ''; paintAvatar();
+$('#cmtAuthor').addEventListener('input', paintAvatar);
+$('#cmtAuthor').addEventListener('change', e => { const n = e.target.value.trim().slice(0, 40); e.target.value = n; store('matekosdoksi.author', n); paintAvatar(); });
+$('#cmtAuthor').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#cmtText').focus(); } });
+$('#cmtPrev').onclick = () => stepOpenComment(-1);
+$('#cmtNext').onclick = () => stepOpenComment(1);
+for (const b of $$('#cmtView [data-cflt]')) b.onclick = () => { cmtFilter = b.dataset.cflt; store('matekosdoksi.cmtfilter', cmtFilter); renderComments(); };
 $('#cmtList').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.classList.contains('cin')) { e.preventDefault(); e.target.closest('.cmtcard').querySelector('[data-cact=reply]').click(); } });
 // a click on commented text / picture / cell: its comment in the panel
 editor.view.dom.addEventListener('click', e => {
@@ -1967,28 +2046,95 @@ props.addEventListener('click', e => {
 
 /* page list: a live miniature of every page; click = go to the page */
 let thumbT = 0, curPage = 0;
-function thumbsSoon(now) { clearTimeout(thumbT); thumbT = setTimeout(renderThumbs, now ? 0 : 450); }
+function thumbsSoon(now) { clearTimeout(thumbT); thumbT = setTimeout(() => { renderThumbs(); renderHeads(); }, now ? 0 : 450); }
+/* the left panel's other view: the headings of the document (Főcím, Cím, Alcím) with their page – a click goes there */
+let navMode = load('matekosdoksi.nav') === 'heads' ? 'heads' : 'pages';
+function setNav(m) {
+  navMode = m; store('matekosdoksi.nav', m);
+  for (const b of $$('#pagesNav [data-nav]')) b.classList.toggle('on', b.dataset.nav === m);
+  plist.hidden = m !== 'pages'; $('#hlist').hidden = m !== 'heads';
+  if (m === 'heads') renderHeads(); else thumbsSoon(true);
+}
+function renderHeads() {
+  const box = $('#hlist'); if (box.hidden || !$('#home').hidden) return;
+  const g = geometry(tpl), dom = editor.view.dom, top0 = dom.getBoundingClientRect().top, out = [];
+  editor.state.doc.forEach((n, pos) => {
+    if (n.type.name !== 'heading') return;
+    let text = ''; n.forEach(c => { text += c.isText ? c.text : c.type.name === 'math' ? ' … ' : c.type.name === 'tab' ? ' ' : ''; });
+    text = text.replace(/\s+/g, ' ').trim(); if (!text) return;
+    let pg = 0; try { pg = Math.max(0, Math.floor(((editor.view.coordsAtPos(pos + 1).top - top0) / scale + g.mt) / g.P)); } catch (e) { /* not laid out yet */ }
+    out.push(`<button class="hl l${n.attrs.level}" data-hpos="${pos}" title="${esc(text)}"><span>${esc(text)}</span><i>${pg + (+tpl.startPage || 1)}</i></button>`);
+  });
+  box.innerHTML = out.join('') || '<div class="phint" style="padding:8px 12px">Nincs címsor a dokumentumban. A Főcím, Cím és Alcím stílusú bekezdések jelennek meg itt.</div>';
+}
+queueMicrotask(() => {
+  for (const b of $$('#pagesNav [data-nav]')) b.onclick = () => setNav(b.dataset.nav);
+  $('#hlist').addEventListener('click', e => {
+    const b = e.target.closest('[data-hpos]'); if (!b) return;
+    const pos = Math.min(+b.dataset.hpos + 1, editor.state.doc.content.size);
+    try {
+      const c = editor.view.coordsAtPos(pos), wr = ws.getBoundingClientRect();
+      ws.scrollTo({ top: ws.scrollTop + (c.top - wr.top) - 40, behavior: 'smooth' });
+      editor.chain().setTextSelection(pos).focus(null, { scrollIntoView: false }).run();
+    } catch (err) { /* the document changed meanwhile */ }
+  });
+  setNav(navMode);
+});
+/* Which blocks of the document changed since their miniature was drawn: every top-level block has a number that
+   grows with each change inside it (text, formatting, page-break spacers, a picture's size…). */
+const blockVer = new WeakMap(), blockId = new WeakMap(); let verSeq = 0, idSeq = 0;
+const verOf = el => { let id = blockId.get(el); if (!id) blockId.set(el, id = ++idSeq); return id + '.' + (blockVer.get(el) || 0); };
+queueMicrotask(() => {
+  const dom = editor.view.dom;
+  new MutationObserver(list => {
+    for (const m of list) { let n = m.target; while (n && n.parentNode !== dom) n = n.parentNode; if (n) blockVer.set(n, ++verSeq); }
+  }).observe(dom, { subtree: true, childList: true, attributes: true, characterData: true });
+});
+let thumbCache = [];                 // per page: {sig, node} – a page whose content did not change keeps its miniature
 function renderThumbs() {
-  if (!$('#home').hidden) return;
+  if (!$('#home').hidden || plist.hidden) return;             // not shown (home screen, or the heading list is open)
   const g = geometry(tpl), dom = editor.view.dom;
   plist.style.setProperty('--pw', g.W); plist.style.setProperty('--ph', g.H);
   const kids = Array.from(dom.children).map(c => ({ el: c, top: g.mt + c.offsetTop, bottom: g.mt + c.offsetTop + c.offsetHeight }));
   const style = dom.getAttribute('style') || '';
   const frag = document.createDocumentFragment();
+  // open comments per page (where each comment's first anchor is)
+  const cmtN = {};
+  try {
+    const at = commentPlaces(), top0 = dom.getBoundingClientRect().top;
+    for (const c of docComments) if (!c.done && at[c.id] != null) { const pg = Math.max(0, Math.floor(((editor.view.coordsAtPos(at[c.id]).top - top0) / scale + g.mt) / g.P)); cmtN[pg] = (cmtN[pg] || 0) + 1; }
+  } catch (e) { /* the marks are extra */ }
+  // the free pictures / tables, each with the page it is on (measured once)
+  const sr0 = stack.getBoundingClientRect(), edr = dom.getBoundingClientRect();
+  const pins = [...dom.querySelectorAll('.pinned')].map(el => {
+    const er0 = el.getBoundingClientRect(), pg = Math.floor((er0.top - sr0.top) / scale / g.P);
+    const tx = (er0.left - edr.left) / scale, ty = (er0.top - sr0.top) / scale - (pg * g.P + g.mt);
+    let top = el; while (top && top.parentNode !== dom) top = top.parentNode;
+    return { el, pg, tx, ty, sig: (top ? verOf(top) : '') + '@' + Math.round(tx) + ',' + Math.round(ty) + ',' + Math.round(er0.width) };
+  });
+  // line shading: only the bands of each page
+  const shade = [...$('#shadeLayer').children].map(d => ({ html: d.outerHTML, top: parseFloat(d.style.top), h: parseFloat(d.style.height) }));
+  const title = $('#docTitle').value, cache = [];
   for (let i = 0; i < pageCount; i++) {
+    const top = i * g.P, bot = top + g.H;
+    const parts = kids.filter(c => c.bottom > top - 2 && c.top < bot + 2);
+    const sheet = sheetHTML(i, pageCount, tpl, title, g, 0, 0);
+    const bandsHTML = shade.filter(d => !(d.top + d.h < top - 2 || d.top > top + g.P + 2)).map(d => d.html).join('');   // bands without a place are kept on every page
+    const myPins = pins.filter(x => x.pg === i);
+    const sig = [g.W, g.H, g.sheetX(i), g.leftOf(i), i + (+tpl.startPage || 1), style, sheet, bandsHTML, parts.map(p => verOf(p.el) + '@' + Math.round(p.top)).join(','), myPins.map(x => x.sig).join(','), cmtN[i] || 0].join('|');
+    const old = thumbCache[i];
+    if (old && old.sig === sig) { old.node.classList.toggle('cur', i === curPage); frag.appendChild(old.node); cache[i] = old; continue; }
     const t = document.createElement('div');
     t.className = 'thumb' + (i === curPage ? ' cur' : ''); t.dataset.i = i;
-    t.innerHTML = `<div class="no">${i + (+tpl.startPage || 1)}</div><div class="frame"><div class="tpage" style="width:${g.W}px;height:${g.H}px">${sheetHTML(i, pageCount, tpl, $('#docTitle').value, g, 0, 0)}</div></div>`;
+    t.innerHTML = `<div class="no">${i + (+tpl.startPage || 1)}</div><div class="frame"><div class="tpage" style="width:${g.W}px;height:${g.H}px">${sheet}</div></div>`;
     const tp = t.querySelector('.tpage');
     // line shading of this page
     const bands = document.createElement('div');
     bands.style.cssText = `position:absolute;left:${-g.sheetX(i)}px;top:${-i * g.P}px`;
-    bands.innerHTML = $('#shadeLayer').innerHTML;
+    bands.innerHTML = bandsHTML;
     for (const d of bands.children) d.style.position = 'absolute';
     tp.appendChild(bands);
     // the blocks that reach into this page (exactly as laid out in the editor)
-    const top = i * g.P, bot = top + g.H;
-    const parts = kids.filter(c => c.bottom > top - 2 && c.top < bot + 2);
     if (parts.length) {
       const c = document.createElement('div');
       c.className = 'ProseMirror docbody'; c.setAttribute('style', style);
@@ -2000,21 +2146,19 @@ function renderThumbs() {
       tp.appendChild(c);
     }
     // the free pictures / tables of this page, where they are on the page
-    for (const el of dom.querySelectorAll('.pinned')) {
-      const er0 = el.getBoundingClientRect(), sr0 = stack.getBoundingClientRect(), edr = dom.getBoundingClientRect();
-      const pgOf = Math.floor((er0.top - sr0.top) / scale / g.P);
-      if (pgOf !== i) continue;
+    for (const { el, tx, ty } of myPins) {
       const cl = el.cloneNode(true);
-      el.dataset.tx = (er0.left - edr.left) / scale; el.dataset.ty = (er0.top - sr0.top) / scale - (i * g.P + g.mt);
       cl.classList.remove('ProseMirror-selectednode', 'tbl-active');
       const holder = document.createElement('div');
       holder.className = 'ProseMirror docbody'; holder.setAttribute('style', style);
       holder.style.position = 'absolute'; holder.style.left = g.leftOf(i) + 'px'; holder.style.top = g.mt + 'px'; holder.style.minHeight = '0'; holder.style.height = '0';
-      cl.style.left = (+el.dataset.tx || 0) + 'px'; cl.style.top = (+el.dataset.ty || 0) + 'px'; cl.style.visibility = '';
+      cl.style.left = tx + 'px'; cl.style.top = ty + 'px'; cl.style.visibility = '';
       holder.appendChild(cl); tp.appendChild(holder);
     }
-    frag.appendChild(t);
+    if (cmtN[i]) t.querySelector('.frame').insertAdjacentHTML('beforeend', `<span class="cmtmark" title="${cmtN[i]} nyitott megjegyzés ezen az oldalon">${svg('comment')}${cmtN[i]}</span>`);
+    frag.appendChild(t); cache[i] = { sig, node: t };
   }
+  thumbCache = cache;
   plist.replaceChildren(frag);
   fitThumbs();
 }
@@ -2172,7 +2316,49 @@ function fillPanel() {
   for (const el of $$('#props [data-custom]')) el.hidden = tpl.page !== 'custom';
   $$('[data-mirror-label]').forEach(s => { s.textContent = tpl.mirror ? (s.dataset.mirrorLabel === 'left' ? 'Belső margó (mm)' : 'Külső margó (mm)') : (s.dataset.mirrorLabel === 'left' ? 'Bal margó (mm)' : 'Jobb margó (mm)'); });
 }
-function tplChanged() { markDirty(); applyTpl(); saveSoon(); }
+function tplChanged() { markDirty(); applyTpl(); saveSoon(); noteTplChange(); }
+const tplState = () => JSON.stringify({ tpl, customTpl });
+/** A new document (opened, new, imported): the template history starts again. */
+function resetTplHistory() { tplSaved = tplState(); tplUndo = []; tplRedo = []; }
+/** The template was changed: one undo step (a dragged slider or quick typing in a box counts as one). */
+function noteTplChange() {
+  if (tplRestoring) return;
+  const now = tplState(); if (now === tplSaved) return;
+  const last = tplUndo[tplUndo.length - 1], t = Date.now(), depth = undoDepth(editor.state);
+  if (last && t - last.at < 800 && last.depth === depth) last.at = t;
+  else {
+    tplUndo.push({ before: tplSaved, depth, at: t }); if (tplUndo.length > 100) tplUndo.shift();
+    try { editor.view.dispatch(closeHistory(editor.state.tr)); } catch (e) { /* text typed after this is a step of its own */ }
+  }
+  tplSaved = now; tplRedo = [];
+  updateToolbar();
+}
+function restoreTpl(state) {
+  tplRestoring = true;
+  try {
+    if (hfOpen) closeHF();
+    const st = JSON.parse(state);
+    tpl = normalizeTpl(st.tpl); customTpl = st.customTpl || null;
+    fillPanel(); applyTpl(true); markDirty(); saveSoon();
+  } finally { tplRestoring = false; }
+  tplSaved = tplState(); updateToolbar();
+}
+function unifiedUndo() {
+  const top = tplUndo[tplUndo.length - 1];
+  if (top && undoDepth(editor.state) <= top.depth) {
+    tplUndo.pop(); tplRedo.push({ after: tplSaved, redo: redoDepth(editor.state) });
+    restoreTpl(top.before); toast('Sablonmódosítás visszavonva'); return true;
+  }
+  return editor.chain().focus(null, { scrollIntoView: false }).undo().run();
+}
+function unifiedRedo() {
+  const top = tplRedo[tplRedo.length - 1];
+  if (top && redoDepth(editor.state) <= top.redo) {
+    tplRedo.pop(); tplUndo.push({ before: tplSaved, depth: undoDepth(editor.state), at: 0 });
+    restoreTpl(top.after); toast('Sablonmódosítás újra'); return true;
+  }
+  return editor.chain().focus(null, { scrollIntoView: false }).redo().run();
+}
 function onPanelInput(e) {
   const el = e.target;
   if (el.dataset && (el.dataset.flkind || el.dataset.flval)) {          // style: first line indent / hanging indent
@@ -2268,7 +2454,7 @@ $('#presetBox').addEventListener('click', async e => {
     if (hfOpen) closeHF();
     customTpl = { name: r.name.replace(/\.mdsab$/i, ''), tpl: r.data.tpl, path: templateFilePath() };
     tpl = normalizeTpl(JSON.parse(JSON.stringify(customTpl.tpl))); tpl.preset = 'custom';
-    fillPanel(); markDirty(); applyTpl(true); saveSoon();
+    fillPanel(); markDirty(); applyTpl(true); saveSoon(); noteTplChange();
     toast('Sablonfájl használatban: ' + customTpl.name);
     return;
   }
@@ -2284,7 +2470,7 @@ $('#presetBox').addEventListener('click', async e => {
     try { const r = await fetch(`./presets/${b.dataset.preset}.mdsab`); src = (await r.json()).tpl; } catch (err) { toast('A sablon nem tölthető be.'); return; }
   }
   tpl = normalizeTpl(src); tpl.preset = b.dataset.preset;
-  fillPanel(); markDirty(); applyTpl(true); saveSoon();
+  fillPanel(); markDirty(); applyTpl(true); saveSoon(); noteTplChange();
   toast('Sablon: ' + presetLabel());
 });
 
@@ -2293,6 +2479,7 @@ $('#presetBox').addEventListener('click', async e => {
 /* status, autosave, home screen, confirmations                        */
 /* ------------------------------------------------------------------ */
 let dirty = false, sessionOpen = false, autoT = 0;
+let editedNow = false;               // was the document changed in this session? (a draft that only came back is not)
 function setStatus(t) {
   const f = currentFileName(), st = $('#status');
   st.className = 'status ' + (t ? 'msg' : dirty || !f ? 'unsaved' : 'saved');
@@ -2300,7 +2487,15 @@ function setStatus(t) {
   st.title = f ? 'A dokumentum fájlja: ' + f : 'A dokumentum még nincs fájlba mentve';
 }
 function flash(t) { setStatus(t); toast(t); clearTimeout(flash._t); flash._t = setTimeout(() => setStatus(), 2600); }
-function markDirty() { if (!dirty) { dirty = true; setStatus(); } }
+function markDirty() { editedNow = true; if (!dirty) { dirty = true; setStatus(); } }
+/** May this window's document be replaced by another one? Unsaved work made in this session asks first; a draft that
+ *  only came back from the last session (and was not touched) is put aside as a recoverable draft instead. */
+async function okToReplace(msg, yes) {
+  if (!dirty) return true;
+  if (editedNow) return confirmBox(msg, yes);
+  if (await shelveDraft(autoValue())) { toast('Az előző, nem mentett dokumentum megmaradt – a kezdőképernyőn állítható vissza.'); return true; }
+  return confirmBox(msg, yes);
+}
 function toast(t) { const el = $('#toast'); el.textContent = t; el.classList.add('on'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('on'), 2800); }
 function confirmBox(msg, yes = 'Igen') {
   return new Promise(res => {
@@ -2353,6 +2548,7 @@ function loadData(d) {
   if (d.doc) editor.commands.setContent(d.doc, { emitUpdate: false });
   else if (typeof d.html === 'string') editor.commands.setContent(d.html, { emitUpdate: false });   // documents from the first prototype
   fillPanel(); applyTpl(true);
+  resetTplHistory();
 }
 function busy(msg) { $('#busyMsg').textContent = msg || ''; $('#busy').hidden = !msg; }
 async function ready() {
@@ -2363,6 +2559,141 @@ async function ready() {
   editor.storage.pagination.relayoutNow();
   await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 }
+/* ---------------- table of contents ----------------
+   Ordinary paragraphs (marked as lines of the table of contents): the heading's text, a dotted right tab, the page
+   number. Written by the app from the headings; refreshed by the same button and before a PDF / printing. */
+const CM_PX = 96 / 2.54;
+function tocRun() {                                   // the first run of table-of-contents lines: {from, to, json} or null
+  let from = null, to = null; const json = [];
+  editor.state.doc.forEach((n, pos) => {
+    if (to != null) return;
+    if (n.type.name === 'paragraph' && n.attrs.toc) { if (from == null) from = pos; json.push(n.toJSON()); }
+    else if (from != null) to = pos;
+  });
+  if (from == null) return null;
+  return { from, to: to ?? editor.state.doc.content.size, json };
+}
+function tocLines() {
+  const g = geometry(tpl), dom = editor.view.dom, top0 = dom.getBoundingClientRect().top;
+  const width = Math.round(dom.clientWidth / CM_PX * 100) / 100, out = [];
+  editor.state.doc.forEach((n, pos) => {
+    if (n.type.name !== 'heading') return;
+    const lvl = n.attrs.level, content = [];
+    n.forEach(c => {
+      if (c.isText) content.push({ type: 'text', text: c.text, ...(lvl === 1 ? { marks: [{ type: 'bold' }] } : {}) });
+      else if (c.type.name === 'math') content.push(c.toJSON());
+      else if (c.type.name === 'tab') content.push({ type: 'text', text: ' ' });
+    });
+    if (!content.some(c => c.type !== 'text' || c.text.trim())) return;
+    let pg = 0; try { pg = Math.max(0, Math.floor(((editor.view.coordsAtPos(pos + 1).top - top0) / scale + g.mt) / g.P)); } catch (e) { /* not laid out yet */ }
+    out.push({ type: 'paragraph', attrs: { toc: lvl, tabStops: JSON.stringify([{ pos: width, align: 'right', leader: 'dot' }]), indentLeft: lvl > 1 ? (lvl - 1) * 0.6 : null, spaceBefore: lvl === 1 ? 4 : 0, spaceAfter: 1, keepNext: false },
+      content: [...content, { type: 'tab' }, { type: 'text', text: String(pg + (+tpl.startPage || 1)) }] });
+  });
+  return out;
+}
+/** Insert the table of contents before the block the cursor is in – or refresh the one the document has.
+ *  The page numbers are worked out again until they stop changing (the table itself may push the text on). */
+async function updateTOC(byUser) {
+  if (hfEd) return;
+  let run = tocRun();
+  if (!run && !byUser) return;
+  if (!tocLines().length) { if (byUser) toast('Nincs címsor a dokumentumban – a tartalomjegyzék a Főcím, Cím és Alcím stílusú bekezdésekből készül.'); return; }
+  let changed = false;
+  for (let round = 0; round < 4; round++) {
+    const lines = tocLines();
+    run = tocRun();
+    const st = editor.state, same = run && JSON.stringify(run.json) === JSON.stringify(lines.map(l => st.schema.nodeFromJSON(l).toJSON()));
+    if (same) break;
+    const nodes = lines.map(l => st.schema.nodeFromJSON(l));
+    let from, to;
+    if (run) { from = run.from; to = run.to; }
+    else { const $f = st.selection.$from; from = to = $f.depth ? $f.before(1) : 0; }
+    editor.view.dispatch(st.tr.replaceWith(from, to, nodes));
+    changed = true;
+    await ready();
+  }
+  if (byUser) toast(changed ? 'A tartalomjegyzék elkészült / frissült.' : 'A tartalomjegyzék naprakész.');
+}
+
+/* ---------------- automatic hyphenation (template: "Automatikus elválasztás") ----------------
+   The words standing at the start of a line get their Hungarian hyphenation points (soft hyphens, as decorations –
+   see Hyphens in extensions.js), so the browser may pull their first part up to the line before. Only the blocks
+   that changed are looked at again; long documents are worked through in small portions. */
+let hyphenFn = null, hyT = 0, hyDone = new WeakMap(), hyLoading = false;
+const hyphenSoon = (d = 250) => { clearTimeout(hyT); hyT = setTimeout(hyphenPass, d); };
+function syncHyphenation() {
+  if (!tpl.hyphenate) {
+    clearTimeout(hyT);
+    const set = hyphenKey.getState(editor.state);
+    if (set && set.find().length) { editor.view.dispatch(editor.state.tr.setMeta(hyphenKey, { clear: true }).setMeta('addToHistory', false)); relayout(60); }
+    return;
+  }
+  hyDone = new WeakMap();                              // the line widths may have changed: every block is looked at again
+  if (hyphenFn) { hyphenSoon(); return; }
+  if (hyLoading) return;
+  hyLoading = true;
+  import('hyphen/hu').then(m => {
+    const fn = m.hyphenateSync || (m.default && m.default.hyphenateSync);
+    // break points of a word: the numbers of letters before each point (at least two letters on both sides)
+    hyphenFn = word => { const parts = fn(word, { hyphenChar: '\u00AD' }).split('\u00AD'), out = []; let k = 0; for (let i = 0; i < parts.length - 1; i++) { k += parts[i].length; if (k >= 2 && word.length - k >= 2) out.push(k); } return out; };
+    hyLoading = false; hyphenSoon(0);
+  }).catch(() => { hyLoading = false; toast('Az elválasztási szabályok nem tölthetők be.'); });
+}
+/** The hyphenation points (document positions) of the words that start a line in paragraph `p`. */
+function lineStartPoints(p, set, add) {
+  const al = getComputedStyle(p).textAlign; if (al === 'center' || al === 'right' || al === 'end') return;
+  const rg = document.createRange(), frags = [];           // everything that stands in the lines: {top, left, h, n?, j?}
+  const tw = document.createTreeWalker(p, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, { acceptNode: n => {
+    if (n.nodeType === 1) return n.matches('.math, .imgw, .tab, .lm, .shy, .pg-sp, .pg-spb, .pin-sp, .pinned') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+    return NodeFilter.FILTER_ACCEPT;
+  } });
+  for (const e of p.querySelectorAll('.math, .imgw.inl, .tab, .lm')) { const r = e.getBoundingClientRect(); if (r.width > 0.5) frags.push({ top: r.top, left: r.left, h: r.height }); }
+  const nodes = [];
+  for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+    if (!n.data.trim()) continue;
+    rg.selectNodeContents(n);
+    const lines = [];
+    for (const r of rg.getClientRects()) { if (r.width < 0.5 || !r.height) continue; const l = lines[lines.length - 1]; if (l && Math.abs(r.top - l.top) < r.height * 0.5) l.left = Math.min(l.left, r.left); else lines.push({ top: r.top, left: r.left, h: r.height }); }
+    lines.forEach((l, j) => frags.push({ ...l, n, j }));
+    nodes.push({ n, lines });
+  }
+  if (!nodes.length) return;
+  const firstTop = Math.min(...frags.map(f => f.top));
+  const charTop = (n, o) => { rg.setStart(n, o); rg.setEnd(n, o + 1); const r = rg.getBoundingClientRect(); return r.height ? r.top : null; };
+  for (const { n, lines } of nodes) lines.forEach((l, j) => {
+    if (l.top - firstTop < l.h * 0.5) return;                                        // the paragraph's first line
+    if (frags.some(f => f !== l && !(f.n === n && f.j === j) && Math.abs(f.top - l.top) < Math.max(f.h, l.h) * 0.6 && f.left < l.left - 0.5)) return;   // something stands before it in the line
+    // where this line's part of the text node starts
+    let s = 0;
+    if (j > 0) {
+      let lo = 0, hi = n.data.length - 1;
+      while (lo < hi) { const mid = (lo + hi) >> 1, t = charTop(n, mid); if (t != null && t > l.top - l.h * 0.5) hi = mid; else lo = mid + 1; }
+      s = lo;
+    } else if (n.previousSibling && n.previousSibling.nodeType === 1 && n.previousSibling.classList.contains('shy')) return;   // the rest of a word already broken here
+    while (s < n.data.length && /\s/.test(n.data[s])) s++;
+    if (s > 0 && /[\p{L}\p{N}\u00AD-]/u.test(n.data[s - 1])) return;               // inside a word
+    const m = /^\p{L}{5,}/u.exec(n.data.slice(s)); if (!m) return;
+    const word = m[0];
+    if (s + word.length === n.data.length && n.nextSibling && n.nextSibling.nodeType === 1 && n.nextSibling.classList.contains('shy')) return;   // it has its points already
+    let base; try { base = editor.view.posAtDOM(n, s); } catch (e) { return; }
+    if (set.find(base, base + word.length).length) return;
+    for (const k of hyphenFn(word)) add.push(base + k);
+  });
+}
+function hyphenPass() {
+  if (!tpl.hyphenate || !hyphenFn || !$('#home').hidden) { if (tpl.hyphenate && hyphenFn) hyphenSoon(800); return; }
+  const dom = editor.view.dom, set = hyphenKey.getState(editor.state), add = [], t0 = performance.now();
+  let more = false;
+  for (const block of dom.children) {
+    const ver = verOf(block); if (hyDone.get(block) === ver) continue;
+    if (performance.now() - t0 > 14) { more = true; break; }
+    try { for (const p of (block.matches('p') ? [block] : block.querySelectorAll('p'))) if (!p.hasAttribute('data-toc')) lineStartPoints(p, set, add); } catch (e) { /* this block is skipped */ }
+    hyDone.set(block, ver);
+  }
+  if (add.length) { editor.view.dispatch(editor.state.tr.setMeta(hyphenKey, { add: [...new Set(add)] }).setMeta('addToHistory', false)); relayout(60); }
+  if (add.length || more) hyphenSoon(add.length ? 90 : 0);      // the new line breaks may bring new words to the line starts
+}
+
 async function makePdf() {
   const sel = editor.state.selection;
   hideSpell(editor.view); clearFind();          // red underlines and find highlights are not part of the document
@@ -2387,14 +2718,14 @@ async function doSave(saveAs) {
 }
 async function doPdf() {
   closePops(); busy('PDF készítése…');
-  try { const blob = await makePdf(); busy(''); flash(await savePdfBlob(blob, docTitle())); }
+  try { await updateTOC(false); const blob = await makePdf(); busy(''); flash(await savePdfBlob(blob, docTitle())); }
   catch (e) { busy(''); flash('A PDF elkészítése nem sikerült: ' + (e && e.message || e)); }
 }
 async function doPrint() {
   closePops();
   // the exact PDF opens in the system PDF viewer, which prints it at true paper size
   busy('Nyomtatás előkészítése…');
-  try { const blob = await makePdf(); busy(''); flash(await printPdfBlob(blob, docTitle())); }
+  try { await updateTOC(false); const blob = await makePdf(); busy(''); flash(await printPdfBlob(blob, docTitle())); }
   catch (e) { busy(''); flash('A nyomtatás nem sikerült: ' + (e && e.message || e)); }
 }
 function openedDocument(r) {
@@ -2403,15 +2734,19 @@ function openedDocument(r) {
   setCurrentPath(r.path && /\.mdoksi$/i.test(r.path) ? r.path : null);
   loadData(r.data);
   $('#docTitle').value = titleOfFile(r.name) || r.data.title || 'Névtelen dokumentum';   // the file's own name
-  dirty = false; sessionOpen = true; saveSoon(); setStatus();
+  dirty = false; editedNow = false; sessionOpen = true; saveSoon(); setStatus();
   toast('Megnyitva: ' + r.name);
   showHome(false);
   return true;
 }
 async function doOpen() {
   closePops();
-  if (dirty && $('#home').hidden && !await confirmBox('A nem mentett módosítások elvesznek. Megnyitsz egy másik dokumentumot?', 'Megnyitás')) return false;
-  try { return openedDocument(await openDocumentFile()); }
+  if (dirty && editedNow && !await confirmBox('A nem mentett módosítások elvesznek. Megnyitsz egy másik dokumentumot?', 'Megnyitás')) return false;
+  try {
+    const r = await openDocumentFile(); if (!r) return false;
+    if (!r.error && dirty && !editedNow && await shelveDraft(autoValue())) toast('Az előző, nem mentett dokumentum megmaradt – a kezdőképernyőn állítható vissza.');   // only once a file was really chosen
+    return openedDocument(r);
+  }
   catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); return false; }
 }
 async function openPath(p) {
@@ -2424,29 +2759,31 @@ async function openPath(p) {
       if (!await newDocument()) return false;
       const name = p.split(/[\\/]/).pop().replace(/\.mdsab$/i, '');
       customTpl = { name, tpl: data.tpl, path: p }; tpl = normalizeTpl(JSON.parse(JSON.stringify(data.tpl))); tpl.preset = 'custom';
-      fillPanel(); applyTpl(true); markDirty(); saveSoon(); toast('Új dokumentum a sablonnal: ' + name);
+      fillPanel(); applyTpl(true); resetTplHistory(); markDirty(); saveSoon(); toast('Új dokumentum a sablonnal: ' + name);
       return true;
     } catch (e) { toast('A sablon nem nyitható meg: ' + (e && e.message || e)); return false; }
   }
+  if (!await okToReplace('A nem mentett módosítások elvesznek. Megnyitod a másik dokumentumot?', 'Megnyitás')) return false;
   try { return openedDocument(await openPathFile(p)); }
   catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); showHome(true); return false; }
 }
 async function newDocument() {
   closePops();
-  if (dirty && $('#home').hidden && !await confirmBox('Új dokumentumot kezdesz. A mostani nem mentett módosításai elvesznek. Folytatod?', 'Új dokumentum')) return false;
+  if (!await okToReplace('Új dokumentumot kezdesz. A mostani nem mentett módosításai elvesznek. Folytatod?', 'Új dokumentum')) return false;
   tpl = startTpl(); customTpl = null; docComments = []; $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
-  editor.commands.setContent('<p></p>'); fillPanel(); applyTpl(true);
-  dirty = false; sessionOpen = true; setStatus(); saveSoon();
+  editor.commands.setContent('<p></p>'); fillPanel(); applyTpl(true); resetTplHistory();
+  dirty = false; editedNow = false; sessionOpen = true; setStatus(); saveSoon();
   showHome(false); editor.commands.focus();
   return true;
 }
 /** Word (.docx) import: a new, unsaved document; MathType and Word equations become TeX formulas. */
 async function doImportDocx() {
   closePops();
-  if (dirty && $('#home').hidden && !await confirmBox('A nem mentett módosítások elvesznek. Importálsz egy Word-dokumentumot?', 'Importálás')) return;
+  if (dirty && editedNow && !await confirmBox('A nem mentett módosítások elvesznek. Importálsz egy Word-dokumentumot?', 'Importálás')) return;
   let picked;
   try { picked = await pickDocx(); } catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); return; }
   if (!picked) return;
+  if (dirty && !editedNow && await shelveDraft(autoValue())) toast('Az előző, nem mentett dokumentum megmaradt – a kezdőképernyőn állítható vissza.');
   busy('Word-dokumentum importálása…');
   try {
     const r = await importDocx(picked.buf);
@@ -2454,8 +2791,8 @@ async function doImportDocx() {
     setCurrentPath(null);
     $('#docTitle').value = picked.name.replace(/\.docx$/i, '');
     editor.commands.setContent(r.doc, { emitUpdate: false });
-    fillPanel(); applyTpl(true);
-    dirty = true; sessionOpen = true; setStatus(); saveSoon(); showHome(false);
+    fillPanel(); applyTpl(true); resetTplHistory();
+    dirty = true; editedNow = true; sessionOpen = true; setStatus(); saveSoon(); showHome(false);
     busy('');
     const rp = r.report, lines = [`${rp.paragraphs} bekezdés`];
     if (rp.mathtype) lines.push(`${rp.mathtype} MathType-képlet TeX-ként`);
@@ -2484,15 +2821,16 @@ $('#fImport').addEventListener('click', doImportDocx);
 /* Markdown: import (a new, unsaved document in the selected template) and export – without pictures */
 $('#fImportMd').addEventListener('click', async () => {
   closePops();
-  if (dirty && $('#home').hidden && !await confirmBox('A nem mentett módosítások elvesznek. Importálsz egy Markdown-fájlt?', 'Importálás')) return;
+  if (dirty && editedNow && !await confirmBox('A nem mentett módosítások elvesznek. Importálsz egy Markdown-fájlt?', 'Importálás')) return;
   let picked; try { picked = await pickMarkdown(); } catch (e) { toast('A fájl nem nyitható meg: ' + (e && e.message || e)); return; }
   if (!picked) return;
+  if (dirty && !editedNow && await shelveDraft(autoValue())) toast('Az előző, nem mentett dokumentum megmaradt – a kezdőképernyőn állítható vissza.');
   try {
     const r = importMarkdown(picked.text);
     setCurrentPath(null); customTpl = null; docComments = [];
     $('#docTitle').value = picked.name.replace(/\.(md|markdown|txt)$/i, '');
     editor.commands.setContent(r.doc, { emitUpdate: false });
-    fillPanel(); applyTpl(true); dirty = true; sessionOpen = true; setStatus(); saveSoon(); showHome(false);
+    fillPanel(); applyTpl(true); resetTplHistory(); dirty = true; editedNow = true; sessionOpen = true; setStatus(); saveSoon(); showHome(false);
     await infoBox(`Importálva: ${r.report.formulas} képlet, ${r.report.tables} táblázat.${r.report.images ? ` ${r.report.images} kép kimaradt.` : ''} A dokumentum még nincs elmentve.`);
   } catch (e) { toast('Az importálás nem sikerült: ' + (e && e.message || e)); }
 });
@@ -2520,10 +2858,38 @@ $('#expPdf').addEventListener('click', doPdf);
 $('#expPrint').addEventListener('click', doPrint);
 $('#bZoom').addEventListener('click', e => showPop('popZoom', e.currentTarget));
 $('#popZoom').onopen = () => { for (const b of $$('#popZoom [data-zoom]')) b.classList.toggle('on', b.dataset.zoom === String(zoomMode)); };
+/** Set the zoom ('auto' = fit, or a percentage). `at` (screen point): that point of the page stays under the pointer. */
+function setZoom(z, at) {
+  const r0 = outer.getBoundingClientRect(), k0 = scale;
+  zoomMode = z === 'auto' ? 'auto' : String(Math.max(25, Math.min(400, Math.round(z))));
+  zoomButton(); applyZoom();
+  if (at && zoomMode !== 'auto') { const r = outer.getBoundingClientRect(); ws.scrollLeft += r.left + (at.x - r0.left) / k0 * scale - at.x; ws.scrollTop += r.top + (at.y - r0.top) / k0 * scale - at.y; }
+  marksSoon(); drawComments();
+}
 $('#popZoom').addEventListener('click', e => {
   const b = e.target.closest('[data-zoom]'); if (!b) return; closePops();
-  zoomMode = b.dataset.zoom; zoomButton(); applyZoom();
+  setZoom(b.dataset.zoom === 'auto' ? 'auto' : +b.dataset.zoom);
 });
+/* Zoom at the pointer. Windows (WebView2) reports a touchpad pinch as a wheel event with Ctrl; the Mac as gesture events. */
+let zoomRun = null;                  // exact (not rounded) zoom while a wheel / pinch sequence lasts
+function zoomBy(factor, at) {
+  const pct = Math.round(scale * 100);
+  if (!zoomRun || zoomRun.shown !== pct) zoomRun = { v: pct };
+  zoomRun.v = Math.max(25, Math.min(400, zoomRun.v * factor));
+  setZoom(zoomRun.v, at); zoomRun.shown = Math.round(scale * 100);
+}
+const zoomable = e => $('#home').hidden && e.target instanceof Node && ws.contains(e.target);
+window.addEventListener('wheel', e => {
+  if (!(e.ctrlKey || e.metaKey) || !zoomable(e)) return;
+  e.preventDefault(); e.stopPropagation();
+  let d = e.deltaY || e.deltaX; if (e.deltaMode === 1) d *= 33; else if (e.deltaMode === 2) d *= 300;
+  if (!d) return;
+  zoomBy(Math.abs(d) >= 50 ? (d < 0 ? 1.1 : 1 / 1.1) : Math.exp(-d * 0.01), { x: e.clientX, y: e.clientY });   // a wheel notch: 10%; a touchpad: smooth
+}, { passive: false, capture: true });
+let pinch = null;
+window.addEventListener('gesturestart', e => { if (!zoomable(e)) return; e.preventDefault(); pinch = Math.round(scale * 100); }, { passive: false, capture: true });
+window.addEventListener('gesturechange', e => { if (pinch == null) return; e.preventDefault(); setZoom(pinch * (e.scale || 1), { x: e.clientX, y: e.clientY }); }, { passive: false, capture: true });
+window.addEventListener('gestureend', e => { if (pinch != null) e.preventDefault(); pinch = null; }, { passive: false, capture: true });
 
 function zoomButton() {
   const fit = zoomMode === 'auto';
@@ -2539,10 +2905,63 @@ function showHome(show) {
   $('#home').hidden = !show;
   if (show) {
     const f = currentFileName();
-    $('#homeResume').hidden = !(sessionOpen || f || resumeLabel);
-    $('#homeResume').textContent = f ? `Folytatás: ${f}` : sessionOpen ? 'Vissza a megnyitott dokumentumhoz' : resumeLabel;
+    $('#homeResumeBox').hidden = !(sessionOpen || f || resumeLabel || dirty);
+    $('#homeResume b').textContent = f ? titleOfFile(f) : docTitle();
+    $('#homeResume span').textContent = dirty ? (f ? 'nem mentett módosításokkal' : 'még nincs fájlba mentve') : sessionOpen ? 'megnyitva' : resumeLabel;
+    $('#homeResumeBox').classList.toggle('unsaved', !!dirty);
+    renderHomeLists();
   } else { relayout(0); thumbsSoon(true); }
 }
+const homeDate = t => t ? new Date(t).toLocaleString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+/** Home screen lists: recoverable unsaved documents and recently used files. */
+function renderHomeLists() {
+  const dr = recoverableDrafts(), box = $('#homeDrafts');
+  box.hidden = !dr.length;
+  box.innerHTML = dr.length ? '<h2>Nem mentett munka visszaállítása</h2>' + dr.map(d => `<div class="hrow"><button class="hitem" data-draft="${esc(d.id)}" title="Megnyitás ebben az ablakban"><b>${esc(d.title)}</b><span>${esc(homeDate(d.at))}</span></button><button class="hx" data-dropdraft="${esc(d.id)}" title="Elvetés">${svg('xmark')}</button></div>`).join('') : '';
+  const here = getCurrentPath(), rc = isTauri() ? recentFiles().filter(r => r.path !== here).slice(0, 6) : [], rb = $('#homeRecent');
+  rb.hidden = !rc.length;
+  rb.innerHTML = rc.length ? '<h2>Legutóbbi dokumentumok</h2>' + rc.map(r => { const n = r.path.split(/[\\/]/).pop(); return `<div class="hrow"><button class="hitem" data-recent="${esc(r.path)}" title="${esc(r.path)}"><b>${esc(titleOfFile(n))}</b><span>${esc(homeDate(r.at))}</span></button><button class="hx" data-droprecent="${esc(r.path)}" title="Eltávolítás a listából">${svg('xmark')}</button></div>`; }).join('') : '';
+}
+/** Home screen: a recently used document. */
+async function openRecent(path) {
+  if (!await okToReplace('A nem mentett módosítások elvesznek. Megnyitsz egy másik dokumentumot?', 'Megnyitás')) return;
+  let r = null;
+  try { r = await openPathFile(path); }
+  catch (e) { forgetRecent(path); renderHomeLists(); toast(`A(z) „${path.split(/[\\/]/).pop()}” fájl már nincs a korábbi helyén.`); return; }
+  openedDocument(r);
+}
+/** Home screen: continue an unsaved document of a window that is no longer running. */
+async function openDraft(id) {
+  if (!await okToReplace('A mostani dokumentum nem mentett módosításai elvesznek. Visszaállítod a másikat?', 'Visszaállítás')) return;
+  const v = await takeDraft(id);
+  if (!v || !(v.doc || v.html)) { renderHomeLists(); toast('Ez a dokumentum már nem állítható vissza (lehet, hogy egy másik ablakban van nyitva).'); return; }
+  try {
+    setCurrentPath(v.path && /\.mdoksi$/i.test(v.path) ? v.path : null);
+    if (getCurrentPath() && !await currentFileExists()) setCurrentPath(null);
+    loadData(v);
+    if (getCurrentPath()) titleFromFile();
+    dirty = true; editedNow = false; sessionOpen = true; setStatus(); saveSoon(); showHome(false);
+    toast(getCurrentPath() ? 'Visszaállítva – a módosítások még nincsenek a fájlba mentve.' : 'Visszaállítva – még nincs fájlba mentve.');
+  } catch (e) { toast('A dokumentum nem állítható vissza: ' + (e && e.message || e)); }
+}
+$('#home').addEventListener('click', async e => {
+  const b = e.target.closest('[data-draft], [data-dropdraft], [data-recent], [data-droprecent]'); if (!b) return;
+  if (b.dataset.draft) return openDraft(b.dataset.draft);
+  if (b.dataset.recent) return openRecent(b.dataset.recent);
+  if (b.dataset.droprecent) { forgetRecent(b.dataset.droprecent); renderHomeLists(); return; }
+  if (await confirmBox('Biztosan elveted ezt a nem mentett dokumentumot? Később már nem állítható vissza.', 'Elvetés')) { await dropDraft(b.dataset.dropdraft); renderHomeLists(); }
+});
+/* "a new version is out": checked once at start-up (see src/updates.js and update.json) */
+async function runUpdateCheck(url) {
+  const u = await checkForUpdate(url); if (!u) return false;
+  $('#updVer').textContent = u.version + ` (most: ${APP_VERSION})`;
+  $('#updMsg').innerHTML = esc(u.message || '').replace(/\n/g, '<br>');
+  $('#updBox').hidden = false;
+  $('#updLater').onclick = () => { $('#updBox').hidden = true; };
+  $('#updGo').onclick = () => { $('#updBox').hidden = true; if (u.url) openLink(u.url); };
+  return true;
+}
+setTimeout(() => runUpdateCheck(), 2500);
 $('#homeNew').addEventListener('click', newDocument);
 $('#homeOpen').addEventListener('click', doOpen);
 $('#homeResume').addEventListener('click', () => { sessionOpen = true; showHome(false); });
@@ -2551,6 +2970,8 @@ document.addEventListener('keydown', e => {
   const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
   if (!mod) return;
   const k = e.key.toLowerCase();
+  if ((k === 'z' || k === 'y') && $('#home').hidden && !hfEd && !(e.target.closest && e.target.closest('.ProseMirror, .pop, #mathDlg, #cmtView, #docTitle'))) { e.preventDefault(); if (k === 'y' || e.shiftKey) unifiedRedo(); else unifiedUndo(); return; }
+  if (['0', '+', '=', '-'].includes(k) && $('#home').hidden) { e.preventDefault(); const pct = Math.round(scale * 100); setZoom(k === '0' ? 'auto' : k === '-' ? pct / 1.25 : pct * 1.25); return; }
   if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
   else if (k === 'f') { e.preventDefault(); showPop('popFind', $('[data-pop="popFind"]')); }
   else if (k === 'o') { e.preventDefault(); doOpen(); }
@@ -2564,7 +2985,9 @@ function quitBox() {
     extra.className = 'btn'; extra.textContent = 'Mentés és kilépés';
     $('#cfmMsg').textContent = 'A dokumentumban nem mentett módosítások vannak. Kilépsz mentés nélkül?';
     $('#cfmYes').textContent = 'Kilépés mentés nélkül'; $('#cfmNo').after(extra); box.hidden = false;
-    const done = v => { box.hidden = true; extra.remove(); $('#cfmYes').onclick = $('#cfmNo').onclick = null; res(v); };
+    const done = v => { box.hidden = true; extra.remove(); removeEventListener('keydown', key, true); $('#cfmYes').onclick = $('#cfmNo').onclick = null; res(v); };
+    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done('stay'); } else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done('save'); } };
+    addEventListener('keydown', key, true); extra.focus();
     $('#cfmYes').onclick = () => done('quit'); $('#cfmNo').onclick = () => done('stay'); extra.onclick = () => done('save');
   });
 }
@@ -2592,15 +3015,15 @@ function quitBox() {
       else titleFromFile();
     }
     dirty = !!d.dirty;
-    resumeLabel = 'Legutóbbi dokumentum folytatása';
+    resumeLabel = 'legutóbb megnyitva';
   } else {
-    tpl = startTpl(); $('#docTitle').value = 'Trigonometria'; editor.commands.setContent(SAMPLE_HTML, { emitUpdate: false }); fillPanel(); applyTpl(true);
-    resumeLabel = 'Mintadokumentum megtekintése';
+    tpl = startTpl(); $('#docTitle').value = 'Trigonometria'; editor.commands.setContent(SAMPLE_HTML, { emitUpdate: false }); fillPanel(); applyTpl(true); resetTplHistory();
+    resumeLabel = 'mintadokumentum';
   }
   setStatus();
   loadFonts().then(() => relayout(0));
-  document.fonts && document.fonts.addEventListener && document.fonts.addEventListener('loadingdone', () => relayout(30));
-  mathReady.then(() => relayout(100));
+  document.fonts && document.fonts.addEventListener && document.fonts.addEventListener('loadingdone', () => { relayout(30); if (tpl.hyphenate) { hyDone = new WeakMap(); hyphenSoon(400); } });
+  mathReady.then(() => { relayout(100); if (tpl.hyphenate) { hyDone = new WeakMap(); hyphenSoon(600); } });
   // the app starts on the home screen – unless it was opened by double-clicking a document
   showHome(true);
   if (isTauri()) {
@@ -2621,4 +3044,4 @@ function quitBox() {
 })();
 
 // Hooks for automated layout/print tests
-window.mdoksi = { editor, editHF, closeHF, importDocx, importMarkdown, exportMarkdown, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, renderThumbs };
+window.mdoksi = { runUpdateCheck, editor, editHF, closeHF, importDocx, importMarkdown, exportMarkdown, makePdf, get tpl() { return tpl; }, set tpl(t) { tpl = normalizeTpl(t); applyTpl(true); }, get pages() { return pageCount; }, ready, setZoom: z => { zoomMode = z; applyZoom(); }, setZoomAt: setZoom, renderThumbs };
