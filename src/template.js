@@ -31,7 +31,7 @@ export const DEFAULT_TPL = {
   font: 'bonum',
   imgGap: 4,
   hyphenate: false,                    // automatic (Hungarian) hyphenation
-  cap: { size: 9, color: '#59616b', italic: true, bold: false },      // picture captions
+  cap: { font: '', size: 9, color: '#59616b', italic: true, bold: false, underline: false },      // picture captions
   styles: {
     p: style(),
     h1: style({ size: 21, bold: true, line: 1.2, spaceAfter: 7, keepNext: true }),

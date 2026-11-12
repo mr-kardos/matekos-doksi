@@ -1,4 +1,4 @@
-# Matekos Doksi 0.10.6
+# Matekos Doksi 1.0.1
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -103,6 +103,31 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
     (the TeX patterns `hyph-hu`, through the `hyphen` package – loaded only when switched on). The text is not
     changed: the words at the start of a line get invisible break points as decorations, so the result is the same
     on Windows, on the Mac and in the PDF.
+
+* 1.0.0 – fixes:
+  * dot leaders of tab stops are round "…" dots on the baseline (screen and PDF), as in Word;
+  * the tab stop popup shows the template's stops of the paragraph style too – changing them there changes only the
+    selected paragraphs; every stop has an edit button (position and fill);
+  * zoom: a touchpad pinch / touch screen pinch is recognised by the pointer's place (Mac gesture events too);
+  * comments: ▲ ▼ and a click on a card scroll the document to the comment (our own scrolling animation – the
+    browser's smooth scrolls cancelled each other); the page miniatures' comment counts are taken from the drawn
+    highlights and are hidden while the comments are hidden and the panel is closed; a click on a page miniature
+    always scrolls to the page;
+  * picture captions: applied with OK (Mégse / Esc leaves them unchanged); the text wrapped around a picture keeps
+    clear of its captions;
+  * table of contents: refreshing keeps each line's own text and formatting (only the page numbers are renewed;
+    new headings get the look of the existing lines of their level);
+  * a narrow left panel puts its buttons under each other.
+
+* 1.0.1:
+  * template: the picture captions have a style card like the paragraph styles (font, size, colour, bold, italic,
+    underline), right under them; "Automatikus elválasztás" is in the Normál card; the header page ranges stand
+    under the page types and can hold for every page or only the odd / even ones;
+  * header / footer: the middle column is centred and the right one right-aligned by default;
+  * "Lektor mód" (the eye button) also shows the hanging indent of list items;
+  * list symbols: the room before the text grows with the list's widest symbol (as in Matekos Prezi);
+  * the window can be made as narrow as half a screen;
+  * formula editor: the Space and Óriás space buttons show their names; File menu and right-click menu with icons.
 
 ## File format
 

@@ -1,4 +1,4 @@
-// Formatting marks (the eye button): green signs drawn ABOVE the text in their own layer – they never take
+// Formatting marks (the eye button, "Lektor mód"): green signs drawn ABOVE the text in their own layer – they never take
 // space in the document, cannot be clicked and are never printed or exported.
 const SKIP = '.math,.lm,.pg-sp,.pg-spb,.ibar,.isize,.ih,.mpending,.pagebreak,.tab';
 const CM = 96 / 2.54;
@@ -73,6 +73,11 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
     if (mr > 0.5) out.push(`<span class="mk-ind rgt" style="left:${X(br.right)}px;top:${mid}px;width:${mr}px"><i>jobb behúzás ${cm(mr)}</i></span>`);
     if (Math.abs(ti) > 0.5) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left) + pl + Math.min(0, ti)}px;top:${mid}px;width:${Math.abs(ti)}px"><i>${ti < 0 ? 'függő ' : 'első sor '}${cm(Math.abs(ti))}</i></span>`);
     if (hang > 0) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left)}px;top:${mid2}px;width:${pl}px"><i>függő ${cm(pl)}</i></span>`);
+    // a list item: its hanging indent – the room of the symbol up to the text (the first line)
+    if (!hang && b.parentElement && b.parentElement.tagName === 'LI' && b.parentElement.firstElementChild === b) {
+      const lmEl = b.querySelector(':scope > .lm:not(.lm-up)'), lr = lmEl && lmEl.getBoundingClientRect();
+      if (lr && lr.width > 1) { const w = lr.width / scale; out.push(`<span class="mk-ind lft fl" style="left:${X(lr.left)}px;top:${mid}px;width:${w}px"><i>függő ${cm(w)}</i></span>`); }
+    }
     // differences from the template's paragraph style
     if (styles) {
       const inCell = !!b.closest('td,th');

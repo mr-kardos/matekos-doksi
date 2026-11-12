@@ -75,12 +75,12 @@ input[type=checkbox], input[type=radio]{ accent-color:var(--accent); }
 .sprow input[type=range]{ width:115px; accent-color:var(--accent); }
 .sprow input[type=number]{ width:58px; height:28px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 6px; }
 /* hanging indent inside lists: the symbol stays, the text moves right */
-.ProseMirror p[data-hang] > .lm{ transform:translateX(calc(-1 * var(--gap,0.8cm) - var(--hang))); }
+.ProseMirror p[data-hang] > .lm{ margin-left:calc(-1 * var(--gap,0.8cm) - var(--hang)); min-width:calc(var(--gap,0.8cm) + var(--hang)); }
 
 /* ---------- layout: pages panel | workspace | template panel ---------- */
 body{ --lw:176px; --rw:320px; }
-.main{ flex:1; min-height:0; display:grid; grid-template-columns:var(--lw,176px) 6px 1fr 6px var(--rw,320px); position:relative; }
-.main.noprops{ grid-template-columns:var(--lw,176px) 6px 1fr 0 0; }
+.main{ flex:1; min-height:0; display:grid; grid-template-columns:min(var(--lw,176px), 24vw) 6px 1fr 6px min(var(--rw,320px), 40vw); position:relative; }
+.main.noprops{ grid-template-columns:min(var(--lw,176px), 24vw) 6px 1fr 0 0; }
 .main.noprops #props, .main.noprops .rsplit{ visibility:hidden; overflow:hidden; pointer-events:none; min-width:0; }
 .lsplit,.rsplit{ cursor:col-resize; background:var(--chrome); position:relative; touch-action:none; }
 .lsplit{ border-right:1px solid var(--line); }
@@ -305,9 +305,10 @@ body.nopages-on .ctxbar{ left:58px; }
 .hffont{ margin-top:6px; width:100%; height:30px; border:1px solid var(--line); border-radius:6px; background:var(--chrome); color:var(--ink); padding:0 6px; }
 .hfbtns{ margin:8px 0 2px; } .hfbtns .btn{ flex:1; }
 /* tab leaders */
-span.tab[data-leader]{ height:0; vertical-align:.2em; }
-span.tab[data-leader="dot"]{ border-bottom:1.6px dotted currentColor; }
-span.tab[data-leader="line"]{ border-bottom:.8px solid currentColor; }
+/* dots: round "…" dots sitting on the baseline, aligned to the right end (as Word draws them) – the empty tab box
+   sits on the baseline, the dots are painted at its bottom */
+span.tab[data-leader="dot"]{ height:.25em; vertical-align:baseline; background-image:radial-gradient(circle at 50% 50%, currentColor 0 .05em, transparent .062em); background-size:.28em .14em; background-repeat:repeat-x; background-position:right bottom; }
+span.tab[data-leader="line"]{ height:0; vertical-align:.2em; border-bottom:.8px solid currentColor; }
 #popTabs{ width:330px; }
 #popTabs .tabrow{ display:flex; align-items:center; justify-content:space-between; font-size:12.5px; padding:2px 4px; }
 #popTabs .tabadd{ display:flex; gap:5px; align-items:center; margin:6px 0; flex-wrap:wrap; }
@@ -630,6 +631,7 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 
 .hfranges #hfRangeList{ display:flex; flex-direction:column; gap:5px; margin:6px 0; }
 .hfranges .hfr{ display:grid; grid-template-columns:46px 8px 46px 1fr 1fr 1fr 22px; gap:4px; align-items:center; }
+.hfranges .hfr .hfrpar{ grid-column:1 / -1; height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); font-size:12px; }
 .hfranges .hfr input{ height:28px; width:100%; min-width:0; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 5px; font-size:12px; }
 .hfranges .hfr .tb.mini{ min-width:22px; height:22px; padding:0; }
 
@@ -676,7 +678,7 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 .imgw > .imgclip{ display:block; width:100%; height:100%; border-radius:inherit; }
 .ProseMirror .imgw.cropped, .ProseMirror .imgw.rounded{ overflow:visible; }
 .imgw.cropped > .imgclip, .imgw.rounded > .imgclip{ overflow:hidden; }
-.imgw .icap{ position:absolute; left:0; width:100%; box-sizing:border-box; text-align:center; text-indent:0; letter-spacing:normal; text-transform:none; white-space:normal; overflow-wrap:anywhere;
+.imgw .icap{ position:absolute; left:0; width:100%; box-sizing:border-box; text-align:center; text-indent:0; letter-spacing:normal; text-transform:none; white-space:normal; overflow-wrap:anywhere; font-family:var(--cap-font, inherit); text-decoration:var(--cap-deco, none);
   font-size:var(--cap-size, 9pt); line-height:1.25; color:var(--cap-color, #59616b); font-style:var(--cap-style, italic); font-weight:var(--cap-weight, 400); cursor:move; user-select:none; }
 .imgw .icap[hidden]{ display:none; }
 .imgw .icap.top{ bottom:100%; padding-bottom:3px; }
@@ -704,3 +706,36 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 
 /* hyphenation points (soft hyphens shown by the app): never selectable, never part of the text */
 .ProseMirror .shy{ user-select:none; }
+
+/* tab stops: edit a stop in its row */
+#popTabs .tabrow .tabbtns{ display:flex; gap:2px; }
+#popTabs .tabrow .tb.mini svg{ width:14px; height:14px; }
+#popTabs .tabrow.editing{ gap:5px; justify-content:flex-start; }
+#popTabs .tabrow.editing input{ width:60px; height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 6px; }
+#popTabs .tabrow.editing select{ height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); }
+#popTabs .tabrow.tpl > span{ color:var(--ink-2); }
+/* pictures wrapped by the text (left / right): the text also keeps clear of their captions */
+.imgw.wl, .imgw.wr{ margin-top:calc(.2em + var(--capT, 0px)); margin-bottom:calc(var(--img-gap, 4mm) + var(--capB, 0px)); }
+/* a narrow left panel: its buttons stand under each other */
+#pagesNav{ container-type:inline-size; container-name:pnav; }
+@container pnav (max-width: 165px){
+  #pagesNav .lhead{ flex-direction:column; align-items:stretch; gap:4px; padding:8px 6px 2px; }
+  #pagesNav .lhead .navseg{ flex-direction:column; align-items:stretch; }
+  #pagesNav .lhead .navseg .pitem{ width:100%; text-align:center; }
+  #pagesNav .lhead > .tb{ align-self:center; }
+}
+
+/* list symbols (as in Matekos Prezi): the symbol stands in the room before the text; the room grows with the list's
+   widest symbol (big letters, "10."), so a symbol never covers the text */
+.lm{ width:auto; transform:none; box-sizing:border-box; min-width:var(--gap,0.8cm); padding-right:.3em; margin-left:calc(-1 * var(--gap,0.8cm)); }
+.lm.lm-up{ width:0; min-width:0; padding:0; margin-left:0; transform:translateX(calc(-1 * var(--gap,0.8cm) * (var(--up) + 1))); }
+/* header / footer: the middle column is centred, the right one right-aligned (unless a paragraph is set otherwise) */
+.hf .hf-text[data-cell="c"]{ text-align:center; }
+.hf .hf-text[data-cell="r"]{ text-align:right; }
+/* menus with icons (as in Matekos Prezi) */
+.ctxmenu .pitem{ justify-content:flex-start; align-items:center; }
+.ctxmenu .pitem .cico, #popFile .mitem .cico{ display:inline-flex; width:18px; flex:none; color:var(--ink-2); }
+.ctxmenu .pitem .cico svg, #popFile .mitem .cico svg{ width:16px; height:16px; }
+.ctxmenu .pitem .clbl{ flex:1; }
+#popFile .mitem{ display:flex; justify-content:flex-start; align-items:center; gap:10px; }
+#popFile .mitem .clbl{ flex:1; }

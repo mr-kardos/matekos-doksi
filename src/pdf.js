@@ -191,8 +191,15 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
   for (const root of [editorDom, pagesEl]) for (const t of root.querySelectorAll('span.tab[data-leader]')) {
     const r = t.getBoundingClientRect(); if (r.width < 2) continue;
     const cs = getComputedStyle(t), col = rgb(cs.color) || { r: 0, g: 0, b: 0 }, dot = t.dataset.leader === 'dot';
-    const a1 = loc(r.left, r.bottom), w = dot ? 1.2 : 0.6;
-    L[a1.p].line.push({ x1: a1.x, y1: a1.y, x2: a1.x + pt(r.width), y2: a1.y, w, c: col, dash: dot ? [0.1, 2.4] : null, cap: dot ? 'round' : null });
+    if (dot) {                                         // round dots like periods, on the baseline, aligned to the right end
+      const em = parseFloat(cs.fontSize) * PT, step = 0.28 * em, a1 = loc(r.left, r.bottom), x2 = a1.x + pt(r.width);
+      const n = Math.floor(pt(r.width) / step); if (n < 1) continue;
+      const y = a1.y - 0.07 * em, d = 0.1 * em;
+      L[a1.p].line.push({ x1: x2 - (n - 0.5) * step, y1: y, x2: x2 - 0.5 * step + 0.01, y2: y, w: d, c: col, dash: [0.001, step - 0.001], cap: 'round' });
+      continue;
+    }
+    const a1 = loc(r.left, r.bottom), w = 0.6;
+    L[a1.p].line.push({ x1: a1.x, y1: a1.y, x2: a1.x + pt(r.width), y2: a1.y, w, c: col, dash: null, cap: null });
   }
   // ---- table borders (resolved like the browser's collapsed-border model) ----
   for (const table of editorDom.querySelectorAll('table')) {

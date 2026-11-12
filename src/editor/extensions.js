@@ -55,6 +55,8 @@ export const ParaFormat = Extension.create({
         },
         // a line of the table of contents (its heading's level): written and refreshed by the app
         toc: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-toc')), renderHTML: a => a.toc ? { 'data-toc': a.toc } : {} },
+        // the heading text the line was made from (refreshing keeps the line's own text and look while it matches)
+        tocSrc: { default: null, parseHTML: el => el.getAttribute('data-tocsrc') || null, renderHTML: a => a.tocSrc ? { 'data-tocsrc': a.tocSrc } : {} },
         // tab stops: "hf" (centre + right of a header/footer) or JSON [{pos: cm, align: left|center|right}]
         tabStops: {
           default: null,
@@ -1447,6 +1449,57 @@ export const ListJoin = Extension.create({
         const tr = state.tr;
         for (const j of joins.reverse()) { try { tr.join(tr.mapping.map(j)); } catch (e) { /* leave it */ } }
         return tr.docChanged ? tr.setMeta('addToHistory', false) : null;
+      }
+    })];
+  }
+});
+
+/* ---------- lists: the room for the symbol grows with the widest symbol of the list (big letters, "10.") ------
+   Every line of every item then starts at the same place, and the next level's symbol stands exactly where the
+   text of this level starts (like a hanging indent of that width). The room is never smaller than the list's own
+   setting (0,8 cm by default). */
+const CM_PX = 96 / 2.54;
+export function neededGapPx(listEl, scale = 1, gapCm = null) {
+  let need = 0;
+  for (const lm of listEl.querySelectorAll(':scope > li > :first-child > .lm')) {
+    const r = document.createRange(); r.selectNodeContents(lm);
+    const w = r.getBoundingClientRect().width / (scale || 1), fs = parseFloat(getComputedStyle(lm).fontSize) || 16;
+    if (w) need = Math.max(need, w + 0.3 * fs);
+  }
+  return Math.round(Math.max((gapCm ?? 0.8) * CM_PX, need) * 100) / 100;
+}
+/** The same for a drawn (not edited) text. */
+export function fitListGapsDOM(root, scale = 1) {
+  for (const l of root.querySelectorAll('ul, ol')) l.style.setProperty('--gap', neededGapPx(l, scale, numOrNull(l.getAttribute('data-gap'))) + 'px');
+}
+export const ListGapFit = Extension.create({
+  name: 'listGapFit',
+  addOptions() { return { getScale: () => 1 }; },
+  addProseMirrorPlugins() {
+    const ext = this, key = new PluginKey('listGapFit');
+    return [new Plugin({
+      key,
+      state: { init: () => DecorationSet.empty, apply(tr, old) { const m = tr.getMeta(key); return m || old.map(tr.mapping, tr.doc); } },
+      props: { decorations(st) { return key.getState(st); } },
+      view(view) {
+        let raf = 0, sig = '';
+        const run = () => {
+          raf = 0; if (!view.dom.isConnected) return;
+          const sc = ext.options.getScale() || 1, decos = [];
+          let stale = false;
+          view.state.doc.descendants((n, pos) => {
+            if (n.type.name !== 'bulletList' && n.type.name !== 'orderedList') return;
+            const dom = view.nodeDOM(pos); if (!dom || !dom.querySelectorAll) return;
+            const v = neededGapPx(dom, sc, n.attrs.gap) + 'px';
+            if (dom.style.getPropertyValue('--gap').trim() !== v) stale = true;      // a list drawn again (e.g. its setting changed)
+            decos.push(Decoration.node(pos, pos + n.nodeSize, { style: `--gap:${v}` }));
+          });
+          const s = decos.map(d => d.from + d.type.attrs.style).join('|');
+          if (s !== sig || stale) { sig = s; view.dispatch(view.state.tr.setMeta(key, DecorationSet.create(view.state.doc, decos)).setMeta('addToHistory', false)); }
+        };
+        const later = () => { if (!raf) raf = requestAnimationFrame(run); };
+        later();
+        return { update(v, prev) { if (v.state.doc !== prev.doc) later(); }, destroy() { cancelAnimationFrame(raf); } };
       }
     })];
   }

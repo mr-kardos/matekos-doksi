@@ -281,7 +281,7 @@ function setFavMode(on) {
 }
 /** TeX shown on a palette button: the template with sample letters and empty boxes. */
 function labelTex(tpl) {
-  if (/^\\(,|quad|;|:|!)$/.test(tpl.trim())) return null;          // spacing: keep the word label
+  if (/^\\(,|q?quad|;|:|!| )$/.test(tpl)) return null;              // spacing: keep the word label (it has nothing to draw)
   return tpl.replace(/#@/g, 'x').replace(/#0/g, 'a').replace(/#\?/g, '\\square');
 }
 function showCat(i) {

@@ -20,7 +20,7 @@ import { startMathJax, renderInto, opts as mathOpts, clearMathCache, mathReady }
 import { DEFAULT_TPL, normalizeTpl, geometry, GAP, MM, variantFor } from './template.js';
 import { renderSheets, sheetHTML, esc, setHfHTML, setFirstPage } from './pages.js';
 import { FontOverrides } from './editor/extensions.js';
-import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, ListJoin, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel, HunTyping, Hyphens, hyphenKey } from './editor/extensions.js';
+import { ParaFormat, KvBulletList, KvOrderedList, ListMarkers, KvTable, KvTableRow, KvTableCell, KvTableHeader, PageBreak, MathNode, KvImage, LineShade, tableContext, ListHang, LetterSpacing, TextCase, Pins, ActiveTable, CommentMark, ListJoin, setPinSpacers, setPinTop, setDocMathFont, lookOf, lookAtDom, marksAt, TabNode, listDefaults, ListItemAttrs, changeListLevel, HunTyping, Hyphens, hyphenKey, ListGapFit } from './editor/extensions.js';
 import { layoutTabs, DEFAULT_STEP, setStyleTabs } from './tabs.js';
 import { drawMarks, setCellFilter } from './marks.js';
 import { spellPlugin, setSpellEnabled, suggestions, addToDictionary, ignoreWord, hideSpell, showSpell } from './spell.js';
@@ -73,7 +73,7 @@ const editor = new Editor({
       link: false, bulletList: false, orderedList: false, listItem: false, trailingNode: false,   // no extra empty line under a final list
       dropcursor: { color: '#2f6fdb', width: 2 }
     }),
-    ListItem, KvBulletList, KvOrderedList, ListMarkers, HunTyping, Hyphens,
+    ListItem, KvBulletList, KvOrderedList, ListMarkers, HunTyping, Hyphens, ListGapFit.configure({ getScale: () => scale }),
     TextStyle, Color, FontSize, FontFamily, LetterSpacing, TextCase, ListHang, FontOverrides, ListItemAttrs, Pins, ActiveTable, CommentMark, ListJoin, TabNode.configure({ getScale: () => scale }),
     Highlight.configure({ multicolor: true }),
     TextAlign.configure({ types: ['heading', 'paragraph'] }),
@@ -516,6 +516,8 @@ function applyTpl(rerenderMath) {
   const cap = tpl.cap || {};                                           // the look of the picture captions
   dom.style.setProperty('--cap-size', (+cap.size || 9) + 'pt'); dom.style.setProperty('--cap-color', cap.color || '#59616b');
   dom.style.setProperty('--cap-style', cap.italic ? 'italic' : 'normal'); dom.style.setProperty('--cap-weight', cap.bold ? '700' : '400');
+  dom.style.setProperty('--cap-deco', cap.underline ? 'underline' : 'none');
+  if (cap.font) dom.style.setProperty('--cap-font', `'MP ${cap.font}', var(--doc-font)`); else dom.style.removeProperty('--cap-font');
   queueMicrotask(syncHyphenation);
   // font set of the template: text font + its matching math font
   const fs = fontSet(tpl.font);
@@ -621,16 +623,15 @@ $('#imgWrapSel').addEventListener('change', e => { const d = selImgDom(); if (d)
 $('#imgCap').addEventListener('mousedown', e => e.preventDefault());       // the picture stays selected
 $('#imgCap').addEventListener('click', e => showPop('popImgCap', e.currentTarget));
 $('#popImgCap').onopen = () => { const d = selImgDom(), a = d ? d._kv.node().attrs : {}; $('#capTopIn').value = a.capTop || ''; $('#capBotIn').value = a.capBot || ''; setTimeout(() => $('#capTopIn').focus(), 0); };
-function setCaptions() {
+function setCaptions() {   // applied with the OK button (or Enter)
   const sel = editor.state.selection; if (!(sel.node && sel.node.type.name === 'image')) return;
   const capTop = $('#capTopIn').value.trim(), capBot = $('#capBotIn').value.trim();
   if (capTop === (sel.node.attrs.capTop || '') && capBot === (sel.node.attrs.capBot || '')) return;
   editor.view.dispatch(editor.state.tr.setNodeMarkup(sel.from, undefined, { ...sel.node.attrs, capTop, capBot }));
 }
-for (const id of ['#capTopIn', '#capBotIn']) {
-  $(id).addEventListener('input', setCaptions);
-  $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); setCaptions(); closePops(); } });
-}
+for (const id of ['#capTopIn', '#capBotIn']) $(id).addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); setCaptions(); closePops(); } });
+$('#capOk').addEventListener('click', () => { setCaptions(); closePops(); });
+$('#capCancel').addEventListener('click', () => closePops());
 $('#imgReplace').addEventListener('click', () => { const d = selImgDom(); if (d) pickImage(1600, url => d._kv.replace(url)); });
 $('#imgDel').addEventListener('click', () => { const d = selImgDom(); if (d) d._kv.remove(); });
 addEventListener('keydown', e => { if (cropMode && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); endCrop(); } }, true);
@@ -946,6 +947,13 @@ $('#wordCount').addEventListener('click', e => {
 /* ------------------------------------------------------------------ */
 /* The app's own right-click menu (the web view's menu is switched off) */
 /* ------------------------------------------------------------------ */
+/** The icon in front of a menu item (by its text). */
+const CTX_ICONS = [[/^Kivágás/, 'cut'], [/^Beillesztés/, 'paste'], [/^Mindent/, 'selAll'], [/^TeX-kód/, 'copy'], [/^Másolás/, 'copy'],
+  [/^Megjegyzés/, 'comment'], [/^Bekezdés/, 'para'], [/^Tabulátor/, 'tabstop'], [/^Formátummásoló/, 'painter'], [/^Formázás törlése/, 'clear'],
+  [/^Szint beljebb/, 'indent'], [/^Szint kijjebb/, 'outdent'], [/Számozás|Kezdő szám/, 'num'], [/beszúrása/, 'tblAdd'], [/^(Sor|Oszlop) törlése/, 'tblDel'],
+  [/egyesítése/, 'merge'], [/^Cella kitöltése/, 'fill'], [/^Kép cseréje/, 'image'], [/^Felirat/, 'comment'], [/^A szöveg sorában/, 'inline'], [/^Külön sorban/, 'center'],
+  [/^Körbefuttatás/, 'wrapL'], [/^Szöveg fölött/, 'front'], [/^Szöveg mögött/, 'back'], [/törlése$|^Törlés/, 'trash'], [/^Szerkesztés/, 'sigma'], [/Sortörés|Egy sorban/, 'wrapL']];
+const ctxIcon = label => (CTX_ICONS.find(([re]) => re.test(label)) || [0, 'para'])[1];
 function ctxItems(e) {
   const t = e.target.nodeType === 1 ? e.target : e.target.parentElement;
   const st = editor.state, sel = st.selection, items = [];
@@ -1031,7 +1039,7 @@ document.addEventListener('contextmenu', e => {
   if (hit && !t.closest('.imgw,.math') && (sel.empty || hit.pos < sel.from || hit.pos > sel.to)) editor.commands.setTextSelection(hit.pos);
   const items = ctxItems(e); ctxActions = items;
   const m = $('#ctxMenu');
-  m.innerHTML = items.map((it, i) => it.sep ? (it.title ? `<div class="psep"></div><div class="ctitle">${it.title}</div>` : '<div class="psep"></div>') : `<button class="pitem" data-ci="${i}"${it.on ? '' : ' disabled'}><span>${it.label}</span><span class="phint">${it.hint || ''}</span></button>`).join('').replace(/^<div class="psep"><\/div>/, '');
+  m.innerHTML = items.map((it, i) => it.sep ? (it.title ? `<div class="psep"></div><div class="ctitle">${it.title}</div>` : '<div class="psep"></div>') : `<button class="pitem" data-ci="${i}"${it.on ? '' : ' disabled'}><span class="cico">${svg(ctxIcon(it.label))}</span><span class="clbl">${it.label}</span><span class="phint">${it.hint || ''}</span></button>`).join('').replace(/^<div class="psep"><\/div>/, '');
   closePops();
   m.hidden = false;
   const W = m.offsetWidth, H = m.offsetHeight;
@@ -1435,21 +1443,58 @@ function applyFirstLine() {
 }
 $('#pfFirstKind').addEventListener('change', applyFirstLine);
 /* tab stops of the selected paragraphs */
-const curTabs = () => { const a = AE().isActive('heading') ? AE().getAttributes('heading') : AE().getAttributes('paragraph'); try { return a.tabStops && a.tabStops !== 'hf' ? JSON.parse(a.tabStops) : []; } catch (e) { return []; } };
-const AL = { left: 'balra', center: 'középre', right: 'jobbra' }, LD = { dot: ', pontozott', line: ', vonallal' };
-function showTabs() {
-  const t = curTabs();
-  $('#tabList').innerHTML = t.length ? t.map((x, i) => `<div class="tabrow"><span>${String(x.pos).replace('.', ',')} cm – ${AL[x.align] || 'balra'}${LD[x.leader] || ''}</span><button class="tb mini" data-deltab="${i}" title="Tabulátor törlése">✕</button></div>`).join('')
-    : '<div class="phint" style="margin:2px 0 4px">Nincs saját tabulátor.</div>';
+/** The stops of the selected paragraph: its own, or – when it has none – those of its paragraph style in the template. */
+function tabInfo() {
+  const head = AE().isActive('heading'), a = head ? AE().getAttributes('heading') : AE().getAttributes('paragraph');
+  if (a.tabStops === 'hf') return { list: [], fromTpl: false };
+  if (a.tabStops) { try { return { list: JSON.parse(a.tabStops), fromTpl: false }; } catch (e) { return { list: [], fromTpl: false }; } }
+  const k = head ? 'h' + (a.level || 1) : 'p', st = hfEd ? null : (tpl.styles[k] || {}).tabs;
+  return st && st.length ? { list: st.map(x => ({ ...x })), fromTpl: true } : { list: [], fromTpl: false };
 }
-function setTabs(list) { list.sort((a, b) => a.pos - b.pos); AE().chain().setParaAttrs({ tabStops: list.length ? JSON.stringify(list) : null }).run(); showTabs(); relayout(0); }
+const curTabs = () => tabInfo().list;
+const AL = { left: 'balra', center: 'középre', right: 'jobbra' }, LD = { dot: ', pontozott', line: ', vonallal' };
+let tabEditing = -1;                 // the row being edited in the popup
+function showTabs() {
+  const { list: t, fromTpl } = tabInfo();
+  $('#tabFromTpl').hidden = !fromTpl;
+  const lead = v => `<option value=""${!v ? ' selected' : ''}>üres</option><option value="dot"${v === 'dot' ? ' selected' : ''}>pont</option><option value="line"${v === 'line' ? ' selected' : ''}>vonal</option>`;
+  $('#tabList').innerHTML = t.length ? t.map((x, i) => i === tabEditing
+    ? `<div class="tabrow editing"><input type="number" step="0.25" min="0.25" class="tabEdPos" value="${x.pos}" aria-label="Pozíció (cm)"><span class="unit">cm</span><select class="tabEdLead" aria-label="Kitöltés">${lead(x.leader)}</select><button class="btn primary" data-oktab="${i}">OK</button></div>`
+    : `<div class="tabrow${fromTpl ? ' tpl' : ''}"><span>${String(x.pos).replace('.', ',')} cm – ${AL[x.align] || 'balra'}${LD[x.leader] || ''}${fromTpl ? ' (sablon)' : ''}</span><span class="tabbtns"><button class="tb mini" data-edtab="${i}" title="Pozíció és kitöltés módosítása">${svg('edit')}</button><button class="tb mini" data-deltab="${i}" title="Tabulátor törlése">✕</button></span></div>`).join('')
+    : '<div class="phint" style="margin:2px 0 4px">Nincs tabulátor.</div>';
+  const inp = $('#tabList .tabEdPos'); if (inp) { inp.focus(); inp.select(); }
+}
+/** The stops of the selected paragraphs (an empty list over the template's stops: none here, on purpose). */
+function setTabs(list) {
+  const fromTpl = tabInfo().fromTpl; tabEditing = -1;
+  list.sort((a, b) => a.pos - b.pos);
+  AE().chain().setParaAttrs({ tabStops: list.length ? JSON.stringify(list) : (fromTpl ? '[]' : null) }).run(); showTabs(); relayout(0);
+}
+function okTabEdit(i) {
+  const row = $('#tabList .tabrow.editing'); if (!row) return;
+  const v = parseFloat(String(row.querySelector('.tabEdPos').value).replace(',', '.')), lead = row.querySelector('.tabEdLead').value;
+  if (!(v > 0 && v < 60)) { row.querySelector('.tabEdPos').focus(); return; }
+  const t = curTabs(), old = t[i]; if (!old) return;
+  const { leader, ...rest } = old;
+  t.splice(i, 1);
+  setTabs([...t.filter(x => x.pos !== v), { ...rest, pos: v, ...(lead ? { leader: lead } : {}) }]);
+}
 $('#tabAdd').addEventListener('click', () => { const v = parseFloat(String($('#tabPos').value).replace(',', '.')); if (!(v > 0 && v < 60)) return; setTabs([...curTabs().filter(x => x.pos !== v), { pos: v, align: $('#tabAlign').value, ...($('#tabLeader').value ? { leader: $('#tabLeader').value } : {}) }]); $('#tabPos').value = ''; });
-$('#popTabs').onopen = showTabs;
+$('#popTabs').onopen = () => { tabEditing = -1; showTabs(); };
 $('#tabRightMargin').addEventListener('click', () => {      // right tab exactly at the right margin (width of the text column)
   const v = Math.round(editor.view.dom.clientWidth / (96 / 2.54) * 100) / 100;
   setTabs([...curTabs().filter(x => Math.abs(x.pos - v) > 0.01), { pos: v, align: 'right', ...($('#tabLeader').value ? { leader: $('#tabLeader').value } : {}) }]);
 });
-$('#tabList').addEventListener('click', e => { const b = e.target.closest('[data-deltab]'); if (!b) return; const t = curTabs(); t.splice(+b.dataset.deltab, 1); setTabs(t); });
+$('#tabList').addEventListener('click', e => {
+  const ed = e.target.closest('[data-edtab]'); if (ed) { tabEditing = +ed.dataset.edtab; showTabs(); return; }
+  const ok = e.target.closest('[data-oktab]'); if (ok) { okTabEdit(+ok.dataset.oktab); return; }
+  const b = e.target.closest('[data-deltab]'); if (!b) return; const t = curTabs(); t.splice(+b.dataset.deltab, 1); setTabs(t);
+});
+$('#tabList').addEventListener('keydown', e => {
+  if (!e.target.closest('.tabrow.editing')) return;
+  if (e.key === 'Enter') { e.preventDefault(); okTabEdit(tabEditing); }
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); tabEditing = -1; showTabs(); }
+});
 /* margin-to-margin line above / below the paragraph */
 let ruleW = 0.5, ruleC = '#111111';
 $('#ruleW').addEventListener('click', e => { const b = e.target.closest('[data-rw]'); if (!b) return; ruleW = +b.dataset.rw; for (const x of $$('#ruleW [data-rw]')) x.classList.toggle('on', x === b); });
@@ -1919,16 +1964,39 @@ function removeCommentAnchors(id) {
 }
 /** The page elements of a comment (text pieces, picture, cells). */
 const commentEls = id => [...editor.view.dom.querySelectorAll(`[data-cmt~="${id}"]`)];
+/** Scroll `box` to `top` in a short animation of our own. */
+const glides = new WeakMap();
+function glideTo(box, top) {
+  top = Math.max(0, Math.min(top, box.scrollHeight - box.clientHeight));
+  cancelAnimationFrame(glides.get(box) || 0);
+  const from = box.scrollTop, d = top - from; if (Math.abs(d) < 1) { box.scrollTop = top; return; }
+  const t0 = performance.now(), T = Math.min(420, 180 + Math.abs(d) / 12);
+  const step = now => { const k = Math.min(1, (now - t0) / T), e = 1 - Math.pow(1 - k, 3); box.scrollTop = from + d * e; if (k < 1) glides.set(box, requestAnimationFrame(step)); };
+  glides.set(box, requestAnimationFrame(step));
+}
+/** Scroll `box` (instantly) so that `el` is fully visible in it. */
+function keepVisible(box, el) {
+  const b = box.getBoundingClientRect(), r = el.getBoundingClientRect();
+  if (r.top < b.top) box.scrollTop += r.top - b.top - 6; else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 6;
+}
 function focusCard(id) {
   const card = $(`#cmtList [data-cid="${id}"]`); if (!card) return;
   for (const c of $$('#cmtList .cmtcard.act')) c.classList.remove('act');
-  card.classList.add('act'); card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  card.classList.add('act');
+  let box = card.parentElement; while (box && box !== document.body && !(box.scrollHeight > box.clientHeight + 1 && /(auto|scroll)/.test(getComputedStyle(box).overflowY))) box = box.parentElement;
+  if (box && box !== document.body) keepVisible(box, card);
   activeCmt = id; drawComments();
 }
+/** Scroll the document to a comment's place (its first highlighted part, a third down the window). */
 function showCommentPlace(id) {
-  const els = commentEls(id); if (!els.length) return;
-  const r = els[0].getBoundingClientRect(), wr = ws.getBoundingClientRect();
-  ws.scrollTo({ top: ws.scrollTop + r.top - wr.top - ws.clientHeight / 3, behavior: 'smooth' });
+  const els = commentEls(id);
+  let r = els.length ? els[0].getBoundingClientRect() : null;
+  if (!r || (!r.width && !r.height)) {                     // not drawn as an element (e.g. on an empty paragraph): its position
+    const at = commentPlaces()[id]; if (at == null) return;
+    try { const c = editor.view.coordsAtPos(Math.min(at + 1, editor.state.doc.content.size)); r = { top: c.top }; } catch (e) { return; }
+  }
+  const wr = ws.getBoundingClientRect();
+  glideTo(ws, ws.scrollTop + r.top - wr.top - ws.clientHeight / 3);
   activeCmt = id; drawComments();
 }
 var keptSel = null;                 // the text selection shown while a box of a popup / the panel has the focus
@@ -1955,7 +2023,10 @@ function setCmtHidden(v) {
   $('#cmtHide').title = v ? 'A megjegyzések jelölése el van rejtve a lapon, amíg a panel zárva van – kattints a megjelenítéshez' : 'A megjegyzések jelölése a lapon akkor is látszik, ha a panel zárva van – kattints az elrejtéshez';
   drawComments();
 }
+const cmtShown = () => !(cmtHidden && panelView() !== 'cmt');
+let cmtShownWas = null;
 function drawComments() {
+  if (cmtShownWas !== cmtShown()) { cmtShownWas = cmtShown(); thumbsSoon(true); }       // the miniatures' comment marks follow
   if (cmtRaf) return;
   cmtRaf = requestAnimationFrame(() => {
     cmtRaf = 0;
@@ -2074,7 +2145,7 @@ queueMicrotask(() => {
     const pos = Math.min(+b.dataset.hpos + 1, editor.state.doc.content.size);
     try {
       const c = editor.view.coordsAtPos(pos), wr = ws.getBoundingClientRect();
-      ws.scrollTo({ top: ws.scrollTop + (c.top - wr.top) - 40, behavior: 'smooth' });
+      glideTo(ws, ws.scrollTop + (c.top - wr.top) - 40);
       editor.chain().setTextSelection(pos).focus(null, { scrollIntoView: false }).run();
     } catch (err) { /* the document changed meanwhile */ }
   });
@@ -2098,12 +2169,22 @@ function renderThumbs() {
   const kids = Array.from(dom.children).map(c => ({ el: c, top: g.mt + c.offsetTop, bottom: g.mt + c.offsetTop + c.offsetHeight }));
   const style = dom.getAttribute('style') || '';
   const frag = document.createDocumentFragment();
-  // open comments per page (where each comment's first anchor is)
+  // open comments per page (where each comment's first highlighted part is); not shown while the comments are hidden
   const cmtN = {};
-  try {
-    const at = commentPlaces(), top0 = dom.getBoundingClientRect().top;
-    for (const c of docComments) if (!c.done && at[c.id] != null) { const pg = Math.max(0, Math.floor(((editor.view.coordsAtPos(at[c.id]).top - top0) / scale + g.mt) / g.P)); cmtN[pg] = (cmtN[pg] || 0) + 1; }
-  } catch (e) { /* the marks are extra */ }
+  if (cmtShown()) {
+    const open = new Set(docComments.filter(c => !c.done).map(c => c.id)), seen = new Set(), st = stack.getBoundingClientRect();
+    for (const el of dom.querySelectorAll('[data-cmt]')) for (const id of el.dataset.cmt.split(' ')) {
+      if (!id || seen.has(id) || !open.has(id)) continue;
+      const r = el.getBoundingClientRect(); if (!r.width && !r.height) continue;
+      seen.add(id);
+      const pg = Math.max(0, Math.min(pageCount - 1, Math.floor((r.top - st.top) / scale / g.P)));
+      cmtN[pg] = (cmtN[pg] || 0) + 1;
+    }
+    const at = commentPlaces(), top0 = dom.getBoundingClientRect().top;          // anchors that are not drawn as an element
+    for (const id of open) if (!seen.has(id) && at[id] != null) {
+      try { const pg = Math.max(0, Math.min(pageCount - 1, Math.floor(((editor.view.coordsAtPos(at[id]).top - top0) / scale + g.mt) / g.P))); cmtN[pg] = (cmtN[pg] || 0) + 1; } catch (e) { /* skipped */ }
+    }
+  }
   // the free pictures / tables, each with the page it is on (measured once)
   const sr0 = stack.getBoundingClientRect(), edr = dom.getBoundingClientRect();
   const pins = [...dom.querySelectorAll('.pinned')].map(el => {
@@ -2172,14 +2253,14 @@ plist.addEventListener('click', e => {
   const t = e.target.closest('.thumb'); if (!t) return;
   const g = geometry(tpl), i = +t.dataset.i;
   pickedAt = Date.now();
-  ws.scrollTo({ top: outer.offsetTop + i * g.P * scale - 12, behavior: 'smooth' });
+  glideTo(ws, outer.offsetTop + i * g.P * scale - 12);
   setCurPage(i);
 });
 function setCurPage(i) {
   if (i === curPage) return;
   curPage = i;
   for (const t of plist.children) t.classList.toggle('cur', +t.dataset.i === i);
-  const el = plist.children[i]; if (el) el.scrollIntoView({ block: 'nearest' });
+  const el = plist.children[i]; if (el && !plist.hidden) keepVisible(plist, el);
 }
 let pickedAt = 0;
 ws.addEventListener('scroll', () => {
@@ -2241,13 +2322,27 @@ function styleRows() {
           <span class="sttadd"><input type="number" step="0.25" min="0.25" placeholder="cm" data-sttabpos="${k}"><select data-sttabal="${k}"><option value="left">balra</option><option value="center">középre</option><option value="right">jobbra</option></select><select data-sttablead="${k}"><option value="">üres</option><option value="dot">pontozott</option><option value="line">vonal</option></select><button class="btn mini" data-sttabadd="${k}">Hozzáadás</button></span></div>
         <label class="chk" style="margin-top:8px"><input type="checkbox" data-k="${b}.keepNext"> Együtt a következő bekezdéssel</label>
         <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="${b}.contextual"> Nincs térköz az azonos stílusú bekezdések között</label>
-        ${k === 'p' ? `<label class="chk" style="margin-top:4px"><input type="checkbox" data-k="lists.contextual"> Nincs térköz a listaelemek között</label>` : ''}
+        ${k === 'p' ? `<label class="chk" style="margin-top:4px"><input type="checkbox" data-k="lists.contextual"> Nincs térköz a listaelemek között</label>
+        <label class="chk" style="margin-top:4px" title="A sorok végén a hosszú szavak a magyar elválasztási szabályok szerint megtörhetnek. A szöveg nem változik, csak a tördelése."><input type="checkbox" data-k="hyphenate"> Automatikus elválasztás</label>` : ''}
         ${k === 'p' ? `<div class="fgrid" style="margin-top:8px">
           <label class="fld">Felsorolásjel<select data-k="lists.bullet">${['•', '◦', '▪', '–', '➤', '➔', '✓', '★', '◆', '❖', '☐', '→'].map(c => `<option>${c}</option>`).join('')}<option value="matekos">∞ Matekos végtelen</option></select></label>
           <label class="fld">Számozás<select data-k="lists.num"><option value="decimal">1. 2. 3.</option><option value="decimal-paren">1) 2) 3)</option><option value="lower-alpha">a) b) c)</option><option value="upper-alpha">A. B. C.</option><option value="lower-roman">i. ii. iii.</option><option value="upper-roman">I. II. III.</option></select></label>
         </div><div class="phint">Az új listák ezzel a jellel / számozással indulnak.</div>` : ''}
       </div></div>`;
-  }).join('');
+  }).join('') + capCard(famOpts);
+}
+/** The style card of the picture captions (as the paragraph styles, with what a caption can have). */
+function capCard(famOpts) {
+  const c = tpl.cap || (tpl.cap = {}), open = openStyle === 'cap';
+  return `<div class="strow stcard${open ? ' open' : ''}" data-style="cap">
+    <button class="sthead sttoggle" data-sttoggle="cap"><span class="chev">${svg('chev')}</span><b>Képfelirat</b><span class="phint">a képek fölötti és alatti szöveg</span><span class="stprev" style="font-weight:${c.bold ? 700 : 400};font-style:${c.italic ? 'italic' : 'normal'};text-decoration:${c.underline ? 'underline' : 'none'};color:${esc(c.color || '#59616b')}">Aa</span></button>
+    <div class="stbody">
+      <label class="fld full">Betűtípus<select data-k="cap.font">${famOpts(c.font)}</select></label>
+      <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="cap.size" title="Betűméret (pt)"><span class="unit">pt</span>
+        <label class="colbtn btn" title="Betűszín"><input type="color" class="hidecolor" data-k="cap.color"><i class="dot fill" style="--c:${esc(c.color || '#59616b')}"></i>Szín</label>
+        ${['bold', 'italic', 'underline'].map(t => `<button class="tb${c[t] ? ' on' : ''}" data-capt="${t}" title="${{ bold: 'Félkövér', italic: 'Dőlt', underline: 'Aláhúzott' }[t]}">${{ bold: '<b>B</b>', italic: '<i>I</i>', underline: '<u>U</u>' }[t]}</button>`).join('')}</div>
+      <div class="phint" style="margin-top:6px">A felirat a kép szélességében, középre igazítva áll, és a képpel együtt mozog.</div>
+    </div></div>`;
 }
 { const fams = allFamilies(), o = list => list.map(([f, l]) => `<option value="${f}">${l}</option>`).join('');
   for (const sel of $$('.hffont')) sel.innerHTML = `<option value="">Alap betűtípus</option><optgroup label="Képletbarát betűtípusok">${o(fams.math)}</optgroup><optgroup label="Egyéb betűtípusok">${o(fams.other)}</optgroup>`; }
@@ -2256,16 +2351,17 @@ $('#tplFont').innerHTML = Object.entries(FONT_SETS).map(([k, f]) => `<option val
 function renderHfRanges() {
   const box = $('#hfRangeList'); if (!box) return;
   const rs = tpl.hfRanges || (tpl.hfRanges = []);
-  box.innerHTML = rs.map((r, k) => `<div class="hfr" data-r="${k}"><input type="number" min="1" data-f="from" value="${+r.from || 1}" title="Első oldal"><span>–</span><input type="number" min="1" data-f="to" value="${+r.to || ''}" title="Utolsó oldal"><input type="text" data-f="l" value="${esc(r.l || '')}" placeholder="bal"><input type="text" data-f="c" value="${esc(r.c || '')}" placeholder="közép"><input type="text" data-f="r" value="${esc(r.r || '')}" placeholder="jobb"><button class="tb mini" data-del title="Törlés">✕</button></div>`).join('');
+  box.innerHTML = rs.map((r, k) => `<div class="hfr" data-r="${k}"><input type="number" min="1" data-f="from" value="${+r.from || 1}" title="Első oldal"><span>–</span><input type="number" min="1" data-f="to" value="${+r.to || ''}" title="Utolsó oldal"><input type="text" data-f="l" value="${esc(r.l || '')}" placeholder="bal"><input type="text" data-f="c" value="${esc(r.c || '')}" placeholder="közép"><input type="text" data-f="r" value="${esc(r.r || '')}" placeholder="jobb"><button class="tb mini" data-del title="Törlés">✕</button><select data-f="par" class="hfrpar" title="Mely oldalakra vonatkozik a tartományon belül"><option value="both"${!r.par || r.par === 'both' ? ' selected' : ''}>minden oldalra</option><option value="odd"${r.par === 'odd' ? ' selected' : ''}>csak a páratlan oldalakra</option><option value="even"${r.par === 'even' ? ' selected' : ''}>csak a páros oldalakra</option></select></div>`).join('');
 }
 document.addEventListener('change', e => {
   const row = e.target.closest && e.target.closest('#hfRangeList .hfr'); if (!row) return;
   const r = tpl.hfRanges[+row.dataset.r], f = e.target.dataset.f; if (!r || !f) return;
   r[f] = f === 'from' || f === 'to' ? (+e.target.value || null) : e.target.value;
+  if (f === 'par' && r.par === 'both') delete r.par;
   tplChanged(); applyTpl();
 });
 document.addEventListener('click', e => {
-  if (e.target.closest && e.target.closest('#hfRangeAdd')) { (tpl.hfRanges = tpl.hfRanges || []).push({ from: 1, to: pageCount, l: '', c: '', r: '' }); renderHfRanges(); tplChanged(); applyTpl(); return; }
+  if (e.target.closest && e.target.closest('#hfRangeAdd')) { (tpl.hfRanges = tpl.hfRanges || []).push({ from: 1, to: pageCount, l: '', c: '', r: '', ...(tpl.oddEven && (hfVariant === 'odd' || hfVariant === 'even') ? { par: hfVariant } : {}) }); renderHfRanges(); tplChanged(); applyTpl(); return; }
   const d = e.target.closest && e.target.closest('#hfRangeList [data-del]'); if (!d) return;
   tpl.hfRanges.splice(+d.closest('.hfr').dataset.r, 1); renderHfRanges(); tplChanged(); applyTpl();
 });
@@ -2399,6 +2495,8 @@ props.addEventListener('click', e => {
   if (tg) { openStyle = openStyle === tg.dataset.sttoggle ? '' : tg.dataset.sttoggle; for (const c of $$('#styleRows .stcard')) c.classList.toggle('open', c.dataset.style === openStyle); return; }
   const al = e.target.closest('[data-stalign]');
   if (al) { tpl.styles[al.dataset.st].align = al.dataset.stalign; for (const x of al.parentElement.querySelectorAll('[data-stalign]')) x.classList.toggle('on', x === al); tplChanged(); return; }
+  const cb = e.target.closest('[data-capt]');
+  if (cb) { const c = tpl.cap; c[cb.dataset.capt] = !c[cb.dataset.capt]; cb.classList.toggle('on', c[cb.dataset.capt]); tplChanged(); return; }
   const b = e.target.closest('[data-stt]'); if (!b) return;
   const st = tpl.styles[b.dataset.st]; st[b.dataset.stt] = !st[b.dataset.stt]; b.classList.toggle('on', st[b.dataset.stt]); tplChanged();
 });
@@ -2563,33 +2661,65 @@ async function ready() {
    Ordinary paragraphs (marked as lines of the table of contents): the heading's text, a dotted right tab, the page
    number. Written by the app from the headings; refreshed by the same button and before a PDF / printing. */
 const CM_PX = 96 / 2.54;
-function tocRun() {                                   // the first run of table-of-contents lines: {from, to, json} or null
-  let from = null, to = null; const json = [];
+function tocRun() {                                   // the first run of table-of-contents lines: {from, to, json, nodes} or null
+  let from = null, to = null; const json = [], nodes = [];
   editor.state.doc.forEach((n, pos) => {
     if (to != null) return;
-    if (n.type.name === 'paragraph' && n.attrs.toc) { if (from == null) from = pos; json.push(n.toJSON()); }
+    if (n.type.name === 'paragraph' && n.attrs.toc) { if (from == null) from = pos; json.push(n.toJSON()); nodes.push(n); }
     else if (from != null) to = pos;
   });
   if (from == null) return null;
-  return { from, to: to ?? editor.state.doc.content.size, json };
+  return { from, to: to ?? editor.state.doc.content.size, json, nodes };
 }
-function tocLines() {
-  const g = geometry(tpl), dom = editor.view.dom, top0 = dom.getBoundingClientRect().top;
-  const width = Math.round(dom.clientWidth / CM_PX * 100) / 100, out = [];
+/** The text of inline content as a comparable signature (formulas by their TeX code). */
+const tocSig = content => (content || []).map(c => c.type === 'text' ? c.text : c.type === 'math' ? '$' + (c.attrs && c.attrs.tex) + '$' : c.type === 'tab' ? ' ' : '').join('').replace(/\s+/g, ' ').trim();
+const lastTab = content => { let k = -1; (content || []).forEach((c, i) => { if (c.type === 'tab') k = i; }); return k; };
+const beforeTab = content => { const k = lastTab(content); return k < 0 ? (content || []) : content.slice(0, k); };
+const textMarks = content => { const t = (content || []).find(c => c.type === 'text'); return t && t.marks ? t.marks : null; };
+const markAll = (content, marks) => content.map(c => { if (c.type !== 'text') return c; const { marks: _m, ...rest } = c; return marks && marks.length ? { ...rest, marks } : rest; });
+/** The headings: {level, content (inline JSON), sig, page}. */
+function tocEntries() {
+  const g = geometry(tpl), dom = editor.view.dom, top0 = dom.getBoundingClientRect().top, out = [];
   editor.state.doc.forEach((n, pos) => {
     if (n.type.name !== 'heading') return;
-    const lvl = n.attrs.level, content = [];
-    n.forEach(c => {
-      if (c.isText) content.push({ type: 'text', text: c.text, ...(lvl === 1 ? { marks: [{ type: 'bold' }] } : {}) });
-      else if (c.type.name === 'math') content.push(c.toJSON());
-      else if (c.type.name === 'tab') content.push({ type: 'text', text: ' ' });
-    });
-    if (!content.some(c => c.type !== 'text' || c.text.trim())) return;
+    const content = [];
+    n.forEach(c => { if (c.isText) content.push({ type: 'text', text: c.text }); else if (c.type.name === 'math') content.push(c.toJSON()); else if (c.type.name === 'tab') content.push({ type: 'text', text: ' ' }); });
+    const sig = tocSig(content); if (!sig) return;
     let pg = 0; try { pg = Math.max(0, Math.floor(((editor.view.coordsAtPos(pos + 1).top - top0) / scale + g.mt) / g.P)); } catch (e) { /* not laid out yet */ }
-    out.push({ type: 'paragraph', attrs: { toc: lvl, tabStops: JSON.stringify([{ pos: width, align: 'right', leader: 'dot' }]), indentLeft: lvl > 1 ? (lvl - 1) * 0.6 : null, spaceBefore: lvl === 1 ? 4 : 0, spaceAfter: 1, keepNext: false },
-      content: [...content, { type: 'tab' }, { type: 'text', text: String(pg + (+tpl.startPage || 1)) }] });
+    out.push({ level: n.attrs.level, content, sig, page: String(pg + (+tpl.startPage || 1)) });
   });
   return out;
+}
+/** The lines of the table of contents. A line that already exists keeps its own text, look and paragraph settings
+ *  (only its page number is renewed – and its text, when its heading was renamed); a new line takes the look of an
+ *  existing line of the same level. */
+function tocLines(olds = []) {
+  const entries = tocEntries(), width = Math.round(editor.view.dom.clientWidth / CM_PX * 100) / 100;
+  const srcOf = o => o.attrs.tocSrc || tocSig(beforeTab(o.toJSON().content));
+  // 1. the same heading text (in order), 2. the remaining ones of the same level, keeping the order
+  const used = new Set(), match = entries.map(() => -1);
+  entries.forEach((e, i) => { const j = olds.findIndex((o, k) => !used.has(k) && o.attrs.toc === e.level && srcOf(o) === e.sig); if (j >= 0) { match[i] = j; used.add(j); } });
+  let last = -1;
+  entries.forEach((e, i) => {
+    if (match[i] >= 0) { last = match[i]; return; }
+    const next = match.slice(i + 1).find(m => m >= 0), lim = next == null ? olds.length : next;
+    const j = olds.findIndex((o, k) => k > last && k < lim && !used.has(k) && o.attrs.toc === e.level);
+    if (j >= 0) { match[i] = j; used.add(j); last = j; }
+  });
+  return entries.map((e, i) => {
+    const old = match[i] >= 0 ? olds[match[i]] : null;
+    const tmpl = old || olds.find(o => o.attrs.toc === e.level) || null;
+    if (tmpl) {
+      const j = tmpl.toJSON(), c = j.content || [], k = lastTab(c);
+      let before = k < 0 ? c : c.slice(0, k);
+      const after = k < 0 ? [] : c.slice(k + 1), numMarks = textMarks(after);
+      if (!old || tocSig(before) !== e.sig && srcOf(old) !== e.sig) before = markAll(e.content, textMarks(before));   // new line, or the heading was renamed
+      return { ...j, attrs: { ...j.attrs, toc: e.level, tocSrc: e.sig }, content: [...before, { type: 'tab' }, { type: 'text', text: e.page, ...(numMarks ? { marks: numMarks } : {}) }] };
+    }
+    const lvl = e.level;
+    return { type: 'paragraph', attrs: { toc: lvl, tocSrc: e.sig, tabStops: JSON.stringify([{ pos: width, align: 'right', leader: 'dot' }]), indentLeft: lvl > 1 ? (lvl - 1) * 0.6 : null, spaceBefore: lvl === 1 ? 4 : 0, spaceAfter: 1, keepNext: false },
+      content: [...markAll(e.content, lvl === 1 ? [{ type: 'bold' }] : null), { type: 'tab' }, { type: 'text', text: e.page }] };
+  });
 }
 /** Insert the table of contents before the block the cursor is in – or refresh the one the document has.
  *  The page numbers are worked out again until they stop changing (the table itself may push the text on). */
@@ -2597,11 +2727,11 @@ async function updateTOC(byUser) {
   if (hfEd) return;
   let run = tocRun();
   if (!run && !byUser) return;
-  if (!tocLines().length) { if (byUser) toast('Nincs címsor a dokumentumban – a tartalomjegyzék a Főcím, Cím és Alcím stílusú bekezdésekből készül.'); return; }
+  if (!tocEntries().length) { if (byUser) toast('Nincs címsor a dokumentumban – a tartalomjegyzék a Főcím, Cím és Alcím stílusú bekezdésekből készül.'); return; }
   let changed = false;
   for (let round = 0; round < 4; round++) {
-    const lines = tocLines();
     run = tocRun();
+    const lines = tocLines(run ? run.nodes : []);
     const st = editor.state, same = run && JSON.stringify(run.json) === JSON.stringify(lines.map(l => st.schema.nodeFromJSON(l).toJSON()));
     if (same) break;
     const nodes = lines.map(l => st.schema.nodeFromJSON(l));
@@ -2842,7 +2972,7 @@ $('#expMd').addEventListener('click', async () => {
   } catch (e) { toast('A Markdown-export nem sikerült: ' + (e && e.message || e)); }
 });
 /* light / dark mode (Fájl menu); dark is the default */
-function themeLabel() { const dark = document.documentElement.dataset.theme !== 'light'; $('#fTheme').textContent = dark ? '☀  Világos mód' : '☾  Sötét mód'; }
+function themeLabel() { const dark = document.documentElement.dataset.theme !== 'light'; $('#fTheme').innerHTML = `<span class="cico">${svg(dark ? 'sun' : 'moon')}</span><span class="clbl">${dark ? 'Világos mód' : 'Sötét mód'}</span>`; }
 $('#fTheme').addEventListener('click', () => {
   const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
   document.documentElement.dataset.theme = t; lsSet('matekosdoksi.theme', t); themeLabel(); windowTheme(); closePops();
@@ -2878,7 +3008,12 @@ function zoomBy(factor, at) {
   zoomRun.v = Math.max(25, Math.min(400, zoomRun.v * factor));
   setZoom(zoomRun.v, at); zoomRun.shown = Math.round(scale * 100);
 }
-const zoomable = e => $('#home').hidden && e.target instanceof Node && ws.contains(e.target);
+const zoomable = e => {
+  if (!$('#home').hidden) return false;
+  const r = ws.getBoundingClientRect(), x = e.clientX, y = e.clientY;
+  if (typeof x === 'number' && typeof y === 'number' && (x || y)) return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  return e.target instanceof Node && (ws.contains(e.target) || e.target === document || e.target === document.body || e.target === document.documentElement);
+};
 window.addEventListener('wheel', e => {
   if (!(e.ctrlKey || e.metaKey) || !zoomable(e)) return;
   e.preventDefault(); e.stopPropagation();
@@ -2887,9 +3022,19 @@ window.addEventListener('wheel', e => {
   zoomBy(Math.abs(d) >= 50 ? (d < 0 ? 1.1 : 1 / 1.1) : Math.exp(-d * 0.01), { x: e.clientX, y: e.clientY });   // a wheel notch: 10%; a touchpad: smooth
 }, { passive: false, capture: true });
 let pinch = null;
-window.addEventListener('gesturestart', e => { if (!zoomable(e)) return; e.preventDefault(); pinch = Math.round(scale * 100); }, { passive: false, capture: true });
-window.addEventListener('gesturechange', e => { if (pinch == null) return; e.preventDefault(); setZoom(pinch * (e.scale || 1), { x: e.clientX, y: e.clientY }); }, { passive: false, capture: true });
-window.addEventListener('gestureend', e => { if (pinch != null) e.preventDefault(); pinch = null; }, { passive: false, capture: true });
+const touchPts = new Map(); let touch0 = null;
+ws.addEventListener('pointerdown', e => { if (e.pointerType !== 'touch') return; touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (touchPts.size === 2) { const [a, b] = [...touchPts.values()]; touch0 = { d: Math.hypot(a.x - b.x, a.y - b.y), z: Math.round(scale * 100) }; } });
+ws.addEventListener('pointermove', e => {
+  if (!touchPts.has(e.pointerId)) return;
+  touchPts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touchPts.size !== 2 || !touch0 || !touch0.d) return;
+  const [a, b] = [...touchPts.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+  setZoom(touch0.z * d / touch0.d, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+});
+for (const ev of ['pointerup', 'pointercancel']) ws.addEventListener(ev, e => { touchPts.delete(e.pointerId); if (touchPts.size < 2) touch0 = null; });
+for (const t of [window, document]) t.addEventListener('gesturestart', e => { if (!zoomable(e)) return; e.preventDefault(); if (pinch == null) pinch = Math.round(scale * 100); }, { passive: false, capture: true });
+for (const t of [window, document]) t.addEventListener('gesturechange', e => { if (pinch == null) return; e.preventDefault(); e.stopPropagation(); setZoom(pinch * (e.scale || 1), { x: e.clientX, y: e.clientY }); }, { passive: false, capture: true });
+for (const t of [window, document]) t.addEventListener('gestureend', e => { if (pinch != null) e.preventDefault(); pinch = null; }, { passive: false, capture: true });
 
 function zoomButton() {
   const fit = zoomMode === 'auto';
