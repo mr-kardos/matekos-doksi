@@ -1,4 +1,4 @@
-# Matekos Doksi 1.0.1
+# Matekos Doksi 1.0.2
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -128,6 +128,11 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   * list symbols: the room before the text grows with the list's widest symbol (as in Matekos Prezi);
   * the window can be made as narrow as half a screen;
   * formula editor: the Space and Óriás space buttons show their names; File menu and right-click menu with icons.
+
+* 1.0.2: fixes a start-up error of 1.0.0 – 1.0.1 (the comment marks of the page miniatures were asked for before the
+  miniatures existed, which stopped the rest of the app from starting: buttons without icons, empty menus and
+  settings); in a narrow window the document title moves to its own row, so every button of the top bar stays
+  reachable.
 
 ## File format
 

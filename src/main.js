@@ -2026,7 +2026,8 @@ function setCmtHidden(v) {
 const cmtShown = () => !(cmtHidden && panelView() !== 'cmt');
 let cmtShownWas = null;
 function drawComments() {
-  if (cmtShownWas !== cmtShown()) { cmtShownWas = cmtShown(); thumbsSoon(true); }       // the miniatures' comment marks follow
+  // the miniatures' comment marks follow (later: this runs already while the app starts, before the miniatures exist)
+  if (cmtShownWas !== cmtShown()) { cmtShownWas = cmtShown(); setTimeout(() => thumbsSoon(true), 0); }
   if (cmtRaf) return;
   cmtRaf = requestAnimationFrame(() => {
     cmtRaf = 0;

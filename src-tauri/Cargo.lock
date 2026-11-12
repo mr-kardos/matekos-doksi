@@ -2017,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "matekos-doksi"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "serde_json",
  "tauri",
