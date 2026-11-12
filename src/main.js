@@ -293,7 +293,7 @@ function lineAtY(y, skipEl) {
     const pt = parseFloat(getComputedStyle(b).paddingTop) || 0;
     if (br.top + pt >= y) { try { return { pos: view.posAtDOM(b, 0), top: br.top + pt }; } catch (e) { return null; } }
     // inside this paragraph: the first character whose line reaches below y
-    const tw = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, { acceptNode: t => t.parentElement.closest('.lm,.math,.pin-sp,.pg-sp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+    const tw = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, { acceptNode: t => t.parentElement.closest('.lm,.math,.pin-sp,.pg-sp,.imgw') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });   // a picture's captions are not lines of the text
     const rg = document.createRange();
     while (tw.nextNode()) {
       const t = tw.currentNode; if (!t.data.length) continue;
@@ -305,7 +305,7 @@ function lineAtY(y, skipEl) {
       let s0 = lo, tn = t; while (s0 > 0) { rg.setStart(tn, s0 - 1); rg.setEnd(tn, s0); if (Math.abs(rg.getBoundingClientRect().top - top0) > 2) break; s0--; }
       // the line may begin in an earlier text piece (marks, spell-check underlines split the text)
       if (s0 === 0) {
-        const back = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, { acceptNode: x => x.parentElement.closest('.lm,.math,.pin-sp,.pg-sp') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+        const back = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, { acceptNode: x => x.parentElement.closest('.lm,.math,.pin-sp,.pg-sp,.imgw') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
         back.currentNode = tn;
         while (back.previousNode()) {
           const pt = back.currentNode; if (!pt.data.length) continue;
@@ -1401,7 +1401,14 @@ $('#popPara').onopen = () => {
     }
   }
   const lst = listAroundAny(AE().state);
-  const hang = (lst && lst.node.attrs.gap) || a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
+  // a list item always hangs: the room of its symbol (as wide as the list's widest symbol needs) – shown with its value
+  let listHang = 0;
+  if (lst && AE().isActive('listItem')) {
+    let room = +lst.node.attrs.gap || 0;
+    try { const el = AE().view.nodeDOM(lst.pos), px = el && parseFloat(getComputedStyle(el).getPropertyValue('--gap')); if (px > 0) room = Math.max(room, px / (96 / 2.54)); } catch (e) { /* the setting only */ }
+    listHang = Math.round(((room || 0.8) + (+a.hang || 0)) * 100) / 100;
+  }
+  const hang = listHang || (lst && lst.node.attrs.gap) || a.hang || (a.firstLine < 0 ? -a.firstLine : 0);
   const fl = a.firstLine ?? (AE().isActive('listItem') ? 0 : (tpl.styles[sk] || {}).firstLine || 0);
   const hang2 = hang || (fl < 0 ? -fl : 0);
   $('#pfFirstKind').value = hang2 ? 'hang' : fl > 0 ? 'first' : 'none';

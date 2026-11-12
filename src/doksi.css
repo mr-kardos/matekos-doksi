@@ -709,7 +709,9 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 
 /* tab stops: edit a stop in its row */
 #popTabs .tabrow .tabbtns{ display:flex; gap:2px; }
-#popTabs .tabrow .tb.mini svg{ width:14px; height:14px; }
+#popTabs .tabrow .tb.mini{ min-width:28px; width:28px; height:28px; padding:0; font-size:15px; display:inline-flex; align-items:center; justify-content:center; }
+#popTabs .tabrow .tb.mini svg{ width:17px; height:17px; }
+#popTabs .tabrow .tabbtns{ gap:4px; }
 #popTabs .tabrow.editing{ gap:5px; justify-content:flex-start; }
 #popTabs .tabrow.editing input{ width:60px; height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); padding:0 6px; }
 #popTabs .tabrow.editing select{ height:26px; border:1px solid var(--line); border-radius:6px; background:var(--chrome-2); color:var(--ink); }
@@ -719,10 +721,10 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 /* a narrow left panel: its buttons stand under each other */
 #pagesNav{ container-type:inline-size; container-name:pnav; }
 @container pnav (max-width: 165px){
-  #pagesNav .lhead{ flex-direction:column; align-items:stretch; gap:4px; padding:8px 6px 2px; }
-  #pagesNav .lhead .navseg{ flex-direction:column; align-items:stretch; }
-  #pagesNav .lhead .navseg .pitem{ width:100%; text-align:center; }
-  #pagesNav .lhead > .tb{ align-self:center; }
+  #pagesNav .lhead{ align-items:flex-start; gap:4px; padding:8px 4px 2px 8px; }
+  #pagesNav .lhead .navseg{ flex-direction:column; align-items:stretch; flex:1; min-width:0; }
+  #pagesNav .lhead .navseg .pitem{ width:100%; text-align:left; }
+  #pagesNav .lhead > .tb{ flex:none; margin-left:auto; }
 }
 
 /* list symbols (as in Matekos Prezi): the symbol stands in the room before the text; the room grows with the list's
@@ -751,3 +753,6 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
   .bar1 .wbtn{ width:auto; padding-left:10px; padding-right:10px; }
   .bar1 .b1sep{ display:none; }
 }
+
+/* Lektor mód: a second indent label in the same row stands below the line, so the labels never cover each other */
+#marksLayer .mk-ind.lft.low i, #marksLayer .mk-ind.rgt.low i{ top:9px; }

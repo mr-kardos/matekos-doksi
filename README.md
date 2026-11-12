@@ -1,4 +1,4 @@
-# Matekos Doksi 1.0.2
+# Matekos Doksi 1.0.3
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -133,6 +133,12 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   miniatures existed, which stopped the rest of the app from starting: buttons without icons, empty menus and
   settings); in a narrow window the document title moves to its own row, so every button of the top bar stays
   reachable.
+
+* 1.0.3: the text wraps around freely placed pictures with captions again (a caption's text was taken for a line
+  of the paragraph, so the wrap area was placed wrong); the paragraph settings show a list item's hanging indent
+  (the room of its symbol) with its value; Lektor mód: indents in the same row share one label, so the labels never
+  cover each other; larger edit / delete buttons for the tab stops; a narrow left panel keeps its close button at the
+  top right (only "Címsorok" moves under "Oldalak").
 
 ## File format
 
