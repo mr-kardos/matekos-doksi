@@ -385,9 +385,16 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       }
     }
   }
+  // links: clickable areas over their text
+  const links = Array.from({ length: pages }, () => []);
+  for (const a of editorDom.querySelectorAll('a[href]')) {
+    const href = a.getAttribute('href'); if (!/^(https?|mailto):/i.test(href)) continue;
+    for (const r of a.getClientRects()) { if (r.width < 0.5) continue; const q = loc(r.left, r.top); links[q.p].push({ x: q.x, y: q.y, w: pt(r.width), h: pt(r.height), href }); }
+  }
   for (let i = 0; i < pages; i++) {
     doc.setPage(i + 1);
     const pg = L[i];
+    for (const k of links[i]) { try { doc.link(k.x, k.y, k.w, k.h, { url: k.href }); } catch (e) { /* skip */ } }
     if (wmText) {
       doc.setGState(new doc.GState({ opacity: +wm.opacity }));
       if (wmText.ops) drawOps(doc, wmText.ops, wmText.c);

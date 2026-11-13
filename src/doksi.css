@@ -756,3 +756,9 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 
 /* Lektor mód: a second indent label in the same row stands below the line, so the labels never cover each other */
 #marksLayer .mk-ind.lft.low i, #marksLayer .mk-ind.rgt.low i{ top:9px; }
+
+/* links: blue, underlined (as in Word); Ctrl/⌘ + click opens them */
+.ProseMirror a[href]{ color:#1a55c4; text-decoration:underline; cursor:text; }
+.ProseMirror a[href]:hover{ text-decoration-thickness:2px; }
+#popLink{ width:320px; }
+#popLink input[type=text]{ width:100%; box-sizing:border-box; }

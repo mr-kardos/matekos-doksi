@@ -1,4 +1,4 @@
-# Matekos Doksi 1.0.3
+# Matekos Doksi 1.1.0
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -139,6 +139,21 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   (the room of its symbol) with its value; Lektor mód: indents in the same row share one label, so the labels never
   cover each other; larger edit / delete buttons for the tab stops; a narrow left panel keeps its close button at the
   top right (only "Címsorok" moves under "Oldalak").
+
+* 1.1.0:
+  * non-breaking space: Ctrl/⌘+Shift+Space (also in the right-click menu); Lektor mód shows it as °;
+  * links: ribbon button and Ctrl/⌘+K (on the selection, or the address itself as text), Ctrl/⌘ + click opens them;
+    they stay clickable in the PDF and are kept by the Markdown import / export;
+  * find and replace also in the headers and footers (after the matches of the text);
+  * long documents: typing no longer freezes the app for seconds when there are many freely placed pictures (every
+    paragraph is measured once per round, unchanged text-wrap floats and page miniatures are kept, the rounds
+    between page breaks and text wrap are limited, with a final round when things are quiet);
+  * the line above a picture is no longer pushed beside it (the picture has no wrap margin above it, and the float of
+    a line inside a paragraph is anchored in that line);
+  * code: the editor's code is in `src/main/`, one file per topic (as in Matekos Prezi; the built app is the same as
+    before the split); `npm test` also checks the parts; `npm run test:app` builds the app and runs it in a headless
+    Chrome – it clicks every ribbon button and popup and tries a few features (the first time:
+    `npx playwright install chromium`).
 
 ## File format
 

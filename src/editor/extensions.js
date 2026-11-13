@@ -161,6 +161,8 @@ export const Hyphens = Extension.create({
  *  that is being typed ($…), and Backspace right after a correction brings back what was typed. */
 export const HunTyping = Extension.create({
   name: 'hunTyping',
+  // a non-breaking space ("5 cm", "a) …" never split at a line end): Ctrl/⌘+Shift+Space, as in Word
+  addKeyboardShortcuts() { return { 'Mod-Shift-Space': () => this.editor.commands.insertContent('\u00a0') }; },
   addInputRules() {
     const before = (state, pos) => { const $p = state.doc.resolve(pos); return $p.parent.textBetween(0, $p.parentOffset, undefined, '\ufffc'); };
     const inFormula = t => (t.split('$').length - 1) % 2 === 1;

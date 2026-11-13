@@ -76,7 +76,8 @@
       <button class="tb" data-cmd="toc" data-icon="toc" title="Tartalomjegyzék a címsorokból (Főcím, Cím, Alcím) oldalszámokkal: beszúrás a kurzor elé – ha már van, frissítés"></button>
     </div>
     <div class="grp">
-      <button class="tb" data-pop="popFind" data-icon="search" title="Keresés és csere (Ctrl/⌘+F)"></button>
+      <button class="tb" data-pop="popLink" data-icon="link" title="Hivatkozás (Ctrl/⌘+K) – Ctrl/⌘+kattintással nyílik meg"></button>
+      <button class="tb" data-pop="popFind" data-icon="search" title="Keresés és csere (Ctrl/⌘+F) – a szövegben, a képletekben, az élőfejben és az élőlábban"></button>
       <button class="tb" data-cmd="spell" data-state="spell" data-icon="spell" title="Helyesírás-ellenőrzés (magyar) be / ki"></button>
       <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Lektor mód: rejtett formázás, behúzások (függő behúzás is), térközök és a sablontól való eltérések mutatása"></button>
     </div>
@@ -405,6 +406,12 @@
 </div>
 <div class="cfm" id="updBox" hidden role="dialog" aria-modal="true"><div class="cfm-card upd"><p class="updhead">Új verzió érhető el: <b id="updVer"></b></p><p class="updmsg" id="updMsg"></p>
   <div class="cfm-btns"><button class="btn" id="updLater">Később</button><button class="btn primary" id="updGo">Letöltés</button></div></div></div>
+<div class="pop" id="popLink" hidden>
+  <div class="ptitle">Hivatkozás</div>
+  <label class="fld full">Webcím<input type="text" id="linkIn" spellcheck="false" placeholder="https://…"></label>
+  <div class="phint" style="margin-top:6px">A kijelölt szöveg lesz a hivatkozás; kijelölés nélkül maga a webcím kerül a szövegbe. Megnyitás: Ctrl/⌘ + kattintás.</div>
+  <div class="cfm-btns" style="margin-top:10px"><button class="btn" id="linkDel">Eltávolítás</button><button class="btn primary" id="linkOk">OK</button></div>
+</div>
 <div class="pop" id="popImgCap" hidden>
   <div class="ptitle">Képfelirat</div>
   <label class="fld full">A kép fölött<input type="text" id="capTopIn" spellcheck="false" placeholder="például a kép címe"></label>
