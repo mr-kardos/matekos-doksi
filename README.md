@@ -1,4 +1,4 @@
-# Matekos Doksi 1.2.1
+# Matekos Doksi 1.2.2
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -176,6 +176,9 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   come right after the numbered list, the alignment button has no arrow and is highlighted for every alignment but
   left, "⋯ További funkciók" without the comment item; the look of the table of contents is stored in the document
   (`toc` in the .mdoksi file), not in the template.
+
+* 1.2.2: the ready-made "Feladatsor" template is the new one (`public/presets/feladatsor.mdsab`); the alignment
+  button is as wide as the other buttons, with its icon in the middle.
 
 ## File format
 

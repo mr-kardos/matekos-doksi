@@ -763,8 +763,8 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 #popLink input[type=text]{ width:100%; box-sizing:border-box; }
 
 /* ribbon: the alignment button (its icon follows the alignment) and the menus with icons */
-.tb.aligndd{ display:inline-flex; align-items:center; gap:1px; padding-right:2px; }
-.tb.aligndd .alignico{ display:inline-flex; }
+.tb.aligndd{ display:inline-flex; align-items:center; justify-content:center; }
+.tb.aligndd .alignico{ display:inline-flex; align-items:center; justify-content:center; }
 .pop.menu{ min-width:220px; padding:6px; }
 .pop.menu .mitem{ display:flex; justify-content:flex-start; align-items:center; gap:10px; }
 .pop.menu .mitem .cico{ display:inline-flex; width:18px; flex:none; color:var(--ink-2); }
