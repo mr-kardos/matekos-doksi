@@ -1,6 +1,6 @@
-// Formatting marks (the eye button): green signs drawn ABOVE the text in their own layer – they never take
+// Formatting marks (the eye button, "Lektor mód"): green signs drawn ABOVE the text in their own layer – they never take
 // space in the document, cannot be clicked and are never printed or exported.
-const SKIP = '.math,.lm,.pg-sp,.pg-spb,.ibar,.isize,.ih,.mpending,.pagebreak,.tab';
+const SKIP = '.math,.lm,.pg-sp,.pg-spb,.ibar,.isize,.ih,.mpending,.pagebreak,.tab,.icap';
 const CM = 96 / 2.54;
 const cm = px => (Math.round(px / CM * 100) / 100).toString().replace('.', ',');
 
@@ -69,10 +69,27 @@ export function drawMarks(layer, editorDom, stackEl, scale, styles = null, famLa
     const pl = parseFloat(cs.paddingLeft) || 0;
     const first = rects[0], mid = first ? Y(first.top + first.height / 2) : Y(br.top + (parseFloat(cs.paddingTop) || 0)) + (parseFloat(cs.lineHeight) || 20) / 2;
     const second = rects.find(q => first && q.top > first.bottom - 1), mid2 = second ? Y(second.top + second.height / 2) : mid;
-    if (ml > 0.5) out.push(`<span class="mk-ind lft" style="left:${X(br.left) - ml}px;top:${(ti < -0.5 || hang) ? mid2 : mid}px;width:${ml}px"><i>behúzás ${cm(ml)}</i></span>`);
-    if (mr > 0.5) out.push(`<span class="mk-ind rgt" style="left:${X(br.right)}px;top:${mid}px;width:${mr}px"><i>jobb behúzás ${cm(mr)}</i></span>`);
-    if (Math.abs(ti) > 0.5) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left) + pl + Math.min(0, ti)}px;top:${mid}px;width:${Math.abs(ti)}px"><i>${ti < 0 ? 'függő ' : 'első sor '}${cm(Math.abs(ti))}</i></span>`);
-    if (hang > 0) out.push(`<span class="mk-ind lft fl" style="left:${X(br.left)}px;top:${mid2}px;width:${pl}px"><i>függő ${cm(pl)}</i></span>`);
+    // a list item's first line hangs too: the room of its symbol up to the text
+    const listFirst = !hang && b.parentElement && b.parentElement.tagName === 'LI' && b.parentElement.firstElementChild === b;
+    const lmEl = listFirst ? b.querySelector(':scope > .lm:not(.lm-up)') : null, lr = lmEl && lmEl.getBoundingClientRect();
+    // a left indent goes to the second line when the first one hangs (or just below it, in a one-line paragraph)
+    const hangRow = ti < -0.5 || hang > 0 || !!(lr && lr.width > 1);
+    const mlY = hangRow && second ? mid2 : mid;
+    const segs = [];
+    if (ml > 0.5) segs.push({ cls: 'lft', x: X(br.left) - ml, y: mlY, w: ml, t: `behúzás ${cm(ml)}` });
+    if (mr > 0.5) segs.push({ cls: 'rgt', x: X(br.right), y: mid, w: mr, t: `jobb behúzás ${cm(mr)}` });
+    if (Math.abs(ti) > 0.5) segs.push({ cls: 'lft fl', x: X(br.left) + pl + Math.min(0, ti), y: mid, w: Math.abs(ti), t: `${ti < 0 ? 'függő ' : 'első sor '}${cm(Math.abs(ti))}` });
+    if (hang > 0) segs.push({ cls: 'lft fl', x: X(br.left), y: mid2, w: pl, t: `függő ${cm(pl)}` });
+    if (lr && lr.width > 1) segs.push({ cls: 'lft fl', x: X(lr.left), y: mid, w: lr.width / scale, t: `függő ${cm(lr.width / scale)}` });
+    // indents in the same row on the same side: their values in one label (at the leftmost / rightmost one), so the
+    // labels never cover each other or the next line's labels
+    const sideOf = g => g.cls.split(' ')[0];
+    segs.forEach((g, k) => {
+      const row = segs.filter(o => sideOf(o) === sideOf(g) && Math.abs(o.y - g.y) < 6);
+      const lead = sideOf(g) === 'lft' ? row.reduce((m, o) => o.x < m.x ? o : m, row[0]) : row.reduce((m, o) => o.x + o.w > m.x + m.w ? o : m, row[0]);
+      const label = g === lead ? `<i>${row.map(o => o.t).join(' · ')}</i>` : '';
+      out.push(`<span class="mk-ind ${g.cls}" style="left:${g.x}px;top:${g.y}px;width:${g.w}px">${label}</span>`);
+    });
     // differences from the template's paragraph style
     if (styles) {
       const inCell = !!b.closest('td,th');

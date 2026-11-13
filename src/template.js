@@ -30,6 +30,8 @@ export const DEFAULT_TPL = {
   wm: { type: 'none', text: 'MINTA', size: 120, opacity: 0.07, angle: -40, color: '#1f5f74', img: '', imgWidth: 60, imgAngle: 0 },
   font: 'bonum',
   imgGap: 4,
+  hyphenate: false,                    // automatic (Hungarian) hyphenation
+  cap: { font: '', size: 9, color: '#59616b', italic: true, bold: false, underline: false },      // picture captions
   styles: {
     p: style(),
     h1: style({ size: 21, bold: true, line: 1.2, spaceAfter: 7, keepNext: true }),

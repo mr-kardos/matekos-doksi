@@ -191,8 +191,15 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
   for (const root of [editorDom, pagesEl]) for (const t of root.querySelectorAll('span.tab[data-leader]')) {
     const r = t.getBoundingClientRect(); if (r.width < 2) continue;
     const cs = getComputedStyle(t), col = rgb(cs.color) || { r: 0, g: 0, b: 0 }, dot = t.dataset.leader === 'dot';
-    const a1 = loc(r.left, r.bottom), w = dot ? 1.2 : 0.6;
-    L[a1.p].line.push({ x1: a1.x, y1: a1.y, x2: a1.x + pt(r.width), y2: a1.y, w, c: col, dash: dot ? [0.1, 2.4] : null, cap: dot ? 'round' : null });
+    if (dot) {                                         // round dots like periods, on the baseline, aligned to the right end
+      const em = parseFloat(cs.fontSize) * PT, step = 0.28 * em, a1 = loc(r.left, r.bottom), x2 = a1.x + pt(r.width);
+      const n = Math.floor(pt(r.width) / step); if (n < 1) continue;
+      const y = a1.y - 0.07 * em, d = 0.1 * em;
+      L[a1.p].line.push({ x1: x2 - (n - 0.5) * step, y1: y, x2: x2 - 0.5 * step + 0.01, y2: y, w: d, c: col, dash: [0.001, step - 0.001], cap: 'round' });
+      continue;
+    }
+    const a1 = loc(r.left, r.bottom), w = 0.6;
+    L[a1.p].line.push({ x1: a1.x, y1: a1.y, x2: a1.x + pt(r.width), y2: a1.y, w, c: col, dash: null, cap: null });
   }
   // ---- table borders (resolved like the browser's collapsed-border model) ----
   for (const table of editorDom.querySelectorAll('table')) {
@@ -267,6 +274,16 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       const off = baselineOffset(cs), size = parseFloat(cs.fontSize) * PT, st = styleOf(cs), col = rgb(cs.color) || { r: 0, g: 0, b: 0 };
       const ofam = outlineFam(cs), ot = ofam ? OT.get(ofam + '|' + st) : null;
       const caps = cs.textTransform === 'uppercase' ? (t => t.toLocaleUpperCase('hu')) : (t => t);
+      if (el.classList.contains('shy')) {                      // a hyphenation point: drawn only where the line really breaks there
+        range.selectNodeContents(node);
+        const r = Array.from(range.getClientRects()).find(q => q.width > 0.05);
+        if (r) {
+          const a = loc(r.left, r.top), g = ot ? ot.charToGlyph('-') : null;
+          if (g && g.index) L[a.p].path.push({ ops: pathOps(g.getPath(a.x, a.y + off * PT, size)), c: col });
+          else L[a.p].text.push({ s: '-', x: a.x, y: a.y + off * PT, size, st, c: col });
+        }
+        continue;
+      }
       const re = /[^\s\u200B\uFEFF]+/g; let m;
       while ((m = re.exec(node.data))) {
         const word = caps(m[0]);
@@ -368,9 +385,16 @@ export async function buildPDF({ editorDom, pagesEl, stackEl, scale, tpl, pages,
       }
     }
   }
+  // links: clickable areas over their text
+  const links = Array.from({ length: pages }, () => []);
+  for (const a of editorDom.querySelectorAll('a[href]')) {
+    const href = a.getAttribute('href'); if (!/^(https?|mailto):/i.test(href)) continue;
+    for (const r of a.getClientRects()) { if (r.width < 0.5) continue; const q = loc(r.left, r.top); links[q.p].push({ x: q.x, y: q.y, w: pt(r.width), h: pt(r.height), href }); }
+  }
   for (let i = 0; i < pages; i++) {
     doc.setPage(i + 1);
     const pg = L[i];
+    for (const k of links[i]) { try { doc.link(k.x, k.y, k.w, k.h, { url: k.href }); } catch (e) { /* skip */ } }
     if (wmText) {
       doc.setGState(new doc.GState({ opacity: +wm.opacity }));
       if (wmText.ops) drawOps(doc, wmText.ops, wmText.c);

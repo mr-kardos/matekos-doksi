@@ -1,4 +1,4 @@
-import { Extension, Node, Mark, mergeAttributes } from '@tiptap/core';
+import { Extension, Node, Mark, mergeAttributes, wrappingInputRule, InputRule } from '@tiptap/core';
 import { Fragment } from '@tiptap/pm/model';
 import { Plugin, PluginKey, NodeSelection, TextSelection } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
@@ -53,6 +53,10 @@ export const ParaFormat = Extension.create({
           parseHTML: el => el.getAttribute('data-kn') === '1' ? true : el.getAttribute('data-kn') === '0' ? false : null,
           renderHTML: a => a.keepNext === true ? { 'data-kn': '1' } : a.keepNext === false ? { 'data-kn': '0' } : {}
         },
+        // a line of the table of contents (its heading's level): written and refreshed by the app
+        toc: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-toc')), renderHTML: a => a.toc ? { 'data-toc': a.toc } : {} },
+        // the heading text the line was made from (refreshing keeps the line's own text and look while it matches)
+        tocSrc: { default: null, parseHTML: el => el.getAttribute('data-tocsrc') || null, renderHTML: a => a.tocSrc ? { 'data-tocsrc': a.tocSrc } : {} },
         // tab stops: "hf" (centre + right of a header/footer) or JSON [{pos: cm, align: left|center|right}]
         tabStops: {
           default: null,
@@ -97,6 +101,8 @@ function legacyBullet(el) {
   try { return JSON.parse(v.trim().replace(/^'|'$/g, '"')); } catch (e) { return v.replace(/["']/g, ''); }
 }
 export const KvBulletList = BulletList.extend({
+  // typing "- " at the start of a line starts a list; "+ " and "* " do not (they are ordinary signs in maths)
+  addInputRules() { return [wrappingInputRule({ find: /^\s*(-)\s$/, type: this.type })]; },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -107,6 +113,69 @@ export const KvBulletList = BulletList.extend({
       gap: { default: null, parseHTML: el => numOrNull(el.getAttribute('data-gap')), renderHTML: a => a.gap ? { 'data-gap': a.gap, style: `--gap:${a.gap}cm` } : {} },
       bulletSize: { default: 0.9, parseHTML: el => numOrNull(el.getAttribute('data-bullet-size')) ?? 0.9, renderHTML: a => a.bulletImage ? { 'data-bullet-size': a.bulletSize } : {} }
     };
+  }
+});
+/* Hyphenation: invisible "may break here" points (soft hyphens) inside words, shown as decorations – the document's
+   text is never changed. The app adds them to the words that stand at the start of a line (src/main.js); a word that
+   is edited loses its points and gets new ones when it is laid out again. */
+export const hyphenKey = new PluginKey('hyphens');
+const shyWidget = pos => Decoration.widget(pos, () => { const s = document.createElement('span'); s.className = 'shy'; s.textContent = '\u00AD'; return s; }, { side: -1, key: 'shy', ignoreSelection: true });
+/** The whole word(s) around a changed range of a text block. */
+function wordRange(doc, from, to) {
+  const size = doc.content.size; from = Math.max(0, Math.min(from, size)); to = Math.max(from, Math.min(to, size));
+  const $f = doc.resolve(from); if (!$f.parent.isTextblock) return [from, to];
+  const start = $f.start(), text = $f.parent.textBetween(0, $f.parent.content.size, undefined, '\ufffc');
+  let a = from - start, b = Math.min(text.length, to - start);
+  while (a > 0 && /\p{L}/u.test(text[a - 1])) a--;
+  while (b < text.length && /\p{L}/u.test(text[b])) b++;
+  return [start + a, start + b];
+}
+export const Hyphens = Extension.create({
+  name: 'hyphens',
+  addProseMirrorPlugins() {
+    return [new Plugin({
+      key: hyphenKey,
+      state: {
+        init: () => DecorationSet.empty,
+        apply(tr, set) {
+          const m = tr.getMeta(hyphenKey);
+          if (m && m.clear) return DecorationSet.empty;
+          if (tr.docChanged) {
+            set = set.map(tr.mapping, tr.doc);
+            const drop = [];
+            tr.mapping.maps.forEach((map, i) => map.forEach((os, oe, ns, ne) => {
+              const rest = tr.mapping.slice(i + 1), [a, b] = wordRange(tr.doc, rest.map(ns, -1), rest.map(ne, 1));
+              drop.push(...set.find(a, b));
+            }));
+            if (drop.length) set = set.remove(drop);
+          }
+          if (m && m.add) { const size = tr.doc.content.size; set = set.add(tr.doc, m.add.filter(p => p > 0 && p < size).map(shyWidget)); }
+          return set;
+        }
+      },
+      props: { decorations(st) { return hyphenKey.getState(st); } }
+    })];
+  }
+});
+/** Typing corrections: Hungarian quotation marks („ ”) for ", and a dash (–) for two hyphens. Never inside a formula
+ *  that is being typed ($…), and Backspace right after a correction brings back what was typed. */
+export const HunTyping = Extension.create({
+  name: 'hunTyping',
+  // a non-breaking space ("5 cm", "a) …" never split at a line end): Ctrl/⌘+Shift+Space, as in Word
+  addKeyboardShortcuts() { return { 'Mod-Shift-Space': () => this.editor.commands.insertContent('\u00a0') }; },
+  addInputRules() {
+    const before = (state, pos) => { const $p = state.doc.resolve(pos); return $p.parent.textBetween(0, $p.parentOffset, undefined, '\ufffc'); };
+    const inFormula = t => (t.split('$').length - 1) % 2 === 1;
+    return [
+      new InputRule({ find: /"$/, handler: ({ state, range }) => {
+        const t = before(state, range.from); if (inFormula(t)) return null;
+        state.tr.insertText(!t || /[\s(\[{„–—-]$/.test(t) ? '„' : '”', range.from, range.to);
+      } }),
+      new InputRule({ find: /--$/, handler: ({ state, range }) => {
+        const t = before(state, range.from); if (inFormula(t) || /-$/.test(t)) return null;
+        state.tr.insertText('–', range.from, range.to);
+      } })
+    ];
   }
 });
 export const KvOrderedList = OrderedList.extend({
@@ -174,6 +243,13 @@ export const ListMarkers = Extension.create({
               let allBold = false;
               if (first && first.isTextblock && first.textContent.trim()) { allBold = true; first.descendants(c => { if (c.isText && c.text.trim() && !c.marks.some(m => m.type.name === 'bold')) allBold = false; }); }
               mk.bold = allBold;
+              // the size and colour the item's text starts with (set on that text itself): the symbol takes them
+              if (first && first.isTextblock) for (let k = 0; k < first.childCount; k++) {
+                const c = first.child(k); if (c.isText && !c.text.trim()) continue;
+                const ts = c.marks.find(m => m.type.name === 'textStyle');
+                if (ts) { mk.fs = ts.attrs.fontSize || ''; mk.col = ts.attrs.color || ''; }
+                break;
+              }
               // an item that starts with an empty line and a list: the nested list's first item shares the line
               const sameLine = !!item.attrs.sameLine && first && first.isTextblock && !first.content.size && item.childCount > 1 && /List$/.test(item.child(1).type.name);
               if (sameLine) {
@@ -188,11 +264,13 @@ export const ListMarkers = Extension.create({
                     const s = document.createElement('span');
                     s.className = 'lm' + (m.up ? ' lm-up' : '') + (m.bold ? ' lm-b' : '');
                     if (m.up) s.style.setProperty('--up', m.up);
+                    if (m.fs) s.style.fontSize = m.fs;
+                    if (m.col) s.style.color = m.col;
                     s.contentEditable = 'false';
                     if (m.img) { const im = document.createElement('img'); im.src = m.img; im.alt = ''; im.style.height = m.size + 'em'; s.appendChild(im); }
                     else s.textContent = m.text;
                     return s;
-                  }, { side: -1, key: m.key + '|' + m.up + (m.bold ? 'b' : ''), ignoreSelection: true }));
+                  }, { side: -1, key: m.key + '|' + m.up + (m.bold ? 'b' : '') + '|' + (m.fs || '') + '|' + (m.col || ''), ignoreSelection: true }));
                 }
               }
               walk(item, ipos, depth + 1, null);
@@ -684,13 +762,16 @@ export const KvImage = Node.create({
       crop: { default: null, parseHTML: el => { try { return el.getAttribute('data-crop') ? JSON.parse(el.getAttribute('data-crop')) : null; } catch (e) { return null; } } },   // {l, t, r, b}: the parts cut off, as fractions
       opacity: { default: 1, parseHTML: el => el.hasAttribute('data-op') ? +el.getAttribute('data-op') : 1 },
       radius: { default: 0, parseHTML: el => +(el.getAttribute('data-rad') || 0) },                // corner rounding, % of the smaller side
+      // captions: a line of text above and / or below the picture, centred to it; they move with the picture
+      capTop: { default: '', parseHTML: el => el.getAttribute('data-cap-top') || '' },
+      capBot: { default: '', parseHTML: el => el.getAttribute('data-cap-bot') || '' },
       ...PIN_ATTRS
     };
   },
   parseHTML() { return [{ tag: 'img[src]' }]; },
   renderHTML({ node }) {
     const a = node.attrs;
-    return ['img', { src: a.src, alt: a.alt || '', 'data-wrap': a.wrap, 'data-dx': a.dx || 0, 'data-dy': a.dy || 0, ...(a.pin ? { 'data-pin': '1', 'data-pg': a.pg, 'data-px': a.px, 'data-py': a.py, ...(a.rel ? { 'data-rel': '1' } : {}) } : {}), ...(a.crop ? { 'data-crop': JSON.stringify(a.crop) } : {}), ...(a.opacity != null && a.opacity < 1 ? { 'data-op': a.opacity } : {}), ...(a.radius ? { 'data-rad': a.radius } : {}), ...(a.width ? { 'data-w': a.width } : {}), class: a.wrap, style: imgStyle(a) || null }];
+    return ['img', { src: a.src, alt: a.alt || '', 'data-wrap': a.wrap, 'data-dx': a.dx || 0, 'data-dy': a.dy || 0, ...(a.pin ? { 'data-pin': '1', 'data-pg': a.pg, 'data-px': a.px, 'data-py': a.py, ...(a.rel ? { 'data-rel': '1' } : {}) } : {}), ...(a.crop ? { 'data-crop': JSON.stringify(a.crop) } : {}), ...(a.opacity != null && a.opacity < 1 ? { 'data-op': a.opacity } : {}), ...(a.radius ? { 'data-rad': a.radius } : {}), ...(a.width ? { 'data-w': a.width } : {}), ...(a.capTop ? { 'data-cap-top': a.capTop } : {}), ...(a.capBot ? { 'data-cap-bot': a.capBot } : {}), class: a.wrap, style: imgStyle(a) || null }];
   },
   addNodeView() {
     const ext = this;
@@ -700,7 +781,22 @@ export const KvImage = Node.create({
       dom.draggable = false;
       const img = document.createElement('img');
       img.draggable = false;
-      dom.appendChild(img);
+      // the picture sits in its own clipping box (cropping, rounded corners), so the captions outside it stay visible
+      const clip = document.createElement('span'); clip.className = 'imgclip';
+      clip.appendChild(img); dom.appendChild(clip);
+      const capT = document.createElement('span'), capB = document.createElement('span');
+      capT.className = 'icap top'; capB.className = 'icap bot'; capT.hidden = capB.hidden = true;
+      dom.append(capT, capB);
+      // the captions hang outside the picture's box; the room they need is kept free around it (--capT / --capB)
+      let capH = '0|0';
+      const fitCaps = () => {
+        const t = capT.hidden ? 0 : capT.offsetHeight, b = capB.hidden ? 0 : capB.offsetHeight;
+        dom.style.setProperty('--capT', t + 'px'); dom.style.setProperty('--capB', b + 'px');
+        dom.dataset.capT = t; dom.dataset.capB = b;
+        if (capH !== t + '|' + b) { capH = t + '|' + b; ext.options.onChange && ext.options.onChange(); try { editor.view.dom.dispatchEvent(new CustomEvent('kv-relayout', { bubbles: true })); } catch (e) { /* the view is not ready yet */ } }
+      };
+      const capWatch = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => fitCaps()) : null;
+      if (capWatch) { capWatch.observe(capT); capWatch.observe(capB); }
       // cropping: the frame (dom) shows only a part of the picture; the picture inside is larger and shifted
       const applyCrop = (c = cur.attrs.crop, w = cur.attrs.width) => {
         img.style.opacity = cur.attrs.opacity != null && cur.attrs.opacity < 1 ? cur.attrs.opacity : '';
@@ -724,6 +820,9 @@ export const KvImage = Node.create({
         if (img.getAttribute('src') !== cur.attrs.src) img.src = cur.attrs.src;
         img.alt = cur.attrs.alt || '';
         dom.style.cssText = cur.attrs.pin ? (cur.attrs.width ? `width:${cur.attrs.width}px` : '') : imgStyle(cur.attrs);
+        capT.textContent = cur.attrs.capTop || ''; capT.hidden = !cur.attrs.capTop;
+        capB.textContent = cur.attrs.capBot || ''; capB.hidden = !cur.attrs.capBot;
+        fitCaps();
         applyCrop();
         placePinned(dom, cur.attrs);
         ext.options.onChange && ext.options.onChange();
@@ -1023,6 +1122,7 @@ export const KvImage = Node.create({
       return {
         dom,
         update(n) { if (n.type !== cur.type) return false; cur = n; paint(); return true; },
+        destroy() { if (capWatch) capWatch.disconnect(); },
         selectNode() { selected = true; dom.classList.add('ProseMirror-selectednode'); },
         deselectNode() { selected = false; dom.classList.remove('ProseMirror-selectednode'); },
         stopEvent: e => e.type.startsWith('pointer') || e.type.startsWith('mouse') || e.type.startsWith('drag'),
@@ -1351,6 +1451,57 @@ export const ListJoin = Extension.create({
         const tr = state.tr;
         for (const j of joins.reverse()) { try { tr.join(tr.mapping.map(j)); } catch (e) { /* leave it */ } }
         return tr.docChanged ? tr.setMeta('addToHistory', false) : null;
+      }
+    })];
+  }
+});
+
+/* ---------- lists: the room for the symbol grows with the widest symbol of the list (big letters, "10.") ------
+   Every line of every item then starts at the same place, and the next level's symbol stands exactly where the
+   text of this level starts (like a hanging indent of that width). The room is never smaller than the list's own
+   setting (0,8 cm by default). */
+const CM_PX = 96 / 2.54;
+export function neededGapPx(listEl, scale = 1, gapCm = null) {
+  let need = 0;
+  for (const lm of listEl.querySelectorAll(':scope > li > :first-child > .lm')) {
+    const r = document.createRange(); r.selectNodeContents(lm);
+    const w = r.getBoundingClientRect().width / (scale || 1), fs = parseFloat(getComputedStyle(lm).fontSize) || 16;
+    if (w) need = Math.max(need, w + 0.3 * fs);
+  }
+  return Math.round(Math.max((gapCm ?? 0.8) * CM_PX, need) * 100) / 100;
+}
+/** The same for a drawn (not edited) text. */
+export function fitListGapsDOM(root, scale = 1) {
+  for (const l of root.querySelectorAll('ul, ol')) l.style.setProperty('--gap', neededGapPx(l, scale, numOrNull(l.getAttribute('data-gap'))) + 'px');
+}
+export const ListGapFit = Extension.create({
+  name: 'listGapFit',
+  addOptions() { return { getScale: () => 1 }; },
+  addProseMirrorPlugins() {
+    const ext = this, key = new PluginKey('listGapFit');
+    return [new Plugin({
+      key,
+      state: { init: () => DecorationSet.empty, apply(tr, old) { const m = tr.getMeta(key); return m || old.map(tr.mapping, tr.doc); } },
+      props: { decorations(st) { return key.getState(st); } },
+      view(view) {
+        let raf = 0, sig = '';
+        const run = () => {
+          raf = 0; if (!view.dom.isConnected) return;
+          const sc = ext.options.getScale() || 1, decos = [];
+          let stale = false;
+          view.state.doc.descendants((n, pos) => {
+            if (n.type.name !== 'bulletList' && n.type.name !== 'orderedList') return;
+            const dom = view.nodeDOM(pos); if (!dom || !dom.querySelectorAll) return;
+            const v = neededGapPx(dom, sc, n.attrs.gap) + 'px';
+            if (dom.style.getPropertyValue('--gap').trim() !== v) stale = true;      // a list drawn again (e.g. its setting changed)
+            decos.push(Decoration.node(pos, pos + n.nodeSize, { style: `--gap:${v}` }));
+          });
+          const s = decos.map(d => d.from + d.type.attrs.style).join('|');
+          if (s !== sig || stale) { sig = s; view.dispatch(view.state.tr.setMeta(key, DecorationSet.create(view.state.doc, decos)).setMeta('addToHistory', false)); }
+        };
+        const later = () => { if (!raf) raf = requestAnimationFrame(run); };
+        later();
+        return { update(v, prev) { if (v.state.doc !== prev.doc) later(); }, destroy() { cancelAnimationFrame(raf); } };
       }
     })];
   }

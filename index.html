@@ -73,11 +73,13 @@
       <button class="tb" data-pop="popTable" data-icon="table" title="Táblázat beszúrása"></button>
       <button class="tb" data-cmd="image" data-icon="image" title="Kép beszúrása – PNG, JPG, GIF, WebP, SVG"></button>
       <button class="tb" data-cmd="pageBreak" data-icon="pbreak" title="Oldaltörés (Ctrl/⌘+Enter)"></button>
+      <button class="tb" data-cmd="toc" data-icon="toc" title="Tartalomjegyzék a címsorokból (Főcím, Cím, Alcím) oldalszámokkal: beszúrás a kurzor elé – ha már van, frissítés"></button>
     </div>
     <div class="grp">
-      <button class="tb" data-pop="popFind" data-icon="search" title="Keresés és csere (Ctrl/⌘+F)"></button>
+      <button class="tb" data-pop="popLink" data-icon="link" title="Hivatkozás (Ctrl/⌘+K) – Ctrl/⌘+kattintással nyílik meg"></button>
+      <button class="tb" data-pop="popFind" data-icon="search" title="Keresés és csere (Ctrl/⌘+F) – a szövegben, a képletekben, az élőfejben és az élőlábban"></button>
       <button class="tb" data-cmd="spell" data-state="spell" data-icon="spell" title="Helyesírás-ellenőrzés (magyar) be / ki"></button>
-      <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Rejtett formázás mutatása"></button>
+      <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Lektor mód: rejtett formázás, behúzások (függő behúzás is), térközök és a sablontól való eltérések mutatása"></button>
     </div>
   </div>
   <div class="ctxbar" id="imgBar" hidden>
@@ -91,6 +93,7 @@
     <span class="ctxlbl">Elhelyezés</span>
     <select id="imgWrapSel" aria-label="Elhelyezés"><option value="wl">Körbefuttatás</option><option value="over">Szöveg fölött</option><option value="under">Szöveg mögött</option><option value="ctr">Külön sorban</option><option value="inl">A szöveg sorában</option></select>
     <span class="ctxsep"></span>
+    <button class="tb wide" id="imgCap" data-pop="popImgCap" data-icon="comment" title="Felirat a kép fölé és / vagy alá (például cím és forrás) – a képhez igazodik középre, és vele együtt mozog"><span class="lbl">Felirat…</span></button>
     <button class="tb wide" id="imgReplace" data-icon="image" title="Másik kép ugyanide, ugyanekkora szélességben"><span class="lbl">Kép cseréje…</span></button>
     <button class="tb wide" id="imgDel" data-icon="trash" title="Kép törlése"><span class="lbl">Törlés</span></button>
   </div>
@@ -128,7 +131,7 @@
 </header>
 
 <div class="main" id="main">
-  <nav id="pagesNav" aria-label="Oldalak"><div class="phead2 lhead"><b>Oldalak</b><button class="tb" id="pagesX" data-icon="panelL" title="Bal oldali panel összecsukása"></button></div><div class="plist" id="plist"></div><button class="wcount" id="wordCount" title="Statisztika">0 szó</button></nav>
+  <nav id="pagesNav" aria-label="Oldalak"><div class="phead2 lhead"><div class="seg2 navseg"><button class="pitem on" data-nav="pages" title="Az oldalak kicsiben">Oldalak</button><button class="pitem" data-nav="heads" title="A dokumentum címsorai – kattintással oda lehet ugrani">Címsorok</button></div><button class="tb" id="pagesX" data-icon="panelL" title="Bal oldali panel összecsukása"></button></div><div class="plist" id="plist"></div><div class="hlist" id="hlist" hidden></div><button class="wcount" id="wordCount" title="Statisztika">0 szó</button></nav>
   <div class="lsplit" id="lsplit" title="Húzd a panel szélességének állításához" role="separator" aria-orientation="vertical"></div>
   <main class="ws" id="ws">
     <div class="outer" id="outer">
@@ -150,7 +153,12 @@
     <section class="cmtview" id="cmtView">
       <div class="cmtstick">
         <div class="cmthead"><b>Megjegyzések</b><span class="phint" id="cmtCount"></span><button class="tb mini" id="cmtHide" data-icon="eyeOff" title="A megjegyzések jelölése a lapon akkor is látszik, ha a panel zárva van – kattints az elrejtéshez"></button></div>
+        <div class="cmtbar">
+          <div class="seg2"><button class="pitem" data-cflt="open" title="Csak a még meg nem oldott megjegyzések">Nyitott</button><button class="pitem" data-cflt="all" title="A megoldott megjegyzések is">Mind</button></div>
+          <button class="tb mini" id="cmtPrev" title="Előző nyitott megjegyzés">▲</button><button class="tb mini" id="cmtNext" title="Következő nyitott megjegyzés">▼</button>
+        </div>
         <div class="cmtnew">
+          <label class="cmtwho"><span class="cav" id="cmtAvatar"></span><input type="text" id="cmtAuthor" maxlength="40" autocomplete="off" spellcheck="false" placeholder="A neved (ez kerül a megjegyzéseidre)" aria-label="A neved"></label>
           <textarea id="cmtText" rows="3" placeholder="Jelölj ki szöveget, egy képet vagy táblázatcellát, írd ide a megjegyzést…"></textarea>
           <button class="btn primary" id="cmtAdd">Megjegyzés hozzáadása</button>
         </div>
@@ -185,7 +193,6 @@
           <label class="fld">Vége a jobb lapszéltől (mm)<input type="number" min="0" step="1" data-k="hfRight"></label>
           <label class="fld full">Középső oszlop szélessége (%)<input type="number" min="10" max="80" step="1" data-k="hfMid"></label>
           <label class="fld full">Kezdő oldalszám (az első oldal száma; páros / páratlan oldal és kötésmargó ehhez igazodik)<input type="number" min="1" step="1" data-k="startPage"></label>
-          <div class="fld full hfranges"><span>Élőfej oldaltartományonként <span class="phint" style="display:inline">(pl. 1–7. oldal egy szöveg, 8–9. másik; bal / közép / jobb; {page}, {pages}, {title} is használható)</span></span><div id="hfRangeList"></div><button class="btn mini" id="hfRangeAdd">+ Tartomány</button></div>
         </div>
         <div class="strow" style="margin-top:10px"><div class="sthead"><b>Élőfej szövege</b></div>
           <div class="stctl"><input type="number" class="stsize" min="5" max="30" step="0.5" data-k="headerSize" title="Betűméret (pt)"><span class="unit">pt</span><label class="colbtn btn" title="Betűszín"><input type="color" data-k="headerColor" class="hidecolor"><i class="dot fill" id="hcDot"></i>Szín</label><label class="chk" style="margin-left:6px"><input type="checkbox" data-k="headerLine"> Vonal alatta</label></div>
@@ -197,6 +204,7 @@
         <label class="chk"><input type="checkbox" data-k="oddEven"> Eltérő páros és páratlan oldalakon</label>
         <label class="chk" style="margin-top:4px"><input type="checkbox" data-k="firstDiff"> Eltérő első oldal</label>
         <div class="tabs" id="hfTabs"></div>
+        <div class="fld full hfranges"><span>Élőfej oldaltartományonként <span class="phint" style="display:inline">(pl. 1–7. oldal egy szöveg, 8–9. másik; bal / közép / jobb; {page}, {pages}, {title} is használható). Egy tartomány minden oldalra, vagy csak a páratlan / páros oldalaira vonatkozhat.</span></span><div id="hfRangeList"></div><button class="btn mini" id="hfRangeAdd">+ Tartomány</button></div>
         <div class="btnrow hfbtns"><button class="btn" data-edithf="header">Élőfej szerkesztése</button><button class="btn" data-edithf="footer">Élőláb szerkesztése</button></div>
         <div class="phint" style="margin:6px 0 4px">A szöveget az oldalon írod, és a felső szalag gombjaival formázod. Három oszlop van (bal, közép, jobb); a Tab a következő oszlopba lép. A teljes szélességű vonalat lent állítod be; a felső szalag „Elválasztó vonal” gombja az adott oszlopban húz vonalat.</div>
         <div class="fieldrow"><span>Mező beszúrása:</span><button class="btn mini" data-field="{page}">oldalszám</button><button class="btn mini" data-field="{pages}">oldalak száma</button><button class="btn mini" data-field="{date}">dátum</button><button class="btn mini" data-field="{title}">cím</button></div>
@@ -252,13 +260,13 @@
   <button class="pitem" data-rule="none">Vonalak eltávolítása</button>
 </div>
 <div class="pop" id="popFile" hidden>
-  <button class="pitem" id="fNew">Új dokumentum</button>
-  <button class="pitem" id="fOpen">Megnyitás… <span class="phint">Ctrl/⌘+O</span></button>
-  <button class="pitem" id="fImport">Word-dokumentum importálása (.docx)…</button>
-  <button class="pitem" id="fImportMd">Markdown importálása (.md)…</button>
+  <button class="pitem mitem" id="fNew"><span class="cico" data-icon="fileNew"></span><span class="clbl">Új dokumentum</span></button>
+  <button class="pitem mitem" id="fOpen"><span class="cico" data-icon="folderOpen"></span><span class="clbl">Megnyitás…</span><span class="phint">Ctrl/⌘+O</span></button>
+  <button class="pitem mitem" id="fImport"><span class="cico" data-icon="fileImport"></span><span class="clbl">Word-dokumentum importálása (.docx)…</span></button>
+  <button class="pitem mitem" id="fImportMd"><span class="cico" data-icon="fileImport"></span><span class="clbl">Markdown importálása (.md)…</span></button>
   <div class="psep"></div>
-  <button class="pitem" id="fTheme"></button>
-  <button class="pitem" id="fHome">Kezdőképernyő</button>
+  <button class="pitem mitem" id="fTheme"></button>
+  <button class="pitem mitem" id="fHome"><span class="cico" data-icon="home"></span><span class="clbl">Kezdőképernyő</span></button>
 </div>
 <div class="pop" id="popExport" hidden>
   <button class="pitem" id="expPdf">PDF – pontosan úgy, ahogy a képernyőn látszik</button>
@@ -355,7 +363,8 @@
 </div>
 <div class="pop" id="popTabs" hidden>
   <div class="ptitle">Tabulátorok a kijelölt bekezdésekben</div>
-  <div class="phint" style="margin:0 0 6px">A bal margótól mérve. Saját tabulátor nélkül 1,25 cm-enként ugrik.</div>
+  <div class="phint" style="margin:0 0 6px">A bal margótól mérve. Tabulátor nélkül 1,25 cm-enként ugrik.</div>
+  <div class="phint" id="tabFromTpl" hidden style="margin:0 0 6px">Ezek a sablonban beállított tabulátorok. Ha itt módosítod őket, a változás csak a kijelölt bekezdésekre vonatkozik.</div>
   <div id="tabList"></div>
   <div class="tabadd"><input type="number" id="tabPos" step="0.25" min="0.25" placeholder="cm" aria-label="Pozíció (cm)">
     <select id="tabAlign" aria-label="Igazítás"><option value="left">balra</option><option value="center">középre</option><option value="right">jobbra</option></select>
@@ -387,11 +396,28 @@
       <button class="hbtn primary" id="homeNew"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span>Új dokumentum</button>
       <button class="hbtn" id="homeOpen"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 10h18"/></svg></span>Meglévő megnyitása</button>
     </div>
-    <button class="hlink" id="homeResume" hidden></button>
+    <div class="home-list" id="homeResumeBox" hidden><h2>Folytatás</h2><div class="hrow"><button class="hitem" id="homeResume"><b></b><span></span></button></div></div>
+    <div class="home-list" id="homeDrafts" hidden></div>
+    <div class="home-list" id="homeRecent" hidden></div>
   </div>
 </div>
 <div class="cfm" id="cfm" hidden role="alertdialog" aria-modal="true" aria-labelledby="cfmMsg">
   <div class="cfm-card"><p id="cfmMsg"></p><div class="cfm-btns"><button class="btn" id="cfmNo">Mégse</button><button class="btn danger" id="cfmYes">Igen</button></div></div>
+</div>
+<div class="cfm" id="updBox" hidden role="dialog" aria-modal="true"><div class="cfm-card upd"><p class="updhead">Új verzió érhető el: <b id="updVer"></b></p><p class="updmsg" id="updMsg"></p>
+  <div class="cfm-btns"><button class="btn" id="updLater">Később</button><button class="btn primary" id="updGo">Letöltés</button></div></div></div>
+<div class="pop" id="popLink" hidden>
+  <div class="ptitle">Hivatkozás</div>
+  <label class="fld full">Webcím<input type="text" id="linkIn" spellcheck="false" placeholder="https://…"></label>
+  <div class="phint" style="margin-top:6px">A kijelölt szöveg lesz a hivatkozás; kijelölés nélkül maga a webcím kerül a szövegbe. Megnyitás: Ctrl/⌘ + kattintás.</div>
+  <div class="cfm-btns" style="margin-top:10px"><button class="btn" id="linkDel">Eltávolítás</button><button class="btn primary" id="linkOk">OK</button></div>
+</div>
+<div class="pop" id="popImgCap" hidden>
+  <div class="ptitle">Képfelirat</div>
+  <label class="fld full">A kép fölött<input type="text" id="capTopIn" spellcheck="false" placeholder="például a kép címe"></label>
+  <label class="fld full" style="margin-top:6px">A kép alatt<input type="text" id="capBotIn" spellcheck="false" placeholder="például Forrás: …"></label>
+  <div class="phint" style="margin-top:8px">Üresen hagyva nincs felirat. A felirat kinézete a sablonban állítható: Szövegstílusok → Képfelirat.</div>
+  <div class="cfm-btns" style="margin-top:10px"><button class="btn" id="capCancel">Mégse</button><button class="btn primary" id="capOk">OK</button></div>
 </div>
 <div class="busy" id="busy" hidden><div id="busyMsg">Folyamatban…</div></div>
 <div class="mathdlg" id="mathDlg" hidden role="dialog" aria-label="Képletszerkesztő"></div>

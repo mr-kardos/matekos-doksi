@@ -40,7 +40,7 @@ function inline(tokens, marks, list, report) {
       case 'em': out.push(...inline(t.tokens, [...marks, { type: 'italic' }], list, report)); break;
       case 'del': out.push(...inline(t.tokens, [...marks, { type: 'strike' }], list, report)); break;
       case 'codespan': out.push(...textWithMath(unescape(t.text), marks, list)); break;
-      case 'link': out.push(...inline(t.tokens, marks, list, report)); break;
+      case 'link': out.push(...inline(t.tokens, [...marks, { type: 'link', attrs: { href: t.href } }], list, report)); break;
       case 'image': report.images++; break;
       case 'br': out.push({ type: 'hardBreak' }); break;
       case 'html': {
@@ -121,7 +121,9 @@ function inlineMd(nodes) {
       if (has('italic')) t = `*${t}*`;
       if (has('bold')) t = `**${t}**`;
       // keep the spaces outside the markers (Markdown needs them there)
-      out += t.replace(/^(\*+|~~)(\s+)/, '$2$1').replace(/(\s+)(\*+|~~)$/, '$2$1');
+      t = t.replace(/^(\*+|~~)(\s+)/, '$2$1').replace(/(\s+)(\*+|~~)$/, '$2$1');
+      const ln = (n.marks || []).find(m => m.type === 'link');
+      out += ln && ln.attrs && ln.attrs.href ? `[${t}](${ln.attrs.href.replace(/\)/g, '%29')})` : t;
     } else if (n.type === 'math') out += n.attrs.display ? `$$${n.attrs.tex}$$` : `$${n.attrs.tex}$`;
     else if (n.type === 'hardBreak') out += '  \n';
     else if (n.type === 'tab') out += '\t';

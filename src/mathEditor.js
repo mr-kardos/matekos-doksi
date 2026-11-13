@@ -99,7 +99,7 @@ const CATS = [
     ['→', '\\to'], ['←', '\\leftarrow'], ['↔', '\\leftrightarrow'], ['⇒', '\\Rightarrow'], ['⇐', '\\Leftarrow'], ['⇔', '\\Leftrightarrow'], ['↦', '\\mapsto'], ['↑', '\\uparrow'], ['↓', '\\downarrow'], ['⟶', '\\longrightarrow'], ['⟹', '\\Longrightarrow']
   ]],
   ['Egyéb', [
-    ['kis köz', '\\,', 'Kis szóköz'], ['köz', '\\quad', 'Szóköz'], ['∝', '\\propto', 'Arányos'], ['≐', '\\doteq'], ['≙', '\\triangleq', 'Definíció szerint'], ['∗', '\\ast'], ['†', '\\dagger'], ['ℓ', '\\ell'], ['ℏ', '\\hbar'], ['∅', '\\varnothing'], ['<span class="boxd">x</span>', '\\boxed{#0}', 'Bekeretezés']
+    ['Space', '\\ ', 'Szóköz'], ['Nagy space', '\\quad', 'Nagy szóköz (\\quad)'], ['Óriás space', '\\qquad', 'Óriás szóköz (\\qquad)'], ['<span style="border:1.5px solid currentColor;padding:0 4px">x</span>', '\\boxed{#0}', 'Bekeretezés (\\boxed)']
   ]]
 ];
 /* ---- the dialog ---- */
@@ -281,7 +281,7 @@ function setFavMode(on) {
 }
 /** TeX shown on a palette button: the template with sample letters and empty boxes. */
 function labelTex(tpl) {
-  if (/^\\(,|quad|;|:|!)$/.test(tpl.trim())) return null;          // spacing: keep the word label
+  if (/^\\(,|q?quad|;|:|!| )$/.test(tpl)) return null;              // spacing: keep the word label (it has nothing to draw)
   return tpl.replace(/#@/g, 'x').replace(/#0/g, 'a').replace(/#\?/g, '\\square');
 }
 function showCat(i) {
