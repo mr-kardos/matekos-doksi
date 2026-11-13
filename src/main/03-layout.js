@@ -28,6 +28,7 @@ function applyLayout(n) {
   stack.style.width = stackW + 'px';
   stack.style.height = (n * g.P - GAP) + 'px';
   applyZoom();
+  if (spreadOn) spreadSoon();
   drawShadeBands($('#shadeLayer'), dom, stack, scale, y => Math.floor(y / g.P));
   updateOverlays();
   thumbsSoon();
@@ -55,12 +56,13 @@ function lineAtY(y, skipEl, list) {
     if (br.top + pt >= y) { try { return { pos: view.posAtDOM(b, 0), top: br.top + pt }; } catch (e) { return null; } }
     // inside this paragraph: the first character whose line reaches below y
     const tw = document.createTreeWalker(b, NodeFilter.SHOW_TEXT, { acceptNode: t => t.parentElement.closest('.lm,.math,.pin-sp,.pg-sp,.imgw') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });   // a picture's captions are not lines of the text
+    const lhPx = parseFloat(getComputedStyle(b).lineHeight), pitch = lhPx > 0 ? lhPx * scale : Infinity;
     const rg = document.createRange();
     while (tw.nextNode()) {
       const t = tw.currentNode; if (!t.data.length) continue;
-      // a line "reaches below y" when the lower quarter of its glyph box does: the glyph boxes of a font can be taller than
-      // the line pitch, so a box's bottom already lies inside the next line
-      const below = q => q.bottom - q.height * 0.25 > y;
+      // a line "reaches below y" when its line box does (never any overlap with the object): the glyph box of a font can
+      // be taller than the line pitch, so the line box is worked out from the glyph box's middle and the line height
+      const below = q => (q.top + q.bottom) / 2 + Math.min(q.height, pitch) / 2 > y - 1;
       rg.selectNodeContents(t); const tq = rg.getClientRects(); if (!tq.length || !below(tq[tq.length - 1])) continue;
       let lo = 0, hi = t.data.length - 1;
       while (lo < hi) { const mid = (lo + hi) >> 1; rg.setStart(t, mid); rg.setEnd(t, mid + 1); const q = rg.getClientRects(); const cr = q[q.length - 1]; if (cr && below(cr)) hi = mid; else lo = mid + 1; }
@@ -197,12 +199,13 @@ function updatePins() {
       const last = bi === blocks.length - 1;
       // a float ends a little before the next paragraph starts: two floats must never touch (they would stand side by side)
       const nextTop = last ? Infinity : rectOf.get(blocks[bi + 1]).top;
-      const top = Math.max(G.t, lineTop), bottom = last ? G.b : Math.min(G.b, br.bottom, nextTop) - 2;
-      const dy = Math.max(0, (G.t - lineTop) / scale), h = (bottom - top) / scale;
+      let top = Math.max(G.t, lineTop); const bottom = last ? G.b : Math.min(G.b, br.bottom, nextTop) - 2;
+      if (bottom - top < 2) top = Math.max(lineTop, bottom - 2);       // a line that only just reaches the object still makes room (never any overlap)
+      const dy = Math.floor(Math.max(0, (top - lineTop) / scale)), h = Math.ceil((bottom - top) / scale);
       if (h <= 0) return;
       const pgOf = Math.floor((lineTop - sr0.top) / scale / g.P);
       const atPageTop = (lineTop - (sr0.top + g.contentTop(pgOf) * scale)) / scale < 24;
-      mine.push({ pos, side, after: atPageTop, flat: flat ? editor.view.posAtDOM(blk, 0) - 1 : null, w: Math.round(wPx / scale), h: Math.round(h), dy: Math.round(dy), key: `pin${side}${atPageTop ? 'a' : 'b'}${Math.round(wPx / scale)}x${Math.round(h)}+${Math.round(dy)}` });   // the key has no position: a float that only moved along with the text keeps its element
+      mine.push({ pos, side, after: atPageTop, flat: flat ? editor.view.posAtDOM(blk, 0) - 1 : null, w: Math.round(wPx / scale), h, dy, key: `pin${side}${atPageTop ? 'a' : 'b'}${Math.round(wPx / scale)}x${Math.round(h)}+${Math.round(dy)}` });   // the key has no position: a float that only moved along with the text keeps its element
     });
     if (!mine.length) { keepOld(); continue; }
     specs.push(...mine); pinLast[ei] = mine; 
@@ -246,7 +249,64 @@ function applyZoom() {
   outer.style.height = (parseFloat(stack.style.height) || g.H) * scale + 'px';
   for (const el of [$('#imgFrame'), $('#tblHandles')]) el.style.setProperty('--inv', 1 / scale);
   updateOverlays();
+  if (!spreadFits(g)) spreadKeep = zoomMode;          // the last zoom with one page in a row (a click on a page goes back to it)
+  checkSpread();
 }
+
+/* ---------------- two pages side by side ----------------
+   When the zoom is so small that two pages fit next to each other, the pages are shown in pairs (in a book – mirrored
+   margins – the first page stands alone on the right, as in a printed book). These are pictures of the pages (as the
+   miniatures): a click on a page goes back to the last zoom with one page in a row, at the place clicked. */
+let spreadOn = false, spreadT = 0, spreadKeep = 'auto', spreadCache = [];
+const spreadBox = document.createElement('div'); spreadBox.id = 'spread'; spreadBox.hidden = true; ws.appendChild(spreadBox);
+const spreadFits = g => pageCount > 1 && 2 * g.W * scale + 24 <= ws.clientWidth - 48;
+function checkSpread() {
+  const want = $('#home').hidden && spreadFits(geometry(tpl));
+  if (want === spreadOn) { if (want) spreadSoon(); return; }
+  const page = curPage;
+  spreadOn = want; ws.classList.toggle('spreadmode', want); spreadBox.hidden = !want;
+  if (want) {
+    if (editor.view.hasFocus()) editor.view.dom.blur();
+    renderSpread();
+    const el = spreadBox.querySelector(`.spage[data-i="${page}"]`); if (el) ws.scrollTop = el.offsetTop - 16;
+  } else {
+    spreadBox.replaceChildren(); spreadCache = [];
+    ws.scrollTop = outer.offsetTop + page * geometry(tpl).P * scale - 12;
+  }
+}
+function spreadSoon() { clearTimeout(spreadT); spreadT = setTimeout(renderSpread, 250); }
+function renderSpread() {
+  if (!spreadOn) return;
+  const E = pageEnv(), g = E.g;
+  spreadBox.style.setProperty('--sw', g.W * scale + 'px'); spreadBox.style.setProperty('--sh', g.H * scale + 'px'); spreadBox.style.setProperty('--sk', scale);
+  const nodes = [], cache = [];
+  if (tpl.mirror) { const b = document.createElement('div'); b.className = 'spage blank'; nodes.push(b); }
+  for (let i = 0; i < pageCount; i++) {
+    const P = pageParts(i, E), sig = P.sig + '|' + scale, old = spreadCache[i];
+    if (old && old.sig === sig) { nodes.push(old.node); cache[i] = old; continue; }
+    const d = document.createElement('div'); d.className = 'spage'; d.dataset.i = i;
+    d.title = `${i + (+tpl.startPage || 1)}. oldal – kattints a szerkesztéshez`;
+    d.appendChild(pagePicture(i, E, P));
+    nodes.push(d); cache[i] = { sig, node: d };
+  }
+  spreadCache = cache;
+  nodes.forEach((n, k) => { const at = spreadBox.children[k]; if (at !== n) { if (at) spreadBox.insertBefore(n, at); else spreadBox.appendChild(n); } });
+  while (spreadBox.children.length > nodes.length) spreadBox.lastElementChild.remove();
+}
+spreadBox.addEventListener('click', e => {
+  const sp = e.target.closest('.spage[data-i]'); if (!sp) return;
+  const i = +sp.dataset.i, r = sp.getBoundingClientRect(), fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
+  zoomMode = spreadKeep; zoomButton(); applyZoom();                     // one page in a row again
+  if (spreadOn) { zoomMode = '100'; zoomButton(); applyZoom(); }
+  requestAnimationFrame(() => {
+    const g = geometry(tpl), y = outer.offsetTop + (i * g.P + fy * g.H) * scale;
+    ws.scrollTop = y - ws.clientHeight / 2;
+    const sr = stack.getBoundingClientRect(), hit = editor.view.posAtCoords({ left: sr.left + (g.sheetX(i) + fx * g.W) * scale, top: sr.top + (i * g.P + fy * g.H) * scale });
+    editor.view.focus();
+    if (hit) editor.commands.setTextSelection(hit.pos);
+    setCurPage(i);
+  });
+});
 /** CSS of the paragraph styles of the template (Normál, Főcím, Cím, Alcím). Paragraph-level settings of a
  *  single paragraph (attributes) still win, because they are inline styles. */
 function styleCSS() {

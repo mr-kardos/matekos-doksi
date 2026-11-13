@@ -74,11 +74,76 @@ test('non-breaking space, link, find in the header', async () => {
   await page.evaluate(() => window.mdoksi.editHF('header', 'odd')); await page.waitForTimeout(300);
   await page.keyboard.type(' Fejlecproba'); await page.evaluate(() => window.mdoksi.closeHF()); await page.waitForTimeout(300);
   await page.evaluate(() => document.querySelector('[data-pop="popFind"]').click());
-  await page.fill('#findIn', 'Fejlecproba'); await page.waitForTimeout(400);
+  await page.fill('#findIn', 'Fejlecproba');
+  await page.waitForFunction(() => /ebből 1/.test(document.querySelector('#findInfo').textContent), null, { timeout: 3000 }).catch(() => {});
   assert.match(await page.textContent('#findInfo'), /1 találat \(ebből 1/);
   await page.press('#findIn', 'Enter'); await page.waitForTimeout(400);
   assert.match(await page.textContent('#findInfo'), /élőfejben/);
   noErrors('features');
+});
+
+test('alignment menu, "more" menu, table of contents, panel switch', async () => {
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const ed = window.mdoksi.editor; ed.commands.setTextSelection(3); ed.view.focus(); });
+  await click('#bAlign'); await page.waitForTimeout(150);
+  await click('#popAlign [data-align="center"]'); await page.waitForTimeout(250);
+  assert.equal(await page.evaluate(() => document.querySelector('#bAlign').dataset.al), 'center', 'the button shows the alignment in effect');
+  await click('[data-pop="popMore"]'); await page.waitForTimeout(150);
+  assert.ok(await page.evaluate(() => document.querySelectorAll('#popMore .cico svg').length >= 4), 'more menu with icons');
+  await click('#popMore [data-more="toc"]'); await page.waitForTimeout(150);
+  assert.ok(await visible('#popToc'));
+  await page.evaluate(() => window.mdoksi.editor.commands.setTextSelection(1));
+  await click('#tocAdd'); await page.waitForTimeout(1500);
+  const toc = () => page.evaluate(() => { const out = []; window.mdoksi.editor.state.doc.forEach(n => { if (n.attrs && n.attrs.toc) out.push(n.attrs.indentLeft); }); return out; });
+  const lines = await toc();
+  assert.ok(lines.length >= 2, 'table of contents inserted'); assert.ok(lines.every(v => !v), 'no indent by default');
+  await click('[data-pop="popMore"]'); await click('#popMore [data-more="toc"]'); await page.waitForTimeout(150);
+  await page.check('#tocIndent'); await page.waitForTimeout(300);
+  assert.ok((await toc()).some(v => v > 0), 'indent by level applied');
+  await page.keyboard.press('Escape');
+  await click('#navToggle'); await page.waitForTimeout(200);
+  assert.equal(await page.textContent('#navLabel'), 'Címsorok'); assert.ok(await visible('#hlist'));
+  await click('#navToggle'); await page.waitForTimeout(200);
+  assert.equal(await page.textContent('#navLabel'), 'Oldalak');
+  noErrors('menus and table of contents');
+});
+
+test('two pages side by side at a small zoom; a click goes back to editing there', async () => {
+  await page.evaluate(() => { const ed = window.mdoksi.editor; const j = ed.getJSON(); ed.commands.setContent({ type: 'doc', content: [...j.content, ...j.content, ...j.content] }); });
+  await page.waitForTimeout(2500);
+  await page.evaluate(() => window.mdoksi.setZoomAt(40)); await page.waitForTimeout(1500);
+  assert.ok(await page.evaluate(() => document.querySelector('#ws').classList.contains('spreadmode')), 'two-page view');
+  assert.equal(await page.evaluate(() => document.querySelectorAll('#spread .spage[data-i]').length), await page.evaluate(() => window.mdoksi.pages));
+  const box = await (await page.$('#spread .spage[data-i="1"]')).boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 3); await page.waitForTimeout(800);
+  assert.ok(!(await page.evaluate(() => document.querySelector('#ws').classList.contains('spreadmode'))), 'one page in a row again');
+  noErrors('two-page view');
+});
+
+test('text never runs into a freely placed picture (with and without captions)', async () => {
+  const setA = a => page.evaluate(a => { const ed = window.mdoksi.editor; let at = null; ed.state.doc.descendants((n, pos) => { if (at == null && n.type.name === 'image') at = { pos, n }; }); ed.view.dispatch(ed.state.tr.setNodeMarkup(at.pos, undefined, { ...at.n.attrs, ...a })); }, a);
+  const overlaps = () => page.evaluate(() => {
+    const D = window.mdoksi.editor.view.dom, img = D.querySelector('.imgw.pinned'), r = img.getBoundingClientRect(), k = D.getBoundingClientRect().width / D.offsetWidth;
+    const ct = img.querySelector('.icap.top:not([hidden])'), cb = img.querySelector('.icap.bot:not([hidden])');
+    const box = { l: r.left, r: r.right, t: ct ? ct.getBoundingClientRect().top : r.top, b: cb ? cb.getBoundingClientRect().bottom : r.bottom };
+    const tw = document.createTreeWalker(D, NodeFilter.SHOW_TEXT, { acceptNode: t => t.parentElement.closest('.imgw,.pin-sp,.lm') ? 2 : 1 }), rg = document.createRange(), out = [];
+    for (let t = tw.nextNode(); t; t = tw.nextNode()) {
+      const lh = parseFloat(getComputedStyle(t.parentElement.closest('p,h1,h2,h3') || t.parentElement).lineHeight) * k;
+      for (let i = 0; i < t.data.length; i++) {
+        if (!t.data[i].trim()) continue;
+        rg.setStart(t, i); rg.setEnd(t, i + 1); const q = rg.getBoundingClientRect(); if (!q.width) continue;
+        const m = (q.top + q.bottom) / 2, h = Math.min(q.height, lh || q.height) / 2;
+        if (Math.min(q.right, box.r) - Math.max(q.left, box.l) > 0.5 && Math.min(m + h, box.b) - Math.max(m - h, box.t) > 0.5) { out.push(t.data.slice(i, i + 12)); break; }
+      }
+    }
+    return out;
+  });
+  await page.evaluate(() => window.mdoksi.setZoomAt(100)); await page.waitForTimeout(800);
+  for (const a of [{ px: 0, py: -24 }, { px: 470, py: 12, capTop: 'Felső felirat', capBot: 'Forrás' }, { px: 470, py: 16 }, { px: 0, py: 30, capTop: '', capBot: 'Forrás: saját ábra' }]) {
+    await setA(a); await page.waitForTimeout(1800);
+    assert.deepEqual(await overlaps(), [], JSON.stringify(a));
+  }
+  noErrors('text wrap');
 });
 
 test('narrow window: every top-bar button stays on screen', async () => {

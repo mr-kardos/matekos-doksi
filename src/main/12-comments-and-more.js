@@ -237,7 +237,7 @@ function thumbsSoon(now) { clearTimeout(thumbT); thumbT = setTimeout(() => { ren
 let navMode = load('matekosdoksi.nav') === 'heads' ? 'heads' : 'pages';
 function setNav(m) {
   navMode = m; store('matekosdoksi.nav', m);
-  for (const b of $$('#pagesNav [data-nav]')) b.classList.toggle('on', b.dataset.nav === m);
+  $('#navLabel').textContent = m === 'heads' ? 'Címsorok' : 'Oldalak';
   plist.hidden = m !== 'pages'; $('#hlist').hidden = m !== 'heads';
   if (m === 'heads') renderHeads(); else thumbsSoon(true);
 }
@@ -254,7 +254,7 @@ function renderHeads() {
   box.innerHTML = out.join('') || '<div class="phint" style="padding:8px 12px">Nincs címsor a dokumentumban. A Főcím, Cím és Alcím stílusú bekezdések jelennek meg itt.</div>';
 }
 queueMicrotask(() => {
-  for (const b of $$('#pagesNav [data-nav]')) b.onclick = () => setNav(b.dataset.nav);
+  $('#navToggle').onclick = () => setNav(navMode === 'heads' ? 'pages' : 'heads');
   $('#hlist').addEventListener('click', e => {
     const b = e.target.closest('[data-hpos]'); if (!b) return;
     const pos = Math.min(+b.dataset.hpos + 1, editor.state.doc.content.size);
@@ -277,12 +277,71 @@ queueMicrotask(() => {
   }).observe(dom, { subtree: true, childList: true, attributes: true, characterData: true });
 });
 let thumbCache = [];                 // per page: {sig, node} – a page whose content did not change keeps its miniature
+/* A page as a picture (the page miniatures, the two-page view): its sheet, the line shading, the blocks that reach
+   into it (copies, exactly as laid out in the editor) and its free pictures / tables. */
+/** What every page picture needs, measured once. */
+function pageEnv() {
+  const g = geometry(tpl), dom = editor.view.dom;
+  const kids = Array.from(dom.children).map(c => ({ el: c, top: g.mt + c.offsetTop, bottom: g.mt + c.offsetTop + c.offsetHeight }));
+  const sr0 = stack.getBoundingClientRect(), edr = dom.getBoundingClientRect();
+  const pins = [...dom.querySelectorAll('.pinned')].map(el => {
+    const er0 = el.getBoundingClientRect(), pg = Math.floor((er0.top - sr0.top) / scale / g.P);
+    const tx = (er0.left - edr.left) / scale, ty = (er0.top - sr0.top) / scale - (pg * g.P + g.mt);
+    let top = el; while (top && top.parentNode !== dom) top = top.parentNode;
+    return { el, pg, tx, ty, sig: (top ? verOf(top) : '') + '@' + Math.round(tx) + ',' + Math.round(ty) + ',' + Math.round(er0.width) };
+  });
+  const shade = [...$('#shadeLayer').children].map(d => ({ html: d.outerHTML, top: parseFloat(d.style.top), h: parseFloat(d.style.height) }));
+  return { g, dom, kids, style: dom.getAttribute('style') || '', pins, shade, title: $('#docTitle').value };
+}
+/** The parts of page i, and a signature that changes when the page does. */
+function pageParts(i, E) {
+  const g = E.g, top = i * g.P, bot = top + g.H;
+  const parts = E.kids.filter(c => c.bottom > top - 2 && c.top < bot + 2);
+  const sheet = sheetHTML(i, pageCount, tpl, E.title, g, 0, 0);
+  const bandsHTML = E.shade.filter(d => !(d.top + d.h < top - 2 || d.top > top + g.P + 2)).map(d => d.html).join('');   // bands without a place are kept on every page
+  const myPins = E.pins.filter(x => x.pg === i);
+  const sig = [g.W, g.H, g.sheetX(i), g.leftOf(i), i + (+tpl.startPage || 1), E.style, sheet, bandsHTML, parts.map(p => verOf(p.el) + '@' + Math.round(p.top)).join(','), myPins.map(x => x.sig).join(',')].join('|');
+  return { parts, sheet, bandsHTML, myPins, sig };
+}
+/** The picture of page i: a .tpage element at the page's own size (scaled by its holder). */
+function pagePicture(i, E, P) {
+  const g = E.g, top = i * g.P;
+  const tp = document.createElement('div');
+  tp.className = 'tpage'; tp.style.width = g.W + 'px'; tp.style.height = g.H + 'px';
+  tp.innerHTML = P.sheet;
+  // line shading of this page
+  const bands = document.createElement('div');
+  bands.style.cssText = `position:absolute;left:${-g.sheetX(i)}px;top:${-i * g.P}px`;
+  bands.innerHTML = P.bandsHTML;
+  for (const d of bands.children) d.style.position = 'absolute';
+  tp.appendChild(bands);
+  // the blocks that reach into this page (exactly as laid out in the editor)
+  if (P.parts.length) {
+    const c = document.createElement('div');
+    c.className = 'ProseMirror docbody'; c.setAttribute('style', E.style);
+    c.style.position = 'absolute'; c.style.left = g.leftOf(i) + 'px'; c.style.top = (P.parts[0].top - top) + 'px'; c.style.minHeight = '0';
+    for (const p of P.parts) c.appendChild(p.el.cloneNode(true));
+    // free pictures / tables are placed on their page below; working marks are not part of the page
+    for (const x of c.querySelectorAll('.pinned')) x.style.visibility = 'hidden';
+    for (const x of c.querySelectorAll('.spell-err,.find-hit,.tbl-active,.ProseMirror-selectednode')) x.classList.remove('spell-err', 'find-hit', 'cur', 'tbl-active', 'ProseMirror-selectednode');
+    tp.appendChild(c);
+  }
+  // the free pictures / tables of this page, where they are on the page
+  for (const { el, tx, ty } of P.myPins) {
+    const cl = el.cloneNode(true);
+    cl.classList.remove('ProseMirror-selectednode', 'tbl-active');
+    const holder = document.createElement('div');
+    holder.className = 'ProseMirror docbody'; holder.setAttribute('style', E.style);
+    holder.style.position = 'absolute'; holder.style.left = g.leftOf(i) + 'px'; holder.style.top = g.mt + 'px'; holder.style.minHeight = '0'; holder.style.height = '0';
+    cl.style.left = tx + 'px'; cl.style.top = ty + 'px'; cl.style.visibility = '';
+    holder.appendChild(cl); tp.appendChild(holder);
+  }
+  return tp;
+}
 function renderThumbs() {
   if (!$('#home').hidden || plist.hidden) return;             // not shown (home screen, or the heading list is open)
-  const g = geometry(tpl), dom = editor.view.dom;
+  const E = pageEnv(), g = E.g, dom = E.dom;
   plist.style.setProperty('--pw', g.W); plist.style.setProperty('--ph', g.H);
-  const kids = Array.from(dom.children).map(c => ({ el: c, top: g.mt + c.offsetTop, bottom: g.mt + c.offsetTop + c.offsetHeight }));
-  const style = dom.getAttribute('style') || '';
   const nodes = [];
   // open comments per page (where each comment's first highlighted part is); not shown while the comments are hidden
   const cmtN = {};
@@ -300,57 +359,15 @@ function renderThumbs() {
       try { const pg = Math.max(0, Math.min(pageCount - 1, Math.floor(((editor.view.coordsAtPos(at[id]).top - top0) / scale + g.mt) / g.P))); cmtN[pg] = (cmtN[pg] || 0) + 1; } catch (e) { /* skipped */ }
     }
   }
-  // the free pictures / tables, each with the page it is on (measured once)
-  const sr0 = stack.getBoundingClientRect(), edr = dom.getBoundingClientRect();
-  const pins = [...dom.querySelectorAll('.pinned')].map(el => {
-    const er0 = el.getBoundingClientRect(), pg = Math.floor((er0.top - sr0.top) / scale / g.P);
-    const tx = (er0.left - edr.left) / scale, ty = (er0.top - sr0.top) / scale - (pg * g.P + g.mt);
-    let top = el; while (top && top.parentNode !== dom) top = top.parentNode;
-    return { el, pg, tx, ty, sig: (top ? verOf(top) : '') + '@' + Math.round(tx) + ',' + Math.round(ty) + ',' + Math.round(er0.width) };
-  });
-  // line shading: only the bands of each page
-  const shade = [...$('#shadeLayer').children].map(d => ({ html: d.outerHTML, top: parseFloat(d.style.top), h: parseFloat(d.style.height) }));
-  const title = $('#docTitle').value, cache = [];
+  const cache = [];
   for (let i = 0; i < pageCount; i++) {
-    const top = i * g.P, bot = top + g.H;
-    const parts = kids.filter(c => c.bottom > top - 2 && c.top < bot + 2);
-    const sheet = sheetHTML(i, pageCount, tpl, title, g, 0, 0);
-    const bandsHTML = shade.filter(d => !(d.top + d.h < top - 2 || d.top > top + g.P + 2)).map(d => d.html).join('');   // bands without a place are kept on every page
-    const myPins = pins.filter(x => x.pg === i);
-    const sig = [g.W, g.H, g.sheetX(i), g.leftOf(i), i + (+tpl.startPage || 1), style, sheet, bandsHTML, parts.map(p => verOf(p.el) + '@' + Math.round(p.top)).join(','), myPins.map(x => x.sig).join(','), cmtN[i] || 0].join('|');
+    const P = pageParts(i, E), sig = P.sig + '|' + (cmtN[i] || 0);
     const old = thumbCache[i];
     if (old && old.sig === sig) { old.node.classList.toggle('cur', i === curPage); nodes.push(old.node); cache[i] = old; continue; }
     const t = document.createElement('div');
     t.className = 'thumb' + (i === curPage ? ' cur' : ''); t.dataset.i = i;
-    t.innerHTML = `<div class="no">${i + (+tpl.startPage || 1)}</div><div class="frame"><div class="tpage" style="width:${g.W}px;height:${g.H}px">${sheet}</div></div>`;
-    const tp = t.querySelector('.tpage');
-    // line shading of this page
-    const bands = document.createElement('div');
-    bands.style.cssText = `position:absolute;left:${-g.sheetX(i)}px;top:${-i * g.P}px`;
-    bands.innerHTML = bandsHTML;
-    for (const d of bands.children) d.style.position = 'absolute';
-    tp.appendChild(bands);
-    // the blocks that reach into this page (exactly as laid out in the editor)
-    if (parts.length) {
-      const c = document.createElement('div');
-      c.className = 'ProseMirror docbody'; c.setAttribute('style', style);
-      c.style.position = 'absolute'; c.style.left = g.leftOf(i) + 'px'; c.style.top = (parts[0].top - top) + 'px'; c.style.minHeight = '0';
-      for (const p of parts) c.appendChild(p.el.cloneNode(true));
-      // free pictures / tables are placed on their page below; working marks are not part of the page
-      for (const x of c.querySelectorAll('.pinned')) x.style.visibility = 'hidden';
-      for (const x of c.querySelectorAll('.spell-err,.find-hit,.tbl-active,.ProseMirror-selectednode')) x.classList.remove('spell-err', 'find-hit', 'cur', 'tbl-active', 'ProseMirror-selectednode');
-      tp.appendChild(c);
-    }
-    // the free pictures / tables of this page, where they are on the page
-    for (const { el, tx, ty } of myPins) {
-      const cl = el.cloneNode(true);
-      cl.classList.remove('ProseMirror-selectednode', 'tbl-active');
-      const holder = document.createElement('div');
-      holder.className = 'ProseMirror docbody'; holder.setAttribute('style', style);
-      holder.style.position = 'absolute'; holder.style.left = g.leftOf(i) + 'px'; holder.style.top = g.mt + 'px'; holder.style.minHeight = '0'; holder.style.height = '0';
-      cl.style.left = tx + 'px'; cl.style.top = ty + 'px'; cl.style.visibility = '';
-      holder.appendChild(cl); tp.appendChild(holder);
-    }
+    t.innerHTML = `<div class="no">${i + (+tpl.startPage || 1)}</div><div class="frame"></div>`;
+    t.querySelector('.frame').appendChild(pagePicture(i, E, P));
     if (cmtN[i]) t.querySelector('.frame').insertAdjacentHTML('beforeend', `<span class="cmtmark" title="${cmtN[i]} nyitott megjegyzés ezen az oldalon">${svg('comment')}${cmtN[i]}</span>`);
     nodes.push(t); cache[i] = { sig, node: t };
   }
@@ -360,6 +377,7 @@ function renderThumbs() {
   nodes.forEach((n, i) => { const at = plist.children[i]; if (at !== n) { if (at) plist.insertBefore(n, at); else plist.appendChild(n); } });
   while (plist.children.length > nodes.length) plist.lastElementChild.remove();
   fitThumbs();
+  if (spreadOn) spreadSoon();
 }
 /** Miniature size follows the panel width at once (only a CSS scale – no re-render while dragging). */
 function fitThumbs() {
@@ -371,7 +389,8 @@ plist.addEventListener('click', e => {
   const t = e.target.closest('.thumb'); if (!t) return;
   const g = geometry(tpl), i = +t.dataset.i;
   pickedAt = Date.now();
-  glideTo(ws, outer.offsetTop + i * g.P * scale - 12);
+  const sp = spreadOn && spreadBox.querySelector(`.spage[data-i="${i}"]`);
+  glideTo(ws, sp ? sp.offsetTop - 16 : outer.offsetTop + i * g.P * scale - 12);
   setCurPage(i);
 });
 function setCurPage(i) {
@@ -383,6 +402,11 @@ function setCurPage(i) {
 let pickedAt = 0;
 ws.addEventListener('scroll', () => {
   if (Date.now() - pickedAt < 900) return;                 // just clicked a page in the list
+  if (spreadOn) {                                          // two pages in a row: the page nearest to the upper third
+    const y = ws.scrollTop + ws.clientHeight * 0.35; let best = 0;
+    for (const sp of spreadBox.children) if (sp.dataset.i && sp.offsetTop <= y) best = +sp.dataset.i;
+    return setCurPage(best);
+  }
   const g = geometry(tpl);
   if (ws.scrollTop + ws.clientHeight >= ws.scrollHeight - 2) return setCurPage(pageCount - 1);
   const y = (ws.scrollTop + ws.clientHeight * 0.35 - outer.offsetTop) / scale;

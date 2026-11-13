@@ -51,7 +51,7 @@ function ctxItems(e) {
     add('Mindent kijelöl', () => { editor.view.focus(); editor.commands.selectAll(); }, 'Ctrl/⌘+A');
     add('Nem törő szóköz', () => { editor.chain().focus().insertContent('\u00a0').run(); }, 'Ctrl/⌘+Shift+Szóköz');
     if (editor.isActive('link')) add('Hivatkozás megnyitása', () => openLink(editor.getAttributes('link').href));
-    add(editor.isActive('link') ? 'Hivatkozás szerkesztése…' : 'Hivatkozás…', () => showPop('popLink', $('[data-pop="popLink"]')), 'Ctrl/⌘+K');
+    add(editor.isActive('link') ? 'Hivatkozás szerkesztése…' : 'Hivatkozás…', () => showPop('popLink', $('[data-pop="popMore"]')), 'Ctrl/⌘+K');
     sep();
     add('Megjegyzés hozzáadása', () => openCommentBox(), '', hasSel);
     add('Bekezdés beállításai…', () => showPop('popPara', $('[data-pop="popPara"]')));

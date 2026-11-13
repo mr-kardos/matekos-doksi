@@ -50,36 +50,32 @@
       <select id="styleSel" class="sel style" title="Bekezdésstílus" aria-label="Bekezdésstílus">
         <option value="p">Normál</option><option value="h1">Főcím</option><option value="h2">Cím</option><option value="h3">Alcím</option>
       </select>
-      <button class="tb" data-cmd="alignLeft" data-state="alignLeft" data-icon="alignL" title="Balra igazítás"></button>
-      <button class="tb" data-cmd="alignCenter" data-state="alignCenter" data-icon="alignC" title="Középre zárás"></button>
-      <button class="tb" data-cmd="alignRight" data-state="alignRight" data-icon="alignR" title="Jobbra igazítás"></button>
-      <button class="tb" data-cmd="alignJustify" data-state="alignJustify" data-icon="alignJ" title="Sorkizárt"></button>
-      <button class="tb" data-cmd="twoCols" data-icon="cols2" title="Két hasáb: kétoszlopos, egysoros, láthatatlan szegélyű táblázat beszúrása (cellamargó nélkül)"></button>
-    </div>
-    <div class="grp">
+      <button class="tb aligndd" data-pop="popAlign" id="bAlign" title="Igazítás: balra, középre, jobbra, sorkizárt"><span class="alignico" id="alignIco"></span><span class="ddmark" data-icon="chev"></span></button>
+      <button class="tb" data-pop="popPara" data-icon="para" title="Bekezdés: behúzások és bekezdésköz"></button>
+      <button class="tb" data-pop="popTabs" data-icon="tabstop" title="Tabulátorok"></button>
+      <button class="tb" data-cmd="outdent" data-icon="outdent" title="Behúzás csökkentése (listában Shift+Tab)"></button>
+      <button class="tb" data-cmd="indent" data-icon="indent" title="Behúzás növelése (listában Tab)"></button>
       <button class="tb" data-cmd="bulletList" data-state="bulletList" data-icon="bul" title="Felsorolás"></button>
       <button class="tb mini" data-pop="popBullet" data-icon="chev" title="Felsorolásjel: szimbólum vagy kép"></button>
       <button class="tb" data-cmd="orderedList" data-state="orderedList" data-icon="num" title="Számozott lista"></button>
       <button class="tb mini" data-pop="popNum" data-icon="chev" title="Számozás stílusa"></button>
-      <button class="tb" data-cmd="outdent" data-icon="outdent" title="Behúzás csökkentése (listában Shift+Tab)"></button>
-      <button class="tb" data-cmd="indent" data-icon="indent" title="Behúzás növelése (listában Tab)"></button>
-      <button class="tb" data-pop="popPara" data-icon="para" title="Bekezdés: behúzások és bekezdésköz"></button>
-      <button class="tb" data-pop="popTabs" data-icon="tabstop" title="Tabulátorok"></button>
-      <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Sorárnyék: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#d9d9d9"></i></button>
-      <button class="tb" data-pop="popRule" data-icon="ruleLine" title="Elválasztó vonal a bekezdés fölött vagy alatt – margótól margóig"></button>
+      <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Háttérszín: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#d9d9d9"></i></button>
+      <button class="tb" data-pop="popRule" data-icon="ruleLine" title="Vízszintes vonal a bekezdés fölött vagy alatt – margótól margóig"></button>
+      <button class="tb" data-cmd="twoCols" data-icon="cols2" title="Két hasáb: kétoszlopos, egysoros, láthatatlan szegélyű táblázat beszúrása (cellamargó nélkül)"></button>
     </div>
     <div class="grp">
       <button class="tb" data-cmd="math" data-icon="sigma" title="Képlet (Ctrl/⌘+M) – vagy írd $…$ közé a szövegben"><span class="lbl">Képlet</span></button>
       <button class="tb" data-pop="popTable" data-icon="table" title="Táblázat beszúrása"></button>
       <button class="tb" data-cmd="image" data-icon="image" title="Kép beszúrása – PNG, JPG, GIF, WebP, SVG"></button>
       <button class="tb" data-cmd="pageBreak" data-icon="pbreak" title="Oldaltörés (Ctrl/⌘+Enter)"></button>
-      <button class="tb" data-cmd="toc" data-icon="toc" title="Tartalomjegyzék a címsorokból (Főcím, Cím, Alcím) oldalszámokkal: beszúrás a kurzor elé – ha már van, frissítés"></button>
     </div>
     <div class="grp">
-      <button class="tb" data-pop="popLink" data-icon="link" title="Hivatkozás (Ctrl/⌘+K) – Ctrl/⌘+kattintással nyílik meg"></button>
       <button class="tb" data-pop="popFind" data-icon="search" title="Keresés és csere (Ctrl/⌘+F) – a szövegben, a képletekben, az élőfejben és az élőlábban"></button>
       <button class="tb" data-cmd="spell" data-state="spell" data-icon="spell" title="Helyesírás-ellenőrzés (magyar) be / ki"></button>
       <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Lektor mód: rejtett formázás, behúzások (függő behúzás is), térközök és a sablontól való eltérések mutatása"></button>
+    </div>
+    <div class="grp">
+      <button class="tb" data-pop="popMore" data-icon="dots" title="További funkciók: hivatkozás, tartalomjegyzék, nem törő szóköz, megjegyzés"></button>
     </div>
   </div>
   <div class="ctxbar" id="imgBar" hidden>
@@ -131,7 +127,7 @@
 </header>
 
 <div class="main" id="main">
-  <nav id="pagesNav" aria-label="Oldalak"><div class="phead2 lhead"><div class="seg2 navseg"><button class="pitem on" data-nav="pages" title="Az oldalak kicsiben">Oldalak</button><button class="pitem" data-nav="heads" title="A dokumentum címsorai – kattintással oda lehet ugrani">Címsorok</button></div><button class="tb" id="pagesX" data-icon="panelL" title="Bal oldali panel összecsukása"></button></div><div class="plist" id="plist"></div><div class="hlist" id="hlist" hidden></div><button class="wcount" id="wordCount" title="Statisztika">0 szó</button></nav>
+  <nav id="pagesNav" aria-label="Oldalak"><div class="phead2 lhead"><button class="navtoggle" id="navToggle" title="Váltás az oldalak és a címsorok között"><span class="navico" data-icon="swap"></span><span id="navLabel">Oldalak</span></button><button class="tb" id="pagesX" data-icon="panelL" title="Bal oldali panel összecsukása"></button></div><div class="plist" id="plist"></div><div class="hlist" id="hlist" hidden></div><button class="wcount" id="wordCount" title="Statisztika">0 szó</button></nav>
   <div class="lsplit" id="lsplit" title="Húzd a panel szélességének állításához" role="separator" aria-orientation="vertical"></div>
   <main class="ws" id="ws">
     <div class="outer" id="outer">
@@ -406,6 +402,28 @@
 </div>
 <div class="cfm" id="updBox" hidden role="dialog" aria-modal="true"><div class="cfm-card upd"><p class="updhead">Új verzió érhető el: <b id="updVer"></b></p><p class="updmsg" id="updMsg"></p>
   <div class="cfm-btns"><button class="btn" id="updLater">Később</button><button class="btn primary" id="updGo">Letöltés</button></div></div></div>
+<div class="pop menu" id="popAlign" hidden>
+  <button class="pitem mitem" data-align="left"><span class="cico" data-icon="alignL"></span><span class="clbl">Balra igazítás</span></button>
+  <button class="pitem mitem" data-align="center"><span class="cico" data-icon="alignC"></span><span class="clbl">Középre zárás</span></button>
+  <button class="pitem mitem" data-align="right"><span class="cico" data-icon="alignR"></span><span class="clbl">Jobbra igazítás</span></button>
+  <button class="pitem mitem" data-align="justify"><span class="cico" data-icon="alignJ"></span><span class="clbl">Sorkizárt</span></button>
+</div>
+<div class="pop menu" id="popMore" hidden>
+  <button class="pitem mitem" data-more="link"><span class="cico" data-icon="link"></span><span class="clbl">Hivatkozás…</span><span class="phint">Ctrl/⌘+K</span></button>
+  <button class="pitem mitem" data-more="toc"><span class="cico" data-icon="toc"></span><span class="clbl">Tartalomjegyzék…</span></button>
+  <button class="pitem mitem" data-more="nbsp"><span class="cico" data-icon="nbsp"></span><span class="clbl">Nem törő szóköz</span><span class="phint">Ctrl/⌘+Shift+Szóköz</span></button>
+  <button class="pitem mitem" data-more="comment"><span class="cico" data-icon="comment"></span><span class="clbl">Megjegyzés hozzáadása</span></button>
+</div>
+<div class="pop" id="popToc" hidden>
+  <div class="ptitle">Tartalomjegyzék</div>
+  <div class="phint" style="margin:0 0 8px">A Főcím, Cím és Alcím stílusú bekezdésekből, oldalszámokkal. A frissítés a sorok saját szövegét és formázását megtartja, csak az oldalszámokat (és az új vagy törölt címsorokat) igazítja.</div>
+  <div class="cfm-btns" style="justify-content:flex-start;margin:0 0 10px"><button class="btn primary" id="tocAdd">Beszúrás a kurzor elé</button><button class="btn" id="tocRefresh">Frissítés</button></div>
+  <div class="ptitle" style="font-size:12.5px">Kinézet</div>
+  <label class="chk"><input type="checkbox" id="tocIndent"> Behúzás szintenként (Cím, Alcím beljebb)</label>
+  <label class="chk"><input type="checkbox" id="tocBold"> A főcímek félkövérek</label>
+  <label class="fld full" style="margin-top:6px">Kitöltés a számig<select id="tocLeader"><option value="dot">pontok</option><option value="line">vonal</option><option value="">üres</option></select></label>
+  <div class="phint" style="margin-top:6px">A kinézet a meglévő tartalomjegyzékre is érvényes lesz.</div>
+</div>
 <div class="pop" id="popLink" hidden>
   <div class="ptitle">Hivatkozás</div>
   <label class="fld full">Webcím<input type="text" id="linkIn" spellcheck="false" placeholder="https://…"></label>

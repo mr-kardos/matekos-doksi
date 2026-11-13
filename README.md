@@ -1,4 +1,4 @@
-# Matekos Doksi 1.1.0
+# Matekos Doksi 1.2.0
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -154,6 +154,20 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
     before the split); `npm test` also checks the parts; `npm run test:app` builds the app and runs it in a headless
     Chrome – it clicks every ribbon button and popup and tries a few features (the first time:
     `npx playwright install chromium`).
+
+* 1.2.0:
+  * two pages side by side when the zoom is so small that they fit (in a book with mirrored margins the first page
+    stands alone on the right); these are pictures of the pages – a click goes back to the last zoom with one page
+    in a row, with the cursor at the place clicked;
+  * ribbon: the four alignments are one button with a menu (its icon shows the alignment in effect); new order –
+    style, alignment, paragraph, tab stops, indents, lists, Háttérszín (formerly line shading), horizontal line, two
+    columns | formula, table, picture, page break | find, spelling, Lektor mód | "⋯" more: link, table of contents,
+    non-breaking space, comment (menus with icons);
+  * table of contents: its own popup – insert, refresh, and its look (indent by level – off by default –, bold main
+    headings, dots / line / nothing to the number; kept in the template, applied to the existing lines too);
+  * left panel: one switch button for pages / headings;
+  * text never runs into a freely placed picture: a line counts by its line box (not by its taller glyph box), and a
+    line that only just reaches the picture still makes room.
 
 ## File format
 

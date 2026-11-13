@@ -41,7 +41,7 @@ const COMMANDS = {
   outdent: () => AE().isActive('listItem') ? (changeListLevel(AE().view, -1), AE().view.focus()) : ch().shiftIndent(-0.8).run(),
   image: () => $('#fileIn').click(),
   pageBreak: () => ch().setPageBreak().run(),
-  toc: () => updateTOC(true),
+  toc: () => showPop('popToc', $('[data-pop="popMore"]')),
   math: () => openMath(null, null),
   painter: () => {
     if (painter) { painter = null; document.body.classList.remove('painting'); updateToolbar(); return; }
@@ -92,6 +92,11 @@ function updateToolbar() {
       $('#colorBar').style.background = cs.color;
     }
     { const f = currentFamily(); $('#fontLabel').textContent = familyLabel(f || fontSet(tpl.font).text).replace(/ \(.*\)$/, ''); }
+    // the alignment button shows the alignment of the paragraph the cursor is in (set on it, or by its style)
+    { let al = 'left'; const blk = el && el.closest && el.closest('p,h1,h2,h3,li');
+      if (blk) { const t = getComputedStyle(blk).textAlign; al = t === 'center' ? 'center' : t === 'right' || t === 'end' ? 'right' : t === 'justify' ? 'justify' : 'left'; }
+      if ($('#bAlign').dataset.al !== al) { $('#bAlign').dataset.al = al; $('#alignIco').innerHTML = svg({ left: 'alignL', center: 'alignC', right: 'alignR', justify: 'alignJ' }[al]); }
+      for (const b of $$('#popAlign [data-align]')) b.classList.toggle('on', b.dataset.align === al); }
     $('#styleSel').value = AE().isActive('heading', { level: 1 }) ? 'h1' : AE().isActive('heading', { level: 2 }) ? 'h2' : AE().isActive('heading', { level: 3 }) ? 'h3' : 'p';
     updateImgBar();
     $('#tableBar').hidden = !AE().isActive('table') || !$('#imgBar').hidden;
@@ -175,3 +180,30 @@ function twoColumns() {
   editor.view.dispatch(tr.scrollIntoView()); editor.view.focus();
 }
 
+
+/* alignment: one button with a menu (its icon is the alignment in effect) */
+$('#alignIco').innerHTML = svg('alignL');
+$('#popAlign').addEventListener('mousedown', e => e.preventDefault());       // the selection stays
+$('#popAlign').addEventListener('click', e => {
+  const b = e.target.closest('[data-align]'); if (!b) return; closePops();
+  COMMANDS['align' + b.dataset.align[0].toUpperCase() + b.dataset.align.slice(1)]();
+  updateToolbar();
+});
+/* "more": the features without a place of their own in the ribbon */
+$('#popMore').addEventListener('mousedown', e => e.preventDefault());
+$('#popMore').addEventListener('click', e => {
+  const b = e.target.closest('[data-more]'); if (!b) return; closePops();
+  const k = b.dataset.more, anchor = $('[data-pop="popMore"]');
+  if (k === 'link') showPop('popLink', anchor);
+  else if (k === 'toc') showPop('popToc', anchor);
+  else if (k === 'nbsp') editor.chain().focus().insertContent('\u00a0').run();
+  else if (k === 'comment') openCommentBox();
+});
+/* table of contents: insert / refresh, and its look (in the template, so it is the same in the whole document) */
+$('#popToc').onopen = () => { const t = tpl.toc || {}; $('#tocIndent').checked = !!t.indent; $('#tocBold').checked = t.bold !== false; $('#tocLeader').value = t.leader ?? 'dot'; };
+$('#tocAdd').addEventListener('click', () => { closePops(); if (tocRun()) { toast('A dokumentumban már van tartalomjegyzék – a Frissítés gombbal igazítható.'); return; } updateTOC(true); });
+$('#tocRefresh').addEventListener('click', () => { closePops(); if (!tocRun()) { toast('Még nincs tartalomjegyzék – a „Beszúrás a kurzor elé” gombbal készíthetsz.'); return; } updateTOC(true); });
+for (const id of ['#tocIndent', '#tocBold', '#tocLeader']) $(id).addEventListener('change', () => {
+  tpl.toc = { indent: $('#tocIndent').checked, bold: $('#tocBold').checked, leader: $('#tocLeader').value };
+  tplChanged(); restyleTOC();
+});

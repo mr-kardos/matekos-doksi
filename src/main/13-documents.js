@@ -142,10 +142,29 @@ function tocLines(olds = []) {
       if (!old || tocSig(before) !== e.sig && srcOf(old) !== e.sig) before = markAll(e.content, textMarks(before));   // new line, or the heading was renamed
       return { ...j, attrs: { ...j.attrs, toc: e.level, tocSrc: e.sig }, content: [...before, { type: 'tab' }, { type: 'text', text: e.page, ...(numMarks ? { marks: numMarks } : {}) }] };
     }
-    const lvl = e.level;
-    return { type: 'paragraph', attrs: { toc: lvl, tocSrc: e.sig, tabStops: JSON.stringify([{ pos: width, align: 'right', leader: 'dot' }]), indentLeft: lvl > 1 ? (lvl - 1) * 0.6 : null, spaceBefore: lvl === 1 ? 4 : 0, spaceAfter: 1, keepNext: false },
-      content: [...markAll(e.content, lvl === 1 ? [{ type: 'bold' }] : null), { type: 'tab' }, { type: 'text', text: e.page }] };
+    const lvl = e.level, look = tocLook();
+    return { type: 'paragraph', attrs: { toc: lvl, tocSrc: e.sig, tabStops: tocTabs(width, look), indentLeft: tocIndent(lvl, look), spaceBefore: lvl === 1 ? 4 : 0, spaceAfter: 1, keepNext: false },
+      content: [...markAll(e.content, lvl === 1 && look.bold ? [{ type: 'bold' }] : null), { type: 'tab' }, { type: 'text', text: e.page }] };
   });
+}
+/* the look of the table of contents (template → toc): no indent by default, bold main headings, dots to the number */
+const tocLook = () => ({ indent: false, bold: true, leader: 'dot', ...(tpl.toc || {}) });
+const tocIndent = (lvl, look) => look.indent && lvl > 1 ? (lvl - 1) * 0.6 : null;
+const tocTabs = (width, look) => JSON.stringify([{ pos: width, align: 'right', ...(look.leader ? { leader: look.leader } : {}) }]);
+/** A new look for the existing lines: their indent, the fill to the number and the bold main headings (the rest stays). */
+function restyleTOC() {
+  const run = tocRun(); if (!run) return;
+  const look = tocLook(), width = Math.round(editor.view.dom.clientWidth / CM_PX * 100) / 100, tr = editor.state.tr, bold = editor.schema.marks.bold;
+  run.nodes.forEach((n, k) => {
+    let pos = run.from; for (let j = 0; j < k; j++) pos += run.nodes[j].nodeSize;
+    const lvl = n.attrs.toc;
+    tr.setNodeMarkup(pos, undefined, { ...n.attrs, indentLeft: tocIndent(lvl, look), tabStops: tocTabs(width, look) });
+    if (lvl === 1 && bold) {
+      let end = pos + 1; n.forEach((c, off) => { if (c.type.name === 'tab') end = pos + 1 + off; });
+      if (end > pos + 1) { if (look.bold) tr.addMark(pos + 1, end, bold.create()); else tr.removeMark(pos + 1, end, bold); }
+    }
+  });
+  editor.view.dispatch(tr);
 }
 /** Insert the table of contents before the block the cursor is in – or refresh the one the document has.
  *  The page numbers are worked out again until they stop changing (the table itself may push the text on). */
@@ -543,7 +562,7 @@ document.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
   if ((k === 'z' || k === 'y') && $('#home').hidden && !hfEd && !(e.target.closest && e.target.closest('.ProseMirror, .pop, #mathDlg, #cmtView, #docTitle'))) { e.preventDefault(); if (k === 'y' || e.shiftKey) unifiedRedo(); else unifiedUndo(); return; }
   if (['0', '+', '=', '-'].includes(k) && $('#home').hidden) { e.preventDefault(); const pct = Math.round(scale * 100); setZoom(k === '0' ? 'auto' : k === '-' ? pct / 1.25 : pct * 1.25); return; }
-  if (k === 'k' && $('#home').hidden && !hfEd) { e.preventDefault(); showPop('popLink', $('[data-pop="popLink"]')); return; }
+  if (k === 'k' && $('#home').hidden && !hfEd) { e.preventDefault(); showPop('popLink', $('[data-pop="popMore"]')); return; }
   if (k === 's') { e.preventDefault(); doSave(e.shiftKey); }
   else if (k === 'f') { e.preventDefault(); showPop('popFind', $('[data-pop="popFind"]')); }
   else if (k === 'o') { e.preventDefault(); doOpen(); }

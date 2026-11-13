@@ -692,7 +692,9 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 #popImgCap input[type=text]{ width:100%; box-sizing:border-box; }
 
 /* left panel: pages / headings */
-.navseg .pitem{ width:auto; padding:3px 9px; font-size:12.5px; font-weight:600; border-radius:6px; }
+.navtoggle{ display:inline-flex; align-items:center; gap:6px; border:0; background:none; color:var(--ink); font:600 13px var(--ui); padding:4px 8px; border-radius:6px; cursor:pointer; min-width:0; }
+.navtoggle:hover{ background:var(--hover); }
+.navtoggle .navico svg{ width:15px; height:15px; color:var(--ink-2); }
 #pagesNav .plist[hidden]{ display:none; }
 .hlist{ flex:1; min-height:0; overflow:auto; padding:4px 6px 10px; }
 .hlist[hidden]{ display:none; }
@@ -722,8 +724,7 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 #pagesNav{ container-type:inline-size; container-name:pnav; }
 @container pnav (max-width: 165px){
   #pagesNav .lhead{ align-items:flex-start; gap:4px; padding:8px 4px 2px 8px; }
-  #pagesNav .lhead .navseg{ flex-direction:column; align-items:stretch; flex:1; min-width:0; }
-  #pagesNav .lhead .navseg .pitem{ width:100%; text-align:left; }
+  #pagesNav .lhead .navtoggle{ flex:1; padding-left:4px; }
   #pagesNav .lhead > .tb{ flex:none; margin-left:auto; }
 }
 
@@ -762,3 +763,26 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 .ProseMirror a[href]:hover{ text-decoration-thickness:2px; }
 #popLink{ width:320px; }
 #popLink input[type=text]{ width:100%; box-sizing:border-box; }
+
+/* ribbon: the alignment button (its icon follows the alignment) and the menus with icons */
+.tb.aligndd{ display:inline-flex; align-items:center; gap:1px; padding-right:2px; }
+.tb.aligndd .alignico{ display:inline-flex; }
+.tb.aligndd .ddmark svg{ width:11px; height:11px; opacity:.7; }
+.pop.menu{ min-width:220px; padding:6px; }
+.pop.menu .mitem{ display:flex; justify-content:flex-start; align-items:center; gap:10px; }
+.pop.menu .mitem .cico{ display:inline-flex; width:18px; flex:none; color:var(--ink-2); }
+.pop.menu .mitem .cico svg{ width:16px; height:16px; }
+.pop.menu .mitem .clbl{ flex:1; }
+.pop.menu .mitem.on{ background:var(--hover); }
+.pop.menu .mitem.on .cico{ color:var(--accent); }
+#popToc{ width:330px; }
+#popToc .chk{ display:flex; margin-top:4px; }
+
+/* two pages side by side (small zoom): pictures of the pages in pairs; the editing column stays laid out underneath */
+.ws.spreadmode #outer{ position:absolute; left:0; top:0; visibility:hidden; pointer-events:none; }
+#spread{ display:grid; grid-template-columns:repeat(2, var(--sw)); gap:24px 20px; justify-content:center; padding:20px 0 48px; }
+#spread[hidden]{ display:none; }
+#spread .spage{ position:relative; width:var(--sw); height:var(--sh); overflow:hidden; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.25), 0 6px 18px rgba(0,0,0,.12); cursor:pointer; }
+#spread .spage.blank{ visibility:hidden; }
+#spread .spage .tpage{ transform:scale(var(--sk)); }
+#spread .spage:hover{ outline:2px solid var(--accent); outline-offset:2px; }
