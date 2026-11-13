@@ -88,8 +88,9 @@ test('alignment menu, "more" menu, table of contents, panel switch', async () =>
   await click('#bAlign'); await page.waitForTimeout(150);
   await click('#popAlign [data-align="center"]'); await page.waitForTimeout(250);
   assert.equal(await page.evaluate(() => document.querySelector('#bAlign').dataset.al), 'center', 'the button shows the alignment in effect');
+  assert.ok(await page.evaluate(() => document.querySelector('#bAlign').classList.contains('on')), 'highlighted when not left-aligned');
   await click('[data-pop="popMore"]'); await page.waitForTimeout(150);
-  assert.ok(await page.evaluate(() => document.querySelectorAll('#popMore .cico svg').length >= 4), 'more menu with icons');
+  assert.ok(await page.evaluate(() => document.querySelectorAll('#popMore .cico svg').length >= 3), 'more menu with icons');
   await click('#popMore [data-more="toc"]'); await page.waitForTimeout(150);
   assert.ok(await visible('#popToc'));
   await page.evaluate(() => window.mdoksi.editor.commands.setTextSelection(1));
@@ -144,6 +145,23 @@ test('text never runs into a freely placed picture (with and without captions)',
     assert.deepEqual(await overlaps(), [], JSON.stringify(a));
   }
   noErrors('text wrap');
+});
+
+test('second ribbon row: the top of the first page can still be scrolled into view; the panel header stays put', async () => {
+  await page.evaluate(() => window.mdoksi.setZoomAt(100)); await page.waitForTimeout(500);
+  await page.evaluate(() => { document.querySelector('#ws').scrollTop = 0; });
+  const y0 = await page.evaluate(() => document.querySelector('#outer').getBoundingClientRect().top);
+  await page.evaluate(() => { const ed = window.mdoksi.editor; let at = null; ed.state.doc.descendants((n, pos) => { if (at == null && n.type.name === 'image') at = pos; }); ed.commands.setNodeSelection(at); ed.view.focus(); });
+  await page.waitForTimeout(400);
+  assert.ok(await visible('#imgBar'), 'picture row shown');
+  assert.ok(Math.abs(await page.evaluate(() => document.querySelector('#outer').getBoundingClientRect().top) - y0) < 2, 'the pages did not move when the row appeared');
+  await page.evaluate(() => { document.querySelector('#ws').scrollTop = 0; }); await page.waitForTimeout(100);
+  assert.ok(await page.evaluate(() => document.querySelector('#outer').getBoundingClientRect().top >= document.querySelector('#imgBar').getBoundingClientRect().bottom), 'the top of the first page is below the row');
+  // the left panel's header does not move while the panel is resized
+  const tops = [];
+  for (const w of [260, 200, 150, 120, 176]) { await page.evaluate(w => { document.querySelector('.main').style.setProperty('--lw', w + 'px'); }, w); await page.waitForTimeout(80); tops.push(await page.evaluate(() => Math.round(document.querySelector('#navToggle').getBoundingClientRect().top))); }
+  assert.equal(new Set(tops).size, 1, 'header button top: ' + tops.join(','));
+  noErrors('second row');
 });
 
 test('narrow window: every top-bar button stays on screen', async () => {

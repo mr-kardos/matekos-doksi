@@ -50,15 +50,15 @@
       <select id="styleSel" class="sel style" title="Bekezdésstílus" aria-label="Bekezdésstílus">
         <option value="p">Normál</option><option value="h1">Főcím</option><option value="h2">Cím</option><option value="h3">Alcím</option>
       </select>
-      <button class="tb aligndd" data-pop="popAlign" id="bAlign" title="Igazítás: balra, középre, jobbra, sorkizárt"><span class="alignico" id="alignIco"></span><span class="ddmark" data-icon="chev"></span></button>
+      <button class="tb aligndd" data-pop="popAlign" id="bAlign" title="Igazítás: balra, középre, jobbra, sorkizárt"><span class="alignico" id="alignIco"></span></button>
       <button class="tb" data-pop="popPara" data-icon="para" title="Bekezdés: behúzások és bekezdésköz"></button>
       <button class="tb" data-pop="popTabs" data-icon="tabstop" title="Tabulátorok"></button>
-      <button class="tb" data-cmd="outdent" data-icon="outdent" title="Behúzás csökkentése (listában Shift+Tab)"></button>
-      <button class="tb" data-cmd="indent" data-icon="indent" title="Behúzás növelése (listában Tab)"></button>
       <button class="tb" data-cmd="bulletList" data-state="bulletList" data-icon="bul" title="Felsorolás"></button>
       <button class="tb mini" data-pop="popBullet" data-icon="chev" title="Felsorolásjel: szimbólum vagy kép"></button>
       <button class="tb" data-cmd="orderedList" data-state="orderedList" data-icon="num" title="Számozott lista"></button>
       <button class="tb mini" data-pop="popNum" data-icon="chev" title="Számozás stílusa"></button>
+      <button class="tb" data-cmd="outdent" data-icon="outdent" title="Behúzás csökkentése (listában Shift+Tab)"></button>
+      <button class="tb" data-cmd="indent" data-icon="indent" title="Behúzás növelése (listában Tab)"></button>
       <button class="tb cbtn" data-pop="popShade" data-icon="shade" title="Háttérszín: egybefüggő színes sáv a sorok mögött"><i class="cbar" style="background:#d9d9d9"></i></button>
       <button class="tb" data-pop="popRule" data-icon="ruleLine" title="Vízszintes vonal a bekezdés fölött vagy alatt – margótól margóig"></button>
       <button class="tb" data-cmd="twoCols" data-icon="cols2" title="Két hasáb: kétoszlopos, egysoros, láthatatlan szegélyű táblázat beszúrása (cellamargó nélkül)"></button>
@@ -75,7 +75,7 @@
       <button class="tb" data-cmd="marks" data-state="marks" data-icon="eye" title="Lektor mód: rejtett formázás, behúzások (függő behúzás is), térközök és a sablontól való eltérések mutatása"></button>
     </div>
     <div class="grp">
-      <button class="tb" data-pop="popMore" data-icon="dots" title="További funkciók: hivatkozás, tartalomjegyzék, nem törő szóköz, megjegyzés"></button>
+      <button class="tb" data-pop="popMore" data-icon="dots" title="További funkciók"></button>
     </div>
   </div>
   <div class="ctxbar" id="imgBar" hidden>
@@ -412,7 +412,6 @@
   <button class="pitem mitem" data-more="link"><span class="cico" data-icon="link"></span><span class="clbl">Hivatkozás…</span><span class="phint">Ctrl/⌘+K</span></button>
   <button class="pitem mitem" data-more="toc"><span class="cico" data-icon="toc"></span><span class="clbl">Tartalomjegyzék…</span></button>
   <button class="pitem mitem" data-more="nbsp"><span class="cico" data-icon="nbsp"></span><span class="clbl">Nem törő szóköz</span><span class="phint">Ctrl/⌘+Shift+Szóköz</span></button>
-  <button class="pitem mitem" data-more="comment"><span class="cico" data-icon="comment"></span><span class="clbl">Megjegyzés hozzáadása</span></button>
 </div>
 <div class="pop" id="popToc" hidden>
   <div class="ptitle">Tartalomjegyzék</div>
@@ -422,7 +421,7 @@
   <label class="chk"><input type="checkbox" id="tocIndent"> Behúzás szintenként (Cím, Alcím beljebb)</label>
   <label class="chk"><input type="checkbox" id="tocBold"> A főcímek félkövérek</label>
   <label class="fld full" style="margin-top:6px">Kitöltés a számig<select id="tocLeader"><option value="dot">pontok</option><option value="line">vonal</option><option value="">üres</option></select></label>
-  <div class="phint" style="margin-top:6px">A kinézet a meglévő tartalomjegyzékre is érvényes lesz.</div>
+  <div class="phint" style="margin-top:6px">A kinézet a meglévő tartalomjegyzékre is érvényes lesz, és ebben a dokumentumban tárolódik.</div>
 </div>
 <div class="pop" id="popLink" hidden>
   <div class="ptitle">Hivatkozás</div>

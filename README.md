@@ -1,4 +1,4 @@
-# Matekos Doksi 1.2.0
+# Matekos Doksi 1.2.1
 
 Document editor (WYSIWYG, print-ready pages) with live inline TeX, the twin of **Matekos Prezi**. Built with
 **TipTap** (text editor), **MathJax 4** (formulas), **MathLive** (visual formula editor) and **Tauri 2**
@@ -168,6 +168,14 @@ The installer ends up in `src-tauri/target/release/bundle/`. Development with ho
   * left panel: one switch button for pages / headings;
   * text never runs into a freely placed picture: a line counts by its line box (not by its taller glyph box), and a
     line that only just reaches the picture still makes room.
+
+* 1.2.1: a cropped picture can be moved right up to the margins (its drag picture showed the whole, uncropped picture
+  shifted by the cropped part, so it was placed off by that amount); while the picture / table row is shown, the
+  document can be scrolled up so that the top of the first page is visible below it (the pages do not move when the
+  row appears); the left panel's switch stays in place and its icon and text are aligned; ribbon: the indent buttons
+  come right after the numbered list, the alignment button has no arrow and is highlighted for every alignment but
+  left, "⋯ További funkciók" without the comment item; the look of the table of contents is stored in the document
+  (`toc` in the .mdoksi file), not in the template.
 
 ## File format
 

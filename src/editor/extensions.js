@@ -900,8 +900,13 @@ export const KvImage = Node.create({
           last = { clientX: ev.clientX, clientY: ev.clientY };
           if (!ghost) {
             if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return;
-            ghost = img.cloneNode(); ghost.className = 'img-ghost';
-            ghost.style.width = r0.width + 'px'; ghost.style.height = r0.height + 'px';
+            // the ghost is the frame as it is seen (a cropped picture: only its visible part, at its own place in the frame)
+            ghost = document.createElement('div'); ghost.className = 'img-ghost';
+            ghost.style.width = r0.width + 'px'; ghost.style.height = r0.height + 'px'; ghost.style.overflow = 'hidden';
+            ghost.style.borderRadius = getComputedStyle(dom).borderRadius;
+            { const ir = img.getBoundingClientRect(), gi = img.cloneNode();
+              gi.removeAttribute('style'); gi.style.cssText = `position:absolute;display:block;max-width:none;margin:0;left:${ir.left - r0.left}px;top:${ir.top - r0.top}px;width:${ir.width}px;height:${ir.height}px;opacity:${getComputedStyle(img).opacity}`;
+              ghost.appendChild(gi); }
             document.body.appendChild(ghost);
             if (!wrapped) { ind = document.createElement('div'); ind.className = 'drop-ind'; document.body.appendChild(ind); }
             dom.classList.add('moving');

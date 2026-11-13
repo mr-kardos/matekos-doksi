@@ -2,6 +2,7 @@
 /* Comments: attached to text (a mark), a picture or table cells (an  */
 /* attribute); listed in the order of the document; saved in the file */
 /* ------------------------------------------------------------------ */
+let docToc = null;                   // the look of the table of contents of this document (null: the default look)
 let docComments = [];               // [{id, text, at, done, replies:[{text, at}]}]
 const cmtDate = t => new Date(t).toLocaleString('hu-HU', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 /** Where each comment is in the document: id -> first position */

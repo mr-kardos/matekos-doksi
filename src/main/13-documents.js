@@ -31,7 +31,7 @@ function confirmBox(msg, yes = 'Igen') {
   });
 }
 const docTitle = () => $('#docTitle').value.trim() || 'Névtelen dokumentum';
-function docData() { return { title: docTitle(), tpl, doc: editor.getJSON(), colors: docColors, ...(customTpl ? { customTpl } : {}), ...(docComments.length ? { comments: docComments } : {}) }; }
+function docData() { return { title: docTitle(), tpl, doc: editor.getJSON(), colors: docColors, ...(customTpl ? { customTpl } : {}), ...(docComments.length ? { comments: docComments } : {}), ...(docToc ? { toc: docToc } : {}) }; }
 const autoValue = () => ({ ...docData(), path: getCurrentPath(), dirty });
 function saveSoon() { clearTimeout(autoT); autoT = setTimeout(saveLocal, 900); }
 async function saveLocal() {
@@ -68,6 +68,7 @@ function loadData(d) {
   docColors = Array.isArray(d.colors) ? d.colors : []; refreshPickers();
   customTpl = d.customTpl && d.customTpl.tpl ? d.customTpl : null;
   docComments = Array.isArray(d.comments) ? d.comments : [];
+  docToc = d.toc && typeof d.toc === 'object' ? d.toc : (d.tpl && d.tpl.toc) || null;     // 1.2.0 kept it in the template
   $('#docTitle').value = d.title || 'Névtelen dokumentum';
   if (d.doc) editor.commands.setContent(d.doc, { emitUpdate: false });
   else if (typeof d.html === 'string') editor.commands.setContent(d.html, { emitUpdate: false });   // documents from the first prototype
@@ -148,7 +149,7 @@ function tocLines(olds = []) {
   });
 }
 /* the look of the table of contents (template → toc): no indent by default, bold main headings, dots to the number */
-const tocLook = () => ({ indent: false, bold: true, leader: 'dot', ...(tpl.toc || {}) });
+const tocLook = () => ({ indent: false, bold: true, leader: 'dot', ...(docToc || {}) });
 const tocIndent = (lvl, look) => look.indent && lvl > 1 ? (lvl - 1) * 0.6 : null;
 const tocTabs = (width, look) => JSON.stringify([{ pos: width, align: 'right', ...(look.leader ? { leader: look.leader } : {}) }]);
 /** A new look for the existing lines: their indent, the fill to the number and the bold main headings (the rest stays). */
@@ -345,7 +346,7 @@ async function openPath(p) {
 async function newDocument() {
   closePops();
   if (!await okToReplace('Új dokumentumot kezdesz. A mostani nem mentett módosításai elvesznek. Folytatod?', 'Új dokumentum')) return false;
-  tpl = startTpl(); customTpl = null; docComments = []; $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
+  tpl = startTpl(); customTpl = null; docComments = []; docToc = null; $('#docTitle').value = 'Névtelen dokumentum'; setCurrentPath(null);
   editor.commands.setContent('<p></p>'); fillPanel(); applyTpl(true); resetTplHistory();
   dirty = false; editedNow = false; sessionOpen = true; setStatus(); saveSoon();
   showHome(false); editor.commands.focus();
@@ -402,7 +403,7 @@ $('#fImportMd').addEventListener('click', async () => {
   if (dirty && !editedNow && await shelveDraft(autoValue())) toast('Az előző, nem mentett dokumentum megmaradt – a kezdőképernyőn állítható vissza.');
   try {
     const r = importMarkdown(picked.text);
-    setCurrentPath(null); customTpl = null; docComments = [];
+    setCurrentPath(null); customTpl = null; docComments = []; docToc = null;
     $('#docTitle').value = picked.name.replace(/\.(md|markdown|txt)$/i, '');
     editor.commands.setContent(r.doc, { emitUpdate: false });
     fillPanel(); applyTpl(true); resetTplHistory(); dirty = true; editedNow = true; sessionOpen = true; setStatus(); saveSoon(); showHome(false);

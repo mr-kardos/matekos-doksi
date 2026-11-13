@@ -93,9 +93,12 @@ function updateToolbar() {
     }
     { const f = currentFamily(); $('#fontLabel').textContent = familyLabel(f || fontSet(tpl.font).text).replace(/ \(.*\)$/, ''); }
     // the alignment button shows the alignment of the paragraph the cursor is in (set on it, or by its style)
-    { let al = 'left'; const blk = el && el.closest && el.closest('p,h1,h2,h3,li');
+    { let al = 'left'; const $f = AE().state.selection.$from;
+      let blk = null; try { blk = $f.depth ? AE().view.nodeDOM($f.before($f.depth)) : null; } catch (e) { blk = null; }
+      if (!(blk && blk.nodeType === 1)) blk = el && el.closest && el.closest('p,h1,h2,h3,li');
       if (blk) { const t = getComputedStyle(blk).textAlign; al = t === 'center' ? 'center' : t === 'right' || t === 'end' ? 'right' : t === 'justify' ? 'justify' : 'left'; }
       if ($('#bAlign').dataset.al !== al) { $('#bAlign').dataset.al = al; $('#alignIco').innerHTML = svg({ left: 'alignL', center: 'alignC', right: 'alignR', justify: 'alignJ' }[al]); }
+      $('#bAlign').classList.toggle('on', al !== 'left');
       for (const b of $$('#popAlign [data-align]')) b.classList.toggle('on', b.dataset.align === al); }
     $('#styleSel').value = AE().isActive('heading', { level: 1 }) ? 'h1' : AE().isActive('heading', { level: 2 }) ? 'h2' : AE().isActive('heading', { level: 3 }) ? 'h3' : 'p';
     updateImgBar();
@@ -197,13 +200,25 @@ $('#popMore').addEventListener('click', e => {
   if (k === 'link') showPop('popLink', anchor);
   else if (k === 'toc') showPop('popToc', anchor);
   else if (k === 'nbsp') editor.chain().focus().insertContent('\u00a0').run();
-  else if (k === 'comment') openCommentBox();
 });
 /* table of contents: insert / refresh, and its look (in the template, so it is the same in the whole document) */
-$('#popToc').onopen = () => { const t = tpl.toc || {}; $('#tocIndent').checked = !!t.indent; $('#tocBold').checked = t.bold !== false; $('#tocLeader').value = t.leader ?? 'dot'; };
+$('#popToc').onopen = () => { const t = docToc || {}; $('#tocIndent').checked = !!t.indent; $('#tocBold').checked = t.bold !== false; $('#tocLeader').value = t.leader ?? 'dot'; };
 $('#tocAdd').addEventListener('click', () => { closePops(); if (tocRun()) { toast('A dokumentumban már van tartalomjegyzék – a Frissítés gombbal igazítható.'); return; } updateTOC(true); });
 $('#tocRefresh').addEventListener('click', () => { closePops(); if (!tocRun()) { toast('Még nincs tartalomjegyzék – a „Beszúrás a kurzor elé” gombbal készíthetsz.'); return; } updateTOC(true); });
 for (const id of ['#tocIndent', '#tocBold', '#tocLeader']) $(id).addEventListener('change', () => {
-  tpl.toc = { indent: $('#tocIndent').checked, bold: $('#tocBold').checked, leader: $('#tocLeader').value };
-  tplChanged(); restyleTOC();
+  docToc = { indent: $('#tocIndent').checked, bold: $('#tocBold').checked, leader: $('#tocLeader').value };
+  markDirty(); saveSoon(); restyleTOC();
 });
+
+/* the second row (picture / table) floats over the top of the pages: while it is shown, the document can be scrolled a
+   little further up, so the very top of the first page can be seen too – without moving the pages when it appears */
+let ctxSpace = 0;
+function syncCtxSpace() {
+  const bar = [$('#imgBar'), $('#tableBar')].find(b => !b.hidden), h = bar ? Math.ceil(bar.getBoundingClientRect().height) : 0;
+  if (h === ctxSpace) return;
+  const d = h - ctxSpace; ctxSpace = h;
+  ws.style.paddingTop = h ? `calc(24px + ${h}px)` : '';
+  ws.scrollTop = Math.max(0, ws.scrollTop + d);         // the pages stay where they are on the screen
+}
+for (const b of [$('#imgBar'), $('#tableBar')]) new MutationObserver(() => requestAnimationFrame(syncCtxSpace)).observe(b, { attributes: true, attributeFilter: ['hidden'] });
+addEventListener('resize', () => requestAnimationFrame(syncCtxSpace));

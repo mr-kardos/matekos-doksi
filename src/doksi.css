@@ -269,7 +269,7 @@ span.tab{ display:inline-block; height:1px; white-space:pre; }
 #popRule{ width:300px; }
 #popRule .seg2{ flex-wrap:wrap; }
 /* left panel: header + collapse */
-#pagesNav .lhead{ display:flex; align-items:center; justify-content:space-between; padding:10px 8px 2px 14px; }
+#pagesNav .lhead{ display:flex; align-items:center; justify-content:space-between; gap:4px; height:42px; box-sizing:border-box; padding:6px 8px 2px 8px; }
 #pagesNav .lhead b{ font-size:13px; }
 #pagesNav .lhead .tb{ min-width:30px; height:30px; } #pagesNav .lhead .tb svg{ width:17px; height:17px; }
 .main.nopages{ grid-template-columns:0 0 1fr 6px var(--rw,320px); }
@@ -692,9 +692,12 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 #popImgCap input[type=text]{ width:100%; box-sizing:border-box; }
 
 /* left panel: pages / headings */
-.navtoggle{ display:inline-flex; align-items:center; gap:6px; border:0; background:none; color:var(--ink); font:600 13px var(--ui); padding:4px 8px; border-radius:6px; cursor:pointer; min-width:0; }
+.navtoggle{ display:inline-flex; align-items:center; gap:5px; height:30px; border:0; background:none; color:var(--ink); font:600 13px/1 var(--ui); padding:0 5px; border-radius:6px; cursor:pointer; min-width:0; flex:0 1 auto; overflow:hidden; }
 .navtoggle:hover{ background:var(--hover); }
-.navtoggle .navico svg{ width:15px; height:15px; color:var(--ink-2); }
+.navtoggle .navico{ display:inline-flex; align-items:center; flex:none; }
+.navtoggle .navico svg{ width:15px; height:15px; color:var(--ink-2); display:block; }
+.navtoggle #navLabel{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; line-height:30px; }
+#pagesNav .lhead > .tb{ flex:none; }
 #pagesNav .plist[hidden]{ display:none; }
 .hlist{ flex:1; min-height:0; overflow:auto; padding:4px 6px 10px; }
 .hlist[hidden]{ display:none; }
@@ -721,11 +724,6 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 /* pictures wrapped by the text (left / right): the text also keeps clear of their captions */
 .imgw.wl, .imgw.wr{ margin-top:calc(.2em + var(--capT, 0px)); margin-bottom:calc(var(--img-gap, 4mm) + var(--capB, 0px)); }
 /* a narrow left panel: its buttons stand under each other */
-#pagesNav{ container-type:inline-size; container-name:pnav; }
-@container pnav (max-width: 165px){
-  #pagesNav .lhead{ align-items:flex-start; gap:4px; padding:8px 4px 2px 8px; }
-  #pagesNav .lhead .navtoggle{ flex:1; padding-left:4px; }
-  #pagesNav .lhead > .tb{ flex:none; margin-left:auto; }
 }
 
 /* list symbols (as in Matekos Prezi): the symbol stands in the room before the text; the room grows with the list's
@@ -767,7 +765,6 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 /* ribbon: the alignment button (its icon follows the alignment) and the menus with icons */
 .tb.aligndd{ display:inline-flex; align-items:center; gap:1px; padding-right:2px; }
 .tb.aligndd .alignico{ display:inline-flex; }
-.tb.aligndd .ddmark svg{ width:11px; height:11px; opacity:.7; }
 .pop.menu{ min-width:220px; padding:6px; }
 .pop.menu .mitem{ display:flex; justify-content:flex-start; align-items:center; gap:10px; }
 .pop.menu .mitem .cico{ display:inline-flex; width:18px; flex:none; color:var(--ink-2); }
@@ -786,3 +783,7 @@ span.tab .tab-sp{ display:inline-block; height:1px; }
 #spread .spage.blank{ visibility:hidden; }
 #spread .spage .tpage{ transform:scale(var(--sk)); }
 #spread .spage:hover{ outline:2px solid var(--accent); outline-offset:2px; }
+
+/* a narrow left panel: the switch drops its icon (only its width changes – nothing moves up or down) */
+#pagesNav{ container-type:inline-size; container-name:pnav; }
+@container pnav (max-width: 160px){ #pagesNav .navtoggle .navico{ display:none; } }
